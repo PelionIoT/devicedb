@@ -1,4 +1,4 @@
-package halodb
+package devicedb
 
 import (
     "encoding/binary"
@@ -6,22 +6,10 @@ import (
     "errors"
 )
 
-const MAX_PARTITIONING_KEY_LENGTH = 255
 const MAX_SORTING_KEY_LENGTH = 255
-const COMPOUND_KEY_PREFIX_LENGTH_BYTES = 1
 
 var MASTER_MERKLE_TREE_PREFIX = []byte{ 0 }
-var PARTITION_MERKLE_TREE_PREFIX = []byte{ 1 }
-var PARTITION_MERKLE_LEAF_PREFIX = []byte{ 2 }
-var PARTITION_DATA_PREFIX = []byte{ 3 }
-
-func vnodeBytes(vnode uint64) []byte {
-    bytes := make([]byte, 8)
-    
-    binary.BigEndian.PutUint64(bytes, vnode)
-    
-    return bytes
-}
+var PARTITION_DATA_PREFIX = []byte{ 1 }
 
 func nodeBytes(node uint32) []byte {
     bytes := make([]byte, 4)
@@ -31,7 +19,7 @@ func nodeBytes(node uint32) []byte {
     return bytes
 }
 
-func encodeMerkleLeafKey(vnode uint64, nodeID uint32) []byte {
+func encodeMerkleLeafKey(nodeID uint32) []byte {
     nodeIDEncoding := nodeBytes(nodeID)
     vnodeEncoding := vnodeBytes(vnode)
     result := make([]byte, 0, len(MASTER_MERKLE_TREE_PREFIX) + len(vnodeEncoding) + len(nodeIDEncoding))

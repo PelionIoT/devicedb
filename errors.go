@@ -1,4 +1,4 @@
-package halodb
+package devicedb
 
 type DBerror struct {
     message string

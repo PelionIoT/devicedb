@@ -1,4 +1,4 @@
-package halodb_test
+package devicedb_test
 
 import (
 	. "github.com/onsi/ginkgo"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestHalodb(t *testing.T) {
+func Testdevicedb(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Halodb Suite")
+	RunSpecs(t, "devicedb Suite")
 }

@@ -1,4 +1,4 @@
-package halodb
+package devicedb
 
 import (
     "encoding/binary"

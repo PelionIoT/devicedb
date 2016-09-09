@@ -1,7 +1,7 @@
-package halodb_test
+package devicedb_test
 
 import (
-	. "halodb"
+	. "devicedb"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -10,7 +10,7 @@ import (
 )
 
 func newStorageDriver() StorageDriver {
-    return NewLevelDBStorageDriver("/tmp/testHALODB", nil)
+    return NewLevelDBStorageDriver("/tmp/testdevicedb", nil)
 }
 
 var _ = Describe("StorageEngine", func() {

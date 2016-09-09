@@ -1,4 +1,4 @@
-package halodb_test
+package devicedb_test
 
 import (
     "errors"
@@ -6,7 +6,7 @@ import (
     "strconv"
     "sort"
     
-	. "halodb"
+	. "devicedb"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"

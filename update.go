@@ -1,4 +1,4 @@
-package halodb
+package devicedb
 
 type Diff struct {
     key string

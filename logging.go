@@ -1,11 +1,11 @@
-package halodb
+package devicedb
 
 import (
     "os"
     "github.com/op/go-logging"
 )
 
-var log = logging.MustGetLogger("halodb")
+var log = logging.MustGetLogger("devicedb")
 
 func init() {
     var format = logging.MustStringFormatter(`%{color}%{time:15:04:05.000} ▶ %{level:.4s} %{shortfile}%{color:reset} %{message}`)

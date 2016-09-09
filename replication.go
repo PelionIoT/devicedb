@@ -1,4 +1,4 @@
-package halodb
+package devicedb
 
 // get:         key -> [ nodes ]
 // get matches: key -> node

@@ -1,9 +1,9 @@
-package halodb_test
+package devicedb_test
 
 import (
     "sync"
     
-	. "halodb"
+	. "devicedb"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"

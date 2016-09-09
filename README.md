@@ -1,1 +1,1 @@
-# halodb
+# devicedb

@@ -1,7 +1,7 @@
-package halodb_test
+package devicedb_test
 
 import (
-	//. "halodb"
+	//. "devicedb"
 
 	. "github.com/onsi/ginkgo"
 	//. "github.com/onsi/gomega"
