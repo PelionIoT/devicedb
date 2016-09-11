@@ -9,7 +9,14 @@ import (
 const MAX_SORTING_KEY_LENGTH = 255
 
 var MASTER_MERKLE_TREE_PREFIX = []byte{ 0 }
-var PARTITION_DATA_PREFIX = []byte{ 1 }
+var PARTITION_MERKLE_LEAF_PREFIX = []byte{ 1 }
+var PARTITION_DATA_PREFIX = []byte{ 2 }
+
+type ConflictResolutionStrategy func(*SiblingSet) *SiblingSet
+
+func defaultConflictResolutionStrategy(siblingSet *SiblingSet) *SiblingSet {
+    return siblingSet
+}
 
 func nodeBytes(node uint32) []byte {
     bytes := make([]byte, 4)
@@ -21,84 +28,65 @@ func nodeBytes(node uint32) []byte {
 
 func encodeMerkleLeafKey(nodeID uint32) []byte {
     nodeIDEncoding := nodeBytes(nodeID)
-    vnodeEncoding := vnodeBytes(vnode)
-    result := make([]byte, 0, len(MASTER_MERKLE_TREE_PREFIX) + len(vnodeEncoding) + len(nodeIDEncoding))
+    result := make([]byte, 0, len(MASTER_MERKLE_TREE_PREFIX) + len(nodeIDEncoding))
     
     result = append(result, MASTER_MERKLE_TREE_PREFIX...)
-    result = append(result, vnodeEncoding...)
     result = append(result, nodeIDEncoding...)
     
     return result
 }
 
-func decodeMerkleLeafKey(k []byte) (uint64, uint32, []byte, error) {
+func decodeMerkleLeafKey(k []byte) (uint32, error) {
     k = k[len(MASTER_MERKLE_TREE_PREFIX):]
     
-    if len(k) <= 12 {
-        return 0, 0, nil, errors.New("Invalid merkle leaf key")
+    if len(k) != 4 {
+        return 0, errors.New("Invalid merkle leaf key")
     }
     
-    return binary.BigEndian.Uint64(k[:8]), binary.BigEndian.Uint32(k[8:12]), k[12:], nil
+    return binary.BigEndian.Uint32(k[:4]), nil
 }
 
-func encodePartitionMerkleNodeKey(vnode uint64, p []byte, nodeID uint32) []byte {
-    nodeIDEncoding := nodeBytes(nodeID)
-    vnodeEncoding := vnodeBytes(vnode)
-    result := make([]byte, 0, len(PARTITION_MERKLE_TREE_PREFIX) + len(vnodeEncoding) + len(p) + len(nodeIDEncoding))
-    
-    result = append(result, PARTITION_MERKLE_TREE_PREFIX...)
-    result = append(result, vnodeEncoding...)
-    result = append(result, p...)
-    result = append(result, nodeIDEncoding...)
-    
-    return result
-}
-
-func encodePartitionMerkleLeafKey(vnode uint64, nodeID uint32, p []byte, k []byte) []byte {
-    nodeIDEncoding := nodeBytes(nodeID)
-    vnodeEncoding := vnodeBytes(vnode)
-    result := make([]byte, 0, len(PARTITION_MERKLE_TREE_PREFIX) + len(vnodeEncoding) + len(p) + len(nodeIDEncoding) + len(k))
-    
-    result = append(result, PARTITION_MERKLE_LEAF_PREFIX...)
-    result = append(result, vnodeEncoding...)
-    result = append(result, nodeIDEncoding...)
-    result = append(result, p...)
-    result = append(result, k...)
-    
-    return result
-}
-
-func encodePartitionDataKey(vnode uint64, p []byte, k []byte) []byte {
-    vnodeEncoding := vnodeBytes(vnode)
-    result := make([]byte, 0, len(PARTITION_DATA_PREFIX) + len(vnodeEncoding) + len(p) + len(k))
+func encodePartitionDataKey(k []byte) []byte {
+    result := make([]byte, 0, len(PARTITION_DATA_PREFIX) + len(k))
     
     result = append(result, PARTITION_DATA_PREFIX...)
-    result = append(result, vnodeEncoding...) 
-    result = append(result, p...)
     result = append(result, k...)
     
     return result
 }
 
-func decodePartitionDataKey(p []byte, k []byte) []byte {
-    return k[len(PARTITION_DATA_PREFIX) + 8 + len(p):]
+func decodePartitionDataKey(k []byte) []byte {
+    return k[len(PARTITION_DATA_PREFIX):]
+}
+
+func encodePartitionMerkleLeafKey(nodeID uint32, k []byte) []byte {
+    nodeIDEncoding := nodeBytes(nodeID)
+    result := make([]byte, 0, len(PARTITION_MERKLE_LEAF_PREFIX) + len(nodeIDEncoding) + len(k))
+    
+    result = append(result, PARTITION_MERKLE_LEAF_PREFIX...)
+    result = append(result, nodeIDEncoding...)
+    result = append(result, k...)
+    
+    return result
 }
 
 type Node struct {
+    id string
     storageDriver StorageDriver
-    hashRing *HashRing
-    vnodes map[uint64]*MerkleTree
+    merkleTree *MerkleTree
     multiLock *MultiLock
+    resolveConflicts ConflictResolutionStrategy
 }
 
-func NewNode(storageDriver StorageDriver, hashRing *HashRing, merkleDepth uint8) (*Node, error) {
-    node := Node{ storageDriver, hashRing, make(map[uint64]*MerkleTree), NewMultiLock() }
-    
-    for _, vnode := range hashRing.MyPartitions() {
-        node.vnodes[vnode], _ = NewMerkleTree(merkleDepth)
+func NewNode(id string, storageDriver StorageDriver, merkleDepth uint8, resolveConflicts ConflictResolutionStrategy) (*Node, error) {
+    if resolveConflicts == nil {
+        resolveConflicts = defaultConflictResolutionStrategy
     }
     
-    err := node.initializeMerkleTrees()
+    node := Node{ id, storageDriver, nil, NewMultiLock(), resolveConflicts }
+    node.merkleTree, _ = NewMerkleTree(merkleDepth)
+    
+    err := node.initializeMerkleTree()
         
     if err != nil {
         return nil, err
@@ -107,7 +95,7 @@ func NewNode(storageDriver StorageDriver, hashRing *HashRing, merkleDepth uint8)
     return &node, nil
 }
 
-func (node *Node) initializeMerkleTrees() error {
+func (node *Node) initializeMerkleTree() error {
     iter, err := node.storageDriver.GetMatches([][]byte{ MASTER_MERKLE_TREE_PREFIX })
     
     if err != nil {
@@ -119,17 +107,13 @@ func (node *Node) initializeMerkleTrees() error {
     for iter.Next() {
         key := iter.Key()
         value := iter.Value()
-        vnode, nodeID, _, err := decodeMerkleLeafKey(key)
+        nodeID, err := decodeMerkleLeafKey(key)
         
         if err != nil {
             return err
         }
         
-        if !node.ContainsVNode(vnode) {
-            continue
-        }
-        
-        if !node.vnodes[vnode].IsLeaf(nodeID) {
+        if !node.merkleTree.IsLeaf(nodeID) {
             return errors.New("Invalid leaf node in master merkle keys")
         }
         
@@ -139,7 +123,7 @@ func (node *Node) initializeMerkleTrees() error {
         hash.SetHigh(binary.BigEndian.Uint64(hashHigh))
         hash.SetLow(binary.BigEndian.Uint64(hashLow))
     
-        node.vnodes[vnode].UpdateLeafHash(nodeID, hash)
+        node.merkleTree.UpdateLeafHash(nodeID, hash)
     }
     
     if iter.Error() != nil {
@@ -149,64 +133,38 @@ func (node *Node) initializeMerkleTrees() error {
     return nil
 }
 
-func (node *Node) ContainsVNode(vnode uint64) bool {
-    _, ok := node.vnodes[vnode]
-    
-    return ok
-}
-
 func (node *Node) ID() string {
-    return node.hashRing.NodeID()
+    return node.id
 }
 
-func (node *Node) Get(partitioningKey []byte, keys [][]byte) ([]*SiblingSet, error) {
-    if len(partitioningKey) == 0 {
-        log.Warningf("Passed empty partitioningKey parameter in Get(%v, %v)", partitioningKey, keys)
-        
-        return nil, EEmpty
-    }
-    
-    if len(partitioningKey) > MAX_PARTITIONING_KEY_LENGTH {
-        log.Warningf("Partitioning key is too long %d > %d in Get(%v, %v)", len(partitioningKey), MAX_PARTITIONING_KEY_LENGTH, partitioningKey, keys)
-        
-        return nil, ELength
-    }
-    
+func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
     if len(keys) == 0 {
-        log.Warningf("Passed empty keys parameter in Get(%v, %v)", partitioningKey, keys)
+        log.Warningf("Passed empty keys parameter in Get(%v)", keys)
         
         return nil, EEmpty
     }
 
-    vnode := node.hashRing.PartitionNumber(partitioningKey)
-    
-    if !node.ContainsVNode(vnode) {
-        log.Warningf("Tried to access vnode %v in Get(%v, %v). This node is not responsible for that vnode", vnode, partitioningKey, keys)
-        
-        return nil, ENoVNode
-    }
-    
     for i := 0; i < len(keys); i += 1 {
         if len(keys[i]) == 0 {
-            log.Warningf("Passed empty key in Get(%v, %v)", partitioningKey, keys)
+            log.Warningf("Passed empty key in Get(%v)", keys)
             
             return nil, EEmpty
         }
         
         if len(keys[i]) > MAX_SORTING_KEY_LENGTH {
-            log.Warningf("Key is too long %d > %d in Get(%v, %v)", len(keys[i]), MAX_SORTING_KEY_LENGTH, partitioningKey, keys)
+            log.Warningf("Key is too long %d > %d in Get(%v)", len(keys[i]), MAX_SORTING_KEY_LENGTH, keys)
             
             return nil, ELength
         }
         
-        keys[i] = encodePartitionDataKey(vnode, partitioningKey, keys[i])
+        keys[i] = encodePartitionDataKey(keys[i])
     }
     
     // use storage driver
     values, err := node.storageDriver.Get(keys)
     
     if err != nil {
-        log.Errorf("Storage driver error in Get(%v, %v): %s", partitioningKey, keys, err.Error())
+        log.Errorf("Storage driver error in Get(%v): %s", keys, err.Error())
         
         return nil, EStorage
     }
@@ -225,7 +183,7 @@ func (node *Node) Get(partitioningKey []byte, keys [][]byte) ([]*SiblingSet, err
         err := siblingSet.Decode(values[i])
         
         if err != nil {
-            log.Errorf("Storage driver error in Get(%v, %v): %s", partitioningKey, keys, err.Error())
+            log.Errorf("Storage driver error in Get(%v): %s", keys, err.Error())
             
             return nil, EStorage
         }
@@ -236,79 +194,59 @@ func (node *Node) Get(partitioningKey []byte, keys [][]byte) ([]*SiblingSet, err
     return siblingSetList, nil
 }
 
-func (node *Node) GetMatches(partitioningKey []byte, keys [][]byte) (*SiblingSetIterator, error) {
-    if len(partitioningKey) == 0 {
-        log.Warningf("Passed empty partitioningKey parameter in GetMatches(%v, %v)", partitioningKey, keys)
-        
-        return nil, EEmpty
-    }
-    
-    if len(partitioningKey) > MAX_PARTITIONING_KEY_LENGTH {
-        log.Warningf("Partitioning key is too long %d > %d in GetMatches(%v, %v)", len(partitioningKey), MAX_PARTITIONING_KEY_LENGTH, partitioningKey, keys)
-        
-        return nil, ELength
-    }
-    
+func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
     if len(keys) == 0 {
-        log.Warningf("Passed empty keys parameter in GetMatches(%v, %v)", partitioningKey, keys)
+        log.Warningf("Passed empty keys parameter in GetMatches(%v)", keys)
         
         return nil, EEmpty
-    }
-    
-    vnode := node.hashRing.PartitionNumber(partitioningKey)
-    
-    if !node.ContainsVNode(vnode) {
-        log.Warningf("Tried to access vnode %v in GetMatches(%v, %v). This node is not responsible for that vnode", vnode, partitioningKey, keys)
-        
-        return nil, ENoVNode
     }
     
     for i := 0; i < len(keys); i += 1 {
         if len(keys[i]) == 0 {
-            log.Warningf("Passed empty key in GetMatches(%v, %v)", partitioningKey, keys)
+            log.Warningf("Passed empty key in GetMatches(%v)", keys)
             
             return nil, EEmpty
         }
         
         if len(keys[i]) > MAX_SORTING_KEY_LENGTH {
-            log.Warningf("Key is too long %d > %d in GetMatches(%v, %v)", len(keys[i]), MAX_SORTING_KEY_LENGTH, partitioningKey, keys)
+            log.Warningf("Key is too long %d > %d in GetMatches(%v)", len(keys[i]), MAX_SORTING_KEY_LENGTH, keys)
             
             return nil, ELength
         }
         
-        keys[i] = encodePartitionDataKey(vnode, partitioningKey, keys[i])
+        keys[i] = encodePartitionDataKey(keys[i])
     }
     
     iter, err := node.storageDriver.GetMatches(keys)
     
     if err != nil {
-        log.Errorf("Storage driver error in GetMatches(%v, %v): %s", partitioningKey, keys, err.Error())
+        log.Errorf("Storage driver error in GetMatches(%v): %s", keys, err.Error())
             
         return nil, EStorage
     }
     
-    return NewSiblingSetIterator(iter, partitioningKey), nil
+    return NewSiblingSetIterator(iter), nil
 }
 
-func (node *Node) updateInit(vnode uint64, partitioningKey []byte, keys [][]byte) (map[string]*SiblingSet, error) {
+func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     siblingSetMap := map[string]*SiblingSet{ }
     
     // db objects
     for i := 0; i < len(keys); i += 1 {
-        keys[i] = encodePartitionDataKey(vnode, partitioningKey, keys[i])
+        keys[i] = encodePartitionDataKey(keys[i])
     }
     
     values, err := node.storageDriver.Get(keys)
     
     if err != nil {
-        log.Errorf("Storage driver error in updateInit(%v, %v, %v): %s", vnode, partitioningKey, keys, err.Error())
+        log.Errorf("Storage driver error in updateInit(%v): %s", keys, err.Error())
             
         return nil, EStorage
     }
     
     for i := 0; i < len(keys); i += 1 {
         var siblingSet SiblingSet
-        key := decodePartitionDataKey(partitioningKey, keys[i])
+        key := decodePartitionDataKey(keys[i])
         siblingSetBytes := values[0]
         
         if siblingSetBytes == nil {
@@ -317,7 +255,7 @@ func (node *Node) updateInit(vnode uint64, partitioningKey []byte, keys [][]byte
             err := siblingSet.Decode(siblingSetBytes)
             
             if err != nil {
-                log.Warningf("Could not decode sibling set in updateInit(%v, %v, %v): %s", vnode, partitioningKey, keys, err.Error())
+                log.Warningf("Could not decode sibling set in updateInit(%v): %s", keys, err.Error())
                 
                 return nil, EStorage
             }
@@ -331,17 +269,17 @@ func (node *Node) updateInit(vnode uint64, partitioningKey []byte, keys [][]byte
     return siblingSetMap, nil
 }
 
-func (node *Node) batch(vnode uint64, partitioningKey []byte, update *Update, merkleTree *MerkleTree) *Batch {
+func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
     _, leafNodes := merkleTree.Update(update)
     batch := NewBatch()
     
     // WRITE PARTITION MERKLE LEAFS
     for leafID, _ := range leafNodes {
         leafHash := merkleTree.NodeHash(leafID).Bytes()
-        batch.Put(encodeMerkleLeafKey(vnode, leafID), leafHash[:])
+        batch.Put(encodeMerkleLeafKey(leafID), leafHash[:])
         
         for key, _:= range leafNodes[leafID] {
-            batch.Put(encodePartitionMerkleLeafKey(vnode, leafID, partitioningKey, []byte(key)), []byte{ })
+            batch.Put(encodePartitionMerkleLeafKey(leafID, []byte(key)), []byte{ })
         }
     }
     
@@ -350,7 +288,7 @@ func (node *Node) batch(vnode uint64, partitioningKey []byte, update *Update, me
         key := []byte(diff.Key())
         siblingSet := diff.NewSiblingSet()
         
-        batch.Put(encodePartitionDataKey(vnode, partitioningKey, key), siblingSet.Encode())
+        batch.Put(encodePartitionDataKey(key), siblingSet.Encode())
     }
 
     return batch
@@ -368,31 +306,11 @@ func (node *Node) updateToSibling(o op, c *DVV, oldestTombstone *Sibling) *Sibli
     }
 }
 
-func (node *Node) Batch(partitioningKey []byte, batch *UpdateBatch) (map[string]*SiblingSet, error) {
-    if len(partitioningKey) == 0 {
-        log.Warningf("Passed empty partitioningKey parameter in Batch(%v, %v)", partitioningKey, batch)
-        
-        return nil, EEmpty
-    }
-    
-    if len(partitioningKey) > MAX_PARTITIONING_KEY_LENGTH {
-        log.Warningf("Partitioning key is too long %d > %d in Batch(%v, %v)", len(partitioningKey), MAX_PARTITIONING_KEY_LENGTH, partitioningKey, batch)
-        
-        return nil, ELength
-    }
-    
+func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     if batch == nil {
-        log.Warningf("Passed nil batch parameter in Batch(%v, %v)", partitioningKey, batch)
+        log.Warningf("Passed nil batch parameter in Batch(%v)", batch)
         
         return nil, EEmpty
-    }
-    
-    vnode := node.hashRing.PartitionNumber(partitioningKey)
-    
-    if !node.ContainsVNode(vnode) {
-        log.Warningf("Tried to access vnode %v in Batch(%v, %v). This node is not responsible for that vnode", vnode, partitioningKey, batch)
-        
-        return nil, ENoVNode
     }
     
     keys := make([][]byte, 0, len(batch.batch.Ops()))
@@ -404,8 +322,8 @@ func (node *Node) Batch(partitioningKey []byte, batch *UpdateBatch) (map[string]
         keys = append(keys, keyBytes)
     }
 
-    merkleTree := node.vnodes[vnode]
-    siblingSets, err := node.updateInit(vnode, partitioningKey, keys)
+    merkleTree := node.merkleTree
+    siblingSets, err := node.updateInit(keys)
     
     if err != nil {
         return nil, err
@@ -440,13 +358,15 @@ func (node *Node) Batch(partitioningKey []byte, batch *UpdateBatch) (map[string]
     
         siblingSets[key] = updatedSiblingSet
         
+        updatedSiblingSet = node.resolveConflicts(updatedSiblingSet)
+        
         update.AddDiff(key, siblingSet, updatedSiblingSet)
     }
     
-    err = node.storageDriver.Batch(node.batch(vnode, partitioningKey, update, merkleTree))
+    err = node.storageDriver.Batch(node.batch(update, merkleTree))
     
     if err != nil {
-        log.Errorf("Storage driver error in Batch(%v, %v): %s", partitioningKey, batch, err.Error())
+        log.Errorf("Storage driver error in Batch(%v): %s", batch, err.Error())
             
         return nil, EStorage
     }
@@ -454,41 +374,21 @@ func (node *Node) Batch(partitioningKey []byte, batch *UpdateBatch) (map[string]
     return siblingSets, nil
 }
 
-func (node *Node) Merge(partitioningKey []byte, siblingSets map[string]*SiblingSet) error {
-    if len(partitioningKey) == 0 {
-        log.Warningf("Passed nil partitioningKey parameter in Merge(%v, %v)", partitioningKey, siblingSets)
-        
-        return EEmpty
-    }
-    
-    if len(partitioningKey) > MAX_PARTITIONING_KEY_LENGTH {
-        log.Warningf("Partitioning key is too long %d > %d in Merge(%v, %v)", len(partitioningKey), MAX_PARTITIONING_KEY_LENGTH, partitioningKey, siblingSets)
-        
-        return ELength
-    }
-    
+func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
     if siblingSets == nil {
-        log.Warningf("Passed nil sibling sets in Merge(%v, %v)", partitioningKey, siblingSets)
+        log.Warningf("Passed nil sibling sets in Merge(%v)", siblingSets)
         
         return EEmpty
     }
     
-    vnode := node.hashRing.PartitionNumber(partitioningKey)
-    
-    if !node.ContainsVNode(vnode) {
-        log.Warningf("Tried to access vnode %v in Merge(%v, %v). This node is not responsible for that vnode", vnode, partitioningKey, siblingSets)
-        
-        return ENoVNode
-    }
-
     keys := make([][]byte, 0, len(siblingSets))
     
     for key, _ := range siblingSets {
         keys = append(keys, []byte(key))
     }
     
-    merkleTree := node.vnodes[vnode]
-    siblingSets, err := node.updateInit(vnode, partitioningKey, keys)
+    merkleTree := node.merkleTree
+    siblingSets, err := node.updateInit(keys)
     
     if err != nil {
         return err
@@ -503,13 +403,15 @@ func (node *Node) Merge(partitioningKey []byte, siblingSets map[string]*SiblingS
         
         for sibling := range updatedSiblingSet.Iter() {
             if !mySiblingSet.Has(sibling) {
+                updatedSiblingSet = node.resolveConflicts(updatedSiblingSet)
+                
                 update.AddDiff(string(key), mySiblingSet, updatedSiblingSet)
             }
         }
     }
     
     if update.Size() != 0 {
-        return node.storageDriver.Batch(node.batch(vnode, partitioningKey, update, merkleTree))
+        return node.storageDriver.Batch(node.batch(update, merkleTree))
     }
     
     return nil
@@ -532,7 +434,7 @@ func (updateBatch *UpdateBatch) Put(key []byte, value []byte, context *DVV) (*Up
     }
     
     if len(key) > MAX_SORTING_KEY_LENGTH {
-        log.Warningf("Key is too long %d > %d in Put(%v, %v, %v)", len(key), MAX_PARTITIONING_KEY_LENGTH, key, value, context)
+        log.Warningf("Key is too long %d > %d in Put(%v, %v, %v)", len(key), MAX_SORTING_KEY_LENGTH, key, value, context)
         
         return nil, ELength
     }
@@ -561,7 +463,7 @@ func (updateBatch *UpdateBatch) Delete(key []byte, context *DVV) (*UpdateBatch, 
     }
     
     if len(key) > MAX_SORTING_KEY_LENGTH {
-        log.Warningf("Key is too long %d > %d in Delete(%v, %v)", len(key), MAX_PARTITIONING_KEY_LENGTH, key, context)
+        log.Warningf("Key is too long %d > %d in Delete(%v, %v)", len(key), MAX_SORTING_KEY_LENGTH, key, context)
         
         return nil, ELength
     }
@@ -583,11 +485,10 @@ type SiblingSetIterator struct {
     parseError error
     currentKey []byte
     currentValue *SiblingSet
-    partitioningKey []byte
 }
 
-func NewSiblingSetIterator(dbIterator Iterator, partitioningKey []byte) *SiblingSetIterator {
-    return &SiblingSetIterator{ dbIterator, nil, nil, nil, partitioningKey }
+func NewSiblingSetIterator(dbIterator Iterator) *SiblingSetIterator {
+    return &SiblingSetIterator{ dbIterator, nil, nil, nil }
 }
 
 func (ssIterator *SiblingSetIterator) Next() bool {
@@ -607,7 +508,7 @@ func (ssIterator *SiblingSetIterator) Next() bool {
     ssIterator.parseError = siblingSet.Decode(ssIterator.dbIterator.Value())
     
     if ssIterator.parseError != nil {
-        log.Errorf("Storage driver error in Next() partitioningKey = %v, key = %v, value = %v: %s", ssIterator.partitioningKey, ssIterator.dbIterator.Key(), ssIterator.dbIterator.Value(), ssIterator.parseError.Error())
+        log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", ssIterator.dbIterator.Key(), ssIterator.dbIterator.Value(), ssIterator.parseError.Error())
         
         ssIterator.Release()
         
@@ -625,7 +526,7 @@ func (ssIterator *SiblingSetIterator) Key() []byte {
         return nil
     }
     
-    return decodePartitionDataKey(ssIterator.partitioningKey, ssIterator.currentKey)
+    return decodePartitionDataKey(ssIterator.currentKey)
 }
 
 func (ssIterator *SiblingSetIterator) Value() *SiblingSet {

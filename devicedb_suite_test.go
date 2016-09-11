@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func Testdevicedb(t *testing.T) {
+func TestDevicedb(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "devicedb Suite")
 }

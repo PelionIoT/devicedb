@@ -106,6 +106,58 @@ type Iterator interface {
     Error() error
 }
 
+type PrefixedStorageDriver struct {
+    prefix []byte
+    storageDriver StorageDriver
+}
+
+func (psd *PrefixedStorageDriver) Open() error {
+    return psd.storageDriver.Open()
+}
+
+func (psd *PrefixedStorageDriver) Close() error {
+    return psd.storageDriver.Close()
+}
+
+func (psd *PrefixedStorageDriver) addPrefix(k []byte) []byte {
+    result := make([]byte, 0, len(psd.prefix) + len(k))
+        
+    result = append(result, psd.prefix...)
+    result = append(result, k...)
+    
+    return result
+}
+
+func (psd *PrefixedStorageDriver) Get(keys [][]byte) ([][]byte, error) {
+    for i, _ := range keys {
+        keys[i] = psd.addPrefix(keys[i])
+    }
+    
+    return psd.storageDriver.Get(keys)
+}
+
+func (psd *PrefixedStorageDriver) GetMatches(keys [][]byte) (Iterator, error) {
+    for i, _ := range keys {
+        keys[i] = psd.addPrefix(keys[i])
+    }
+    
+    return psd.storageDriver.GetMatches(keys)
+}
+
+func (psd *PrefixedStorageDriver) GetRange(start []byte, end []byte) (Iterator, error) {
+    return psd.storageDriver.GetRange(psd.addPrefix(start), psd.addPrefix(end))
+}
+
+func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
+    newBatch := NewBatch()
+    
+    for key, op := range batch.ops {
+        newBatch.ops[string(psd.addPrefix([]byte(key)))] = op
+    }
+    
+    return psd.storageDriver.Batch(newBatch)
+}
+
 type StorageDriver interface {
     Open() error
     Close() error
