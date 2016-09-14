@@ -5,6 +5,7 @@ import (
     "net"
     "net/http"
     "encoding/json"
+    "time"
     "github.com/gorilla/mux"
 )
 
@@ -34,12 +35,18 @@ type Server struct {
     bucketList *BucketList
     httpServer *http.Server
     listener net.Listener
+    storageDriver StorageDriver
 }
 
-func NewServer() *Server {
-    server := &Server{ NewBucketList(), nil, nil }
+func NewServer() (*Server, error) {
     storageDriver := NewLevelDBStorageDriver("/tmp/testdevicedb", nil)
+    server := &Server{ NewBucketList(), nil, nil, storageDriver }
     nodeID := "nodeA"
+    err := server.storageDriver.Open()
+    
+    if err != nil {
+        return nil, err
+    }
     
     defaultNode, _ := NewNode(nodeID, &PrefixedStorageDriver{ []byte{ 0 }, storageDriver }, MerkleDefaultDepth, nil)
     cloudNode, _ := NewNode(nodeID, &PrefixedStorageDriver{ []byte{ 1 }, storageDriver }, MerkleDefaultDepth, nil) 
@@ -49,7 +56,11 @@ func NewServer() *Server {
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ })
     server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ })
     
-    return server
+    return server, nil
+}
+
+func (server *Server) Port() int {
+    return 8080
 }
 
 func (server *Server) Start() error {
@@ -116,19 +127,29 @@ func (server *Server) Start() error {
         
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
-        io.WriteString(w, string(siblingSetsJSON) + "\n")
+        io.WriteString(w, string(siblingSetsJSON))
     }).Methods("POST")
     
     server.httpServer = &http.Server{
         Handler: r,
-        WriteTimeout: 15000,
-        ReadTimeout: 15000,
+        WriteTimeout: 15 * time.Second,
+        ReadTimeout: 15 * time.Second,
     }
     
     listener, err := net.Listen("tcp", ":8080")
     
     if err != nil {
+        server.Stop()
+        
         return err
+    }
+    
+    err = server.storageDriver.Open()
+    
+    if err != nil {
+        log.Errorf("Error opening storage driver: %v", err)
+        
+        return EStorage
     }
     
     server.listener = listener
@@ -140,6 +161,8 @@ func (server *Server) Stop() error {
     if server.listener != nil {
         server.listener.Close()
     }
+    
+    server.storageDriver.Close()
     
     return nil
 }

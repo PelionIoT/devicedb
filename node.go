@@ -87,8 +87,10 @@ func NewNode(id string, storageDriver StorageDriver, merkleDepth uint8, resolveC
     node.merkleTree, _ = NewMerkleTree(merkleDepth)
     
     err := node.initializeMerkleTree()
-        
+    
     if err != nil {
+        log.Errorf("Error initializing node %s: %v", id, err)
+        
         return nil, err
     }
     
