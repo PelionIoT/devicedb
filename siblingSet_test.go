@@ -273,6 +273,60 @@ var _ = Describe("SiblingSet", func() {
         })
     })
     
+    Describe("#MarshalJSON+#UnmarshalJSON", func() {
+        It("should encode the sibling set such that it can be decoded to an equivalent set", func() {
+            var decodedSiblingSet SiblingSet
+            var originalSiblingSet *SiblingSet = NewSiblingSet(map[*Sibling]bool{
+                NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v3"), 0): true,
+                NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), nil, 0): true,
+                NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), nil, 1): true,
+            })
+            
+            json, _ := originalSiblingSet.MarshalJSON()
+            
+            (&decodedSiblingSet).UnmarshalJSON(json)
+            
+            Expect(decodedSiblingSet.Size()).Should(Equal(3))
+            Expect(originalSiblingSet.Size()).Should(Equal(3))
+            
+            for decodedSibling := range decodedSiblingSet.Iter() {
+                for originalSibling := range originalSiblingSet.Iter() {
+                    if reflect.DeepEqual(decodedSibling, originalSibling) {
+                        decodedSiblingSet.Delete(decodedSibling)
+                        originalSiblingSet.Delete(originalSibling)
+                    }
+                }
+            }
+            
+            Expect(decodedSiblingSet.Size()).Should(Equal(0))
+            Expect(originalSiblingSet.Size()).Should(Equal(0))
+        })
+        
+        It("should encode the sibling set such that it can be decoded to an equivalent set if the set is empty", func() {
+            var decodedSiblingSet SiblingSet
+            var originalSiblingSet *SiblingSet = NewSiblingSet(map[*Sibling]bool{ })
+            
+            json, _ := originalSiblingSet.MarshalJSON()
+            
+            (&decodedSiblingSet).UnmarshalJSON(json)
+            
+            Expect(decodedSiblingSet.Size()).Should(Equal(0))
+            Expect(originalSiblingSet.Size()).Should(Equal(0))
+            
+            for decodedSibling := range decodedSiblingSet.Iter() {
+                for originalSibling := range originalSiblingSet.Iter() {
+                    if reflect.DeepEqual(decodedSibling, originalSibling) {
+                        decodedSiblingSet.Delete(decodedSibling)
+                        originalSiblingSet.Delete(originalSibling)
+                    }
+                }
+            }
+            
+            Expect(decodedSiblingSet.Size()).Should(Equal(0))
+            Expect(originalSiblingSet.Size()).Should(Equal(0))
+        })
+    })
+    
     Describe("#Hash", func() {
         It("should equal zero if the sibling set is a tombstone set", func() {
             siblingSet1 := NewSiblingSet(map[*Sibling]bool{

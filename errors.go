@@ -1,16 +1,26 @@
 package devicedb
 
+import (
+    "encoding/json"
+)
+
 type DBerror struct {
-    message string
-    code int
+    Msg string `json:"message"`
+    ErrorCode int `json:"code"`
 }
 
 func (dbError DBerror) Error() string {
-    return dbError.message
+    return dbError.Msg
 }
 
 func (dbError DBerror) Code() int {
-    return dbError.code
+    return dbError.ErrorCode
+}
+
+func (dbError DBerror) JSON() []byte {
+    json, _ := json.Marshal(dbError)
+    
+    return json
 }
 
 const (
@@ -18,6 +28,8 @@ const (
     eLENGTH = iota
     eNO_VNODE = iota
     eSTORAGE = iota
+    eINVALID_KEY = iota
+    eINVALID_BUCKET = iota
 )
 
 var (
@@ -25,4 +37,6 @@ var (
     ELength                = DBerror{ "Parameter is too long", eLENGTH }
     ENoVNode               = DBerror{ "This node does not contain keys in this partition", eNO_VNODE }
     EStorage               = DBerror{ "The storage driver experienced an error", eSTORAGE }
+    EInvalidKey            = DBerror{ "A key was misformatted", eINVALID_KEY }
+    EInvalidBucket         = DBerror{ "An invalid bucket was specified", eINVALID_BUCKET }
 )

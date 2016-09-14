@@ -1,11 +1,16 @@
 {
-	"ImportPath": "halodb",
+	"ImportPath": "devicedb",
 	"GoVersion": "go1.7",
 	"GodepVersion": "v74",
 	"Deps": [
 		{
 			"ImportPath": "github.com/golang/snappy",
 			"Rev": "d9eb7a3d35ec988b8585d4a0068e462c27d28380"
+		},
+		{
+			"ImportPath": "github.com/gorilla/mux",
+			"Comment": "v1.1-25-g0a192a1",
+			"Rev": "0a192a193177452756c362c20087ddafcf6829c4"
 		},
 		{
 			"ImportPath": "github.com/onsi/ginkgo",

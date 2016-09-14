@@ -7,13 +7,13 @@ import (
 )
 
 type Dot struct {
-    nodeID string
-    count uint64
+    NodeID string `json:"node"`
+    Count uint64 `json:"count"`
 }
 
 type DVV struct {
-    dot Dot
-    vv map[string]uint64
+    VVDot Dot `json:"dot"`
+    VV map[string]uint64 `json:"vv"`
 }
 
 func NewDot(nodeID string, count uint64) *Dot {
@@ -25,16 +25,16 @@ func NewDVV(dot *Dot, vv map[string]uint64) *DVV {
 }
 
 func (dvv *DVV) Dot() Dot {
-    return dvv.dot
+    return dvv.VVDot
 }
 
 func (dvv *DVV) Context() map[string]uint64 {
-    return dvv.vv
+    return dvv.VV
 }
 
 func (dvv *DVV) HappenedBefore(otherDVV *DVV) bool {
-    if _, ok := otherDVV.vv[dvv.Dot().nodeID]; ok {
-        return dvv.Dot().count <= otherDVV.Context()[dvv.Dot().nodeID]
+    if _, ok := otherDVV.Context()[dvv.Dot().NodeID]; ok {
+        return dvv.Dot().Count <= otherDVV.Context()[dvv.Dot().NodeID]
     }
     
     return false
@@ -42,7 +42,7 @@ func (dvv *DVV) HappenedBefore(otherDVV *DVV) bool {
 
 func (dvv *DVV) Replicas() []string {
     replicas := make([]string, 0, len(dvv.Context()) + 1)
-    dotNodeID := dvv.Dot().nodeID
+    dotNodeID := dvv.Dot().NodeID
     
     for nodeID, _ := range dvv.Context() {
         replicas = append(replicas, nodeID)
@@ -62,9 +62,9 @@ func (dvv *DVV) Replicas() []string {
 func (dvv *DVV) MaxDot(nodeID string) uint64 {
     var maxDot uint64
     
-    if dvv.Dot().nodeID == nodeID {
-        if dvv.Dot().count > maxDot {
-            maxDot = dvv.Dot().count
+    if dvv.Dot().NodeID == nodeID {
+        if dvv.Dot().Count > maxDot {
+            maxDot = dvv.Dot().Count
         }
     }
     
@@ -78,7 +78,7 @@ func (dvv *DVV) MaxDot(nodeID string) uint64 {
 }
 
 func (dvv *DVV) Equals(otherDVV *DVV) bool {
-    if dvv.Dot().nodeID != otherDVV.Dot().nodeID || dvv.Dot().count != otherDVV.Dot().count {
+    if dvv.Dot().NodeID != otherDVV.Dot().NodeID || dvv.Dot().Count != otherDVV.Dot().Count {
         return false
     }
     
@@ -110,9 +110,9 @@ func (dvv *DVV) Hash() Hash {
     }
     
     countBuffer := make([]byte, 8)
-    binary.BigEndian.PutUint64(countBuffer, dvv.Dot().count)
+    binary.BigEndian.PutUint64(countBuffer, dvv.Dot().Count)
     
-    hash = hash.Xor(NewHash([]byte(dvv.Dot().nodeID))).Xor(NewHash(countBuffer))
+    hash = hash.Xor(NewHash([]byte(dvv.Dot().NodeID))).Xor(NewHash(countBuffer))
     
     return hash
 }
@@ -122,8 +122,8 @@ func (dvv *DVV) MarshalBinary() ([]byte, error) {
     encoder := gob.NewEncoder(&encoding)
     
     encoder.Encode(dvv.Context())
-    encoder.Encode(dvv.Dot().nodeID)
-    encoder.Encode(dvv.Dot().count)
+    encoder.Encode(dvv.Dot().NodeID)
+    encoder.Encode(dvv.Dot().Count)
     
     return encoding.Bytes(), nil
 }
@@ -136,11 +136,11 @@ func (dvv *DVV) UnmarshalBinary(data []byte) error {
     decoder := gob.NewDecoder(encoding)
     
     decoder.Decode(&versionVector)
-    decoder.Decode(&dot.nodeID)
-    decoder.Decode(&dot.count)
+    decoder.Decode(&dot.NodeID)
+    decoder.Decode(&dot.Count)
     
-    dvv.dot = dot
-    dvv.vv = versionVector
+    dvv.VVDot = dot
+    dvv.VV = versionVector
     
     return nil
 }

@@ -57,6 +57,12 @@ func (bucketList *BucketList) Incoming(peerID string) []Bucket {
     return buckets
 }
 
+func (bucketList *BucketList) HasBucket(bucketName string) bool {
+    _, ok := bucketList.buckets[bucketName]
+    
+    return ok
+}
+
 func (bucketList *BucketList) Get(bucketName string) Bucket {
     return bucketList.buckets[bucketName]
 }

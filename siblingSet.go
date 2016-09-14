@@ -1,6 +1,7 @@
 package devicedb
 
 import (
+    "encoding/json"
     "encoding/gob"
     "bytes"
 )
@@ -203,4 +204,31 @@ func (siblingSet *SiblingSet) Decode(encodedSiblingSet []byte) error {
     err := decoder.Decode(siblingSet)
     
     return err
+}
+
+func (siblingSet *SiblingSet) MarshalJSON() ([]byte, error) {
+    siblingList := make([]*Sibling, 0, len(siblingSet.siblings))
+    
+    for ss, _ := range siblingSet.siblings {
+        siblingList = append(siblingList, ss)
+    }
+    
+    return json.Marshal(siblingList)
+}
+
+func (siblingSet *SiblingSet) UnmarshalJSON(data []byte) error {
+    siblingList := make([]*Sibling, 0)
+    err := json.Unmarshal(data, &siblingList)
+    
+    if err != nil {
+        return err
+    }
+    
+    siblingSet.siblings = make(map[*Sibling]bool, len(siblingList))
+    
+    for _, ss := range siblingList {
+        siblingSet.siblings[ss] = true
+    }
+    
+    return nil
 }

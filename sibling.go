@@ -6,9 +6,9 @@ import (
 )
 
 type Sibling struct {
-    clock *DVV
-    value []byte
-    timestamp uint64
+    VectorClock *DVV `json:"clock"`
+    BinaryValue []byte `json:"value"`
+    PhysicalTimestamp uint64 `json:"timestamp"`
 }
 
 func NewSibling(clock *DVV, value []byte, timestamp uint64) *Sibling {
@@ -16,19 +16,19 @@ func NewSibling(clock *DVV, value []byte, timestamp uint64) *Sibling {
 }
 
 func (sibling *Sibling) Clock() *DVV {
-    return sibling.clock
+    return sibling.VectorClock
 }
 
 func (sibling *Sibling) Value() []byte {
-    return sibling.value
+    return sibling.BinaryValue
 }
 
 func (sibling *Sibling) IsTombstone() bool {
-    return sibling.value == nil
+    return sibling.Value() == nil
 }
 
 func (sibling *Sibling) Timestamp() uint64 {
-    return sibling.timestamp
+    return sibling.PhysicalTimestamp
 }
 
 func (sibling *Sibling) Hash() Hash {
@@ -36,7 +36,7 @@ func (sibling *Sibling) Hash() Hash {
         return Hash{[2]uint64{ 0, 0 }}
     }
     
-    return NewHash(sibling.value).Xor(sibling.clock.Hash())
+    return NewHash(sibling.Value()).Xor(sibling.Clock().Hash())
 }
 
 func (sibling *Sibling) MarshalBinary() ([]byte, error) {
@@ -62,9 +62,9 @@ func (sibling *Sibling) UnmarshalBinary(data []byte) error {
     decoder.Decode(&timestamp)
     decoder.Decode(&value)
     
-    sibling.clock = &clock
-    sibling.timestamp = timestamp
-    sibling.value = value
+    sibling.VectorClock = &clock
+    sibling.PhysicalTimestamp = timestamp
+    sibling.BinaryValue = value
     
     return nil
 }
