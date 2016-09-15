@@ -1,6 +1,7 @@
 package devicedb
 
 import (
+    "fmt"
     "io"
     "net"
     "net/http"
@@ -139,11 +140,99 @@ func (server *Server) Start() error {
         io.WriteString(w, string(siblingSetsJSON))
     }).Methods("POST")
     
+    r.HandleFunc("/{bucket}/matches", func(w http.ResponseWriter, r *http.Request) {
+        bucket := mux.Vars(r)["bucket"]
+        
+        if !server.bucketList.HasBucket(bucket) {
+            log.Warningf("POST /{bucket}/matches: Invalid bucket")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
+            
+            return
+        }
+        
+        keys := make([]string, 0)
+        decoder := json.NewDecoder(r.Body)
+        err := decoder.Decode(&keys)
+        
+        if err != nil {
+            log.Warningf("POST /{bucket}/matches: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+            
+            return
+        }
+        
+        if len(keys) == 0 {
+            log.Warningf("POST /{bucket}/matches: Empty keys array")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+            
+            return
+        }
+        
+        byteKeys := make([][]byte, 0, len(keys))
+        
+        for _, k := range keys {
+            if len(k) == 0 {
+                log.Warningf("POST /{bucket}/matches: Empty key")
+            
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+                
+                return
+            }
+            
+            byteKeys = append(byteKeys, []byte(k))
+        }
+        
+        ssIterator, err := server.bucketList.Get(bucket).Node.GetMatches(byteKeys)
+        
+        if err != nil {
+            log.Warningf("POST /{bucket}/matches: Internal server error")
+        
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+            
+            return
+        }
+        
+        defer ssIterator.Release()
+    
+        flusher, _ := w.(http.Flusher)
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.WriteHeader(http.StatusOK)
+        
+        for ssIterator.Next() {
+            key := ssIterator.Key()
+            prefix := ssIterator.Prefix()
+            nextSiblingSet := ssIterator.Value()
+            siblingSetsJSON, _ := json.Marshal(nextSiblingSet)
+            
+            _, err = fmt.Fprintf(w, "%s\n%s\n%s\n", string(prefix), string(key), string(siblingSetsJSON))
+            flusher.Flush()
+            
+            if err != nil {
+                return
+            }
+        }
+    }).Methods("POST")
+    
     r.HandleFunc("/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
         bucket := mux.Vars(r)["bucket"]
         
         if !server.bucketList.HasBucket(bucket) {
-            log.Warningf("POST /{bucket}/values: Invalid bucket")
+            log.Warningf("POST /{bucket}/batch: Invalid bucket")
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusNotFound)

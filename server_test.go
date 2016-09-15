@@ -6,6 +6,7 @@ import (
     "net/http"
     "bytes"
     "encoding/json"
+    "bufio"
     
 	. "devicedb"
 
@@ -44,8 +45,6 @@ var _ = Describe("Server", func() {
     }
     
     Describe("POST /{bucket}/values", func() {
-        
-        
         Context("The values being queried are empty", func() {
             It("should return nil for every key", func() {
                 resp, err := client.Post(url("/default/values", server), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
@@ -109,6 +108,126 @@ var _ = Describe("Server", func() {
         
         It("Should return 400 with EInvalidKey in the body if the request body is not an array", func() {
             resp, err := client.Post(url("/default/values", server), "application/json", buffer(`null`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+            
+            resp, err = http.Post(url("/default/values", server), "application/json", buffer(`{ "0": "key1" }`))
+                
+            Expect(err).Should(BeNil())
+            
+            decoder = json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+        })
+    })
+    
+    Describe("POST /{bucket}/matches", func() {
+        Context("The values being queried are empty", func() {
+            It("should return nil for every key", func() {
+                
+                updateBatch := NewUpdateBatch()
+                updateBatch.Put([]byte("key1"), []byte("value1"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                updateBatch.Put([]byte("key2"), []byte("value2"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                updateBatch.Put([]byte("key3"), []byte("value3"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                jsonBytes, _ := updateBatch.ToJSON()
+            
+                resp, err := client.Post(url("/default/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
+                
+                Expect(err).Should(BeNil())
+                resp.Body.Close()
+                
+                resp, err = client.Post(url("/default/matches", server), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
+                defer resp.Body.Close()
+                
+                values := [][]string{
+                    []string{ "key1", "value1", },
+                    []string{ "key2", "value2", },
+                    []string{ "key3", "value3", },
+                }
+                
+                scanner := bufio.NewScanner(resp.Body)
+                
+                for scanner.Scan() {
+                    l := values[0]
+                    values = values[1:]
+                    
+                    Expect(scanner.Text()).Should(Equal(l[0]))
+                    Expect(scanner.Scan()).Should(BeTrue())
+                    Expect(scanner.Text()).Should(Equal(l[0]))
+                    Expect(scanner.Scan()).Should(BeTrue())
+                    
+                    var siblingSet SiblingSet
+                
+                    fmt.Println(scanner.Text())
+                    decoder := json.NewDecoder(bytes.NewBuffer(scanner.Bytes()))
+                    err = decoder.Decode(&siblingSet)
+                    Expect(err).Should(BeNil())
+                    Expect(siblingSet.Value()).Should(Equal([]byte(l[1])))
+                }
+                
+                Expect(scanner.Err()).Should(BeNil())
+            })
+        })
+        
+        It("Should return 404 with EInvalidBucket in the body if the bucket specified is invalid", func() {
+            resp, err := client.Post(url("/invalidbucket/matches", server), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidBucket))
+            Expect(resp.StatusCode).Should(Equal(http.StatusNotFound))
+        })
+        
+        It("Should return 400 with EInvalidKey in the body if a null key value was specified", func() {
+            resp, err := client.Post(url("/default/matches", server), "application/json", buffer(`[ null, "key2", "key3" ]`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+        })
+        
+        It("Should return 400 with EInvalidKey in the body if an empty key was specified", func() {
+            resp, err := client.Post(url("/default/matches", server), "application/json", buffer(`[ "", "key2", "key3" ]`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+        })
+        
+        It("Should return 400 with EInvalidKey in the body if the request body is not an array", func() {
+            resp, err := client.Post(url("/default/matches", server), "application/json", buffer(`null`))
                 
             Expect(err).Should(BeNil())
             defer resp.Body.Close()

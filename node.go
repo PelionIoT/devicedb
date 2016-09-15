@@ -573,6 +573,10 @@ func (ssIterator *SiblingSetIterator) Next() bool {
     return true
 }
 
+func (ssIterator *SiblingSetIterator) Prefix() []byte {
+    return decodePartitionDataKey(ssIterator.dbIterator.Prefix())
+}
+
 func (ssIterator *SiblingSetIterator) Key() []byte {
     if ssIterator.currentKey == nil {
         return nil

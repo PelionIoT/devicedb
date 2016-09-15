@@ -145,11 +145,23 @@ func (psd *PrefixedStorageDriver) GetMatches(keys [][]byte) (Iterator, error) {
         prefixKeys[i] = psd.addPrefix(keys[i])
     }
     
-    return psd.storageDriver.GetMatches(prefixKeys)
+    iter, err := psd.storageDriver.GetMatches(prefixKeys)
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return &PrefixedIterator{ psd.prefix, iter }, nil
 }
 
 func (psd *PrefixedStorageDriver) GetRange(start []byte, end []byte) (Iterator, error) {
-    return psd.storageDriver.GetRange(psd.addPrefix(start), psd.addPrefix(end))
+    iter, err := psd.storageDriver.GetRange(psd.addPrefix(start), psd.addPrefix(end))
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return &PrefixedIterator{ psd.prefix, iter }, nil
 }
 
 func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
@@ -161,6 +173,35 @@ func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
     }
     
     return psd.storageDriver.Batch(newBatch)
+}
+
+type PrefixedIterator struct {
+    prefix []byte
+    iterator Iterator
+}
+
+func (prefixedIterator *PrefixedIterator) Next() bool {
+    return prefixedIterator.iterator.Next()
+}
+
+func (prefixedIterator *PrefixedIterator) Prefix() []byte {
+    return prefixedIterator.iterator.Prefix()[len(prefixedIterator.prefix):]
+}
+
+func (prefixedIterator *PrefixedIterator) Key() []byte {
+    return prefixedIterator.iterator.Key()[len(prefixedIterator.prefix):]
+}
+
+func (prefixedIterator *PrefixedIterator) Value() []byte {
+    return prefixedIterator.iterator.Value()
+}
+
+func (prefixedIterator *PrefixedIterator) Release() {
+    prefixedIterator.iterator.Release()
+}
+
+func (prefixedIterator *PrefixedIterator) Error() error {
+    return prefixedIterator.iterator.Error()
 }
 
 type StorageDriver interface {
