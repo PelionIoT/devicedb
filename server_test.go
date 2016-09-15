@@ -14,11 +14,13 @@ import (
 )
 
 var _ = Describe("Server", func() {
+    var client *http.Client
     var server *Server
     stop := make(chan int)
     
     BeforeEach(func() {
-        server, _ = NewServer()
+        client = &http.Client{ Transport: &http.Transport{ DisableKeepAlives: true } }
+        server, _ = NewServer("/tmp/testdb-" + randomString())
         
         go func() {
             server.Start()
@@ -32,8 +34,8 @@ var _ = Describe("Server", func() {
         server.Stop()
         <-stop
     })
-    
-    url := func(u string) string {
+        
+    url := func(u string, server *Server) string {
         return "http://localhost:" + fmt.Sprintf("%d", server.Port()) + u
     }
     
@@ -42,19 +44,123 @@ var _ = Describe("Server", func() {
     }
     
     Describe("POST /{bucket}/values", func() {
+        
+        
         Context("The values being queried are empty", func() {
             It("should return nil for every key", func() {
-                resp, err := http.Post(url("/default/values"), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
+                resp, err := client.Post(url("/default/values", server), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
                 
                 Expect(err).Should(BeNil())
-                
+            
                 siblingSets := make([]*SiblingSet, 0)
                 decoder := json.NewDecoder(resp.Body)
                 err = decoder.Decode(&siblingSets)
                 
                 Expect(err).Should(BeNil())
                 Expect(siblingSets).Should(Equal([]*SiblingSet{ nil, nil, nil }))
+                Expect(resp.StatusCode).Should(Equal(http.StatusOK))
             })
+        })
+        
+        It("Should return 404 with EInvalidBucket in the body if the bucket specified is invalid", func() {
+            resp, err := client.Post(url("/invalidbucket/values", server), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidBucket))
+            Expect(resp.StatusCode).Should(Equal(http.StatusNotFound))
+        })
+        
+        It("Should return 400 with EInvalidKey in the body if a null key value was specified", func() {
+            resp, err := client.Post(url("/default/values", server), "application/json", buffer(`[ null, "key2", "key3" ]`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+        })
+        
+        It("Should return 400 with EInvalidKey in the body if an empty key was specified", func() {
+            resp, err := client.Post(url("/default/values", server), "application/json", buffer(`[ "", "key2", "key3" ]`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+        })
+        
+        It("Should return 400 with EInvalidKey in the body if the request body is not an array", func() {
+            resp, err := client.Post(url("/default/values", server), "application/json", buffer(`null`))
+                
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            
+            var dberr DBerror
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+            
+            resp, err = http.Post(url("/default/values", server), "application/json", buffer(`{ "0": "key1" }`))
+                
+            Expect(err).Should(BeNil())
+            
+            decoder = json.NewDecoder(resp.Body)
+            err = decoder.Decode(&dberr)
+            
+            Expect(err).Should(BeNil())
+            Expect(dberr).Should(Equal(EInvalidKey))
+            Expect(resp.StatusCode).Should(Equal(http.StatusBadRequest))
+        })
+    })
+    
+    Describe("POST /{bucket}/batch", func() {
+        It("should put the values specified", func() {
+            updateBatch := NewUpdateBatch()
+            updateBatch.Put([]byte("key1"), []byte("value1"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            updateBatch.Put([]byte("key2"), []byte("value2"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            updateBatch.Put([]byte("key3"), []byte("value3"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            jsonBytes, _ := updateBatch.ToJSON()
+        
+            resp, err := client.Post(url("/default/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
+            
+            Expect(err).Should(BeNil())
+            defer resp.Body.Close()
+            Expect(resp.StatusCode).Should(Equal(http.StatusOK))
+            
+            resp, err = client.Post(url("/default/values", server), "application/json", buffer(`[ "key1", "key2", "key3" ]`))
+            
+            Expect(err).Should(BeNil())
+        
+            siblingSets := make([]*SiblingSet, 0)
+            decoder := json.NewDecoder(resp.Body)
+            err = decoder.Decode(&siblingSets)
+            
+            Expect(err).Should(BeNil())
+            Expect(siblingSets[0].Value()).Should(Equal([]byte("value1")))
+            Expect(siblingSets[1].Value()).Should(Equal([]byte("value2")))
+            Expect(siblingSets[2].Value()).Should(Equal([]byte("value3")))
+            Expect(resp.StatusCode).Should(Equal(http.StatusOK))
         })
     })
 })

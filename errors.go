@@ -30,6 +30,7 @@ const (
     eSTORAGE = iota
     eINVALID_KEY = iota
     eINVALID_BUCKET = iota
+    eINVALID_BATCH = iota
 )
 
 var (
@@ -39,4 +40,5 @@ var (
     EStorage               = DBerror{ "The storage driver experienced an error", eSTORAGE }
     EInvalidKey            = DBerror{ "A key was misformatted", eINVALID_KEY }
     EInvalidBucket         = DBerror{ "An invalid bucket was specified", eINVALID_BUCKET }
+    EInvalidBatch          = DBerror{ "An invalid batch was specified", eINVALID_BATCH }
 )

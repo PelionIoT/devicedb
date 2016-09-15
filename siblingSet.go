@@ -36,6 +36,18 @@ func (siblingSet *SiblingSet) Size() int {
     return len(siblingSet.siblings)
 }
 
+func (siblingSet *SiblingSet) Value() []byte {
+    if siblingSet.Size() != 1 || siblingSet.IsTombstoneSet() {
+        return nil
+    }
+
+    for sibling, _ := range siblingSet.siblings {
+        return sibling.Value()
+    }
+    
+    return nil
+}
+
 func (siblingSet *SiblingSet) Sync(otherSiblingSet *SiblingSet) *SiblingSet {
     newSiblingSet := NewSiblingSet(map[*Sibling]bool{ })
     

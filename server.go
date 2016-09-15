@@ -38,13 +38,14 @@ type Server struct {
     storageDriver StorageDriver
 }
 
-func NewServer() (*Server, error) {
-    storageDriver := NewLevelDBStorageDriver("/tmp/testdevicedb", nil)
+func NewServer(dbFile string) (*Server, error) {
+    storageDriver := NewLevelDBStorageDriver(dbFile, nil)
     server := &Server{ NewBucketList(), nil, nil, storageDriver }
     nodeID := "nodeA"
     err := server.storageDriver.Open()
     
     if err != nil {
+        log.Errorf("Error creating server: %v", err)
         return nil, err
     }
     
@@ -64,8 +65,6 @@ func (server *Server) Port() int {
 }
 
 func (server *Server) Start() error {
-    server.Stop()
-    
     r := mux.NewRouter()
     
     r.HandleFunc("/{bucket}/values", func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +74,7 @@ func (server *Server) Start() error {
             log.Warningf("POST /{bucket}/values: Invalid bucket")
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusBadRequest)
+            w.WriteHeader(http.StatusNotFound)
             io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
             
             return
@@ -87,6 +86,16 @@ func (server *Server) Start() error {
         
         if err != nil {
             log.Warningf("POST /{bucket}/values: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+            
+            return
+        }
+        
+        if len(keys) == 0 {
+            log.Warningf("POST /{bucket}/values: Empty keys array")
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusBadRequest)
@@ -130,13 +139,56 @@ func (server *Server) Start() error {
         io.WriteString(w, string(siblingSetsJSON))
     }).Methods("POST")
     
+    r.HandleFunc("/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
+        bucket := mux.Vars(r)["bucket"]
+        
+        if !server.bucketList.HasBucket(bucket) {
+            log.Warningf("POST /{bucket}/values: Invalid bucket")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
+            
+            return
+        }
+        
+        var updateBatch UpdateBatch
+        err := updateBatch.FromJSON(r.Body)
+        
+        if err != nil {
+            log.Warningf("POST /{bucket}/batch: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EInvalidBatch.JSON()) + "\n")
+            
+            return
+        }
+        
+        _, err = server.bucketList.Get(bucket).Node.Batch(&updateBatch)
+        
+        if err != nil {
+            log.Warningf("POST /{bucket}/batch: Internal server error")
+        
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+            
+            return
+        }
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, "\n")
+    }).Methods("POST")
+    
     server.httpServer = &http.Server{
         Handler: r,
         WriteTimeout: 15 * time.Second,
         ReadTimeout: 15 * time.Second,
     }
     
-    listener, err := net.Listen("tcp", ":8080")
+    listener, err := net.Listen("tcp", "0.0.0.0:8080")
     
     if err != nil {
         server.Stop()

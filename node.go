@@ -1,6 +1,8 @@
 package devicedb
 
 import (
+    "io"
+    "encoding/json"
     "encoding/binary"
     "time"
     "errors"
@@ -296,7 +298,7 @@ func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
     return batch
 }
 
-func (node *Node) updateToSibling(o op, c *DVV, oldestTombstone *Sibling) *Sibling {
+func (node *Node) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibling {
     if o.IsDelete() {
         if oldestTombstone == nil {
             return NewSibling(c, nil, uint64(time.Now().Unix()))
@@ -315,10 +317,10 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
         return nil, EEmpty
     }
     
-    keys := make([][]byte, 0, len(batch.batch.Ops()))
+    keys := make([][]byte, 0, len(batch.Batch().Ops()))
     update := NewUpdate()
 
-    for key, _ := range batch.batch.Ops() {
+    for key, _ := range batch.Batch().Ops() {
         keyBytes := []byte(key)
         
         keys = append(keys, keyBytes)
@@ -331,8 +333,8 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
         return nil, err
     }
     
-    for key, op := range batch.batch.Ops() {
-        context := batch.context[key]
+    for key, op := range batch.Batch().Ops() {
+        context := batch.Context()[key]
         siblingSet := siblingSets[key]
     
         if siblingSet.Size() == 0 && op.IsDelete() {
@@ -420,12 +422,60 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
 }
 
 type UpdateBatch struct {
-    batch *Batch
-    context map[string]*DVV
+    RawBatch *Batch `json:"batch"`
+    Contexts map[string]*DVV `json:"context"`
 }
 
 func NewUpdateBatch() *UpdateBatch {
     return &UpdateBatch{ NewBatch(), map[string]*DVV{ } }
+}
+
+func (updateBatch *UpdateBatch) Batch() *Batch {
+    return updateBatch.RawBatch
+}
+
+func (updateBatch *UpdateBatch) Context() map[string]*DVV {
+    return updateBatch.Contexts
+}
+
+func (updateBatch *UpdateBatch) ToJSON() ([]byte, error) {
+    return json.Marshal(updateBatch)
+}
+
+func (updateBatch *UpdateBatch) FromJSON(reader io.Reader) error {
+    var tempUpdateBatch UpdateBatch
+    
+    decoder := json.NewDecoder(reader)
+    err := decoder.Decode(&tempUpdateBatch)
+    
+    if err != nil {
+        return err
+    }
+    
+    updateBatch.Contexts = map[string]*DVV{ }
+    updateBatch.RawBatch = NewBatch()
+    
+    for k, op := range tempUpdateBatch.Batch().Ops() {
+        context, ok := tempUpdateBatch.Context()[k]
+        
+        if !ok || context == nil {
+            context = NewDVV(NewDot("", 0), map[string]uint64{ })
+        }
+        
+        err = nil
+    
+        if op.IsDelete() {
+            _, err = updateBatch.Delete(op.Key(), context)
+        } else {
+            _, err = updateBatch.Put(op.Key(), op.Value(), context)
+        }
+        
+        if err != nil {
+            return err
+        }
+    }
+    
+    return nil
 }
 
 func (updateBatch *UpdateBatch) Put(key []byte, value []byte, context *DVV) (*UpdateBatch, error) {
@@ -451,8 +501,8 @@ func (updateBatch *UpdateBatch) Put(key []byte, value []byte, context *DVV) (*Up
         value = []byte{ }
     }
     
-    updateBatch.batch.Put(key, value)
-    updateBatch.context[string(key)] = context
+    updateBatch.Batch().Put(key, value)
+    updateBatch.Context()[string(key)] = context
     
     return updateBatch, nil
 }
@@ -476,8 +526,8 @@ func (updateBatch *UpdateBatch) Delete(key []byte, context *DVV) (*UpdateBatch, 
         return nil, EEmpty
     }
     
-    updateBatch.batch.Delete(key)
-    updateBatch.context[string(key)] = context
+    updateBatch.Batch().Delete(key)
+    updateBatch.Context()[string(key)] = context
     
     return updateBatch, nil
 }

@@ -16,37 +16,37 @@ const (
     DEL = iota
 )
 
-type op struct {
-    opType int
-    key []byte
-    value []byte
+type Op struct {
+    OpType int `json:"type"`
+    OpKey []byte `json:"key"`
+    OpValue []byte `json:"value"`
 }
 
-func (o *op) IsDelete() bool {
-    return o.opType == DEL
+func (o *Op) IsDelete() bool {
+    return o.OpType == DEL
 }
 
-func (o *op) IsPut() bool {
-    return o.opType == PUT
+func (o *Op) IsPut() bool {
+    return o.OpType == PUT
 }
 
-func (o *op) Key() []byte {
-    return o.key
+func (o *Op) Key() []byte {
+    return o.OpKey
 }
 
-func (o *op) Value() []byte {
-    return o.value
+func (o *Op) Value() []byte {
+    return o.OpValue
 }
 
-type OpList []op
+type OpList []Op
 
 func (opList OpList) Len() int {
     return len(opList)
 }
 
 func (opList OpList) Less(i, j int) bool {
-    k1 := opList[i].key
-    k2 := opList[i].key
+    k1 := opList[i].Key()
+    k2 := opList[i].Key()
     
     for i := 0; i < len(k1) && i < len(k2); i += 1 {
         if k2[i] > k1[i] {
@@ -62,33 +62,33 @@ func (opList OpList) Swap(i, j int) {
 }
 
 type Batch struct {
-    ops map[string]op
+    BatchOps map[string]Op `json:"ops"`
 }
 
 func NewBatch() *Batch {
-    return &Batch{ make(map[string]op) }
+    return &Batch{ make(map[string]Op) }
 }
 
 func (batch *Batch) Put(key []byte, value []byte) *Batch {
-    batch.ops[string(key)] = op{ PUT, key, value }
+    batch.BatchOps[string(key)] = Op{ PUT, key, value }
     
     return batch
 }
 
 func (batch *Batch) Delete(key []byte) *Batch {
-    batch.ops[string(key)] = op{ DEL, key, nil }
+    batch.BatchOps[string(key)] = Op{ DEL, key, nil }
     
     return batch
 }
 
-func (batch *Batch) Ops() map[string]op {
-    return batch.ops
+func (batch *Batch) Ops() map[string]Op {
+    return batch.BatchOps
 }
 
-func (batch *Batch) SortedOps() []op {
-    opList := make([]op, 0, len(batch.ops))
+func (batch *Batch) SortedOps() []Op {
+    opList := make([]Op, 0, len(batch.BatchOps))
     
-    for _, op := range batch.ops {
+    for _, op := range batch.BatchOps {
         opList = append(opList, op)
     }
     
@@ -129,19 +129,23 @@ func (psd *PrefixedStorageDriver) addPrefix(k []byte) []byte {
 }
 
 func (psd *PrefixedStorageDriver) Get(keys [][]byte) ([][]byte, error) {
+    prefixKeys := make([][]byte, len(keys))
+    
     for i, _ := range keys {
-        keys[i] = psd.addPrefix(keys[i])
+        prefixKeys[i] = psd.addPrefix(keys[i])
     }
     
-    return psd.storageDriver.Get(keys)
+    return psd.storageDriver.Get(prefixKeys)
 }
 
 func (psd *PrefixedStorageDriver) GetMatches(keys [][]byte) (Iterator, error) {
+    prefixKeys := make([][]byte, len(keys))
+    
     for i, _ := range keys {
-        keys[i] = psd.addPrefix(keys[i])
+        prefixKeys[i] = psd.addPrefix(keys[i])
     }
     
-    return psd.storageDriver.GetMatches(keys)
+    return psd.storageDriver.GetMatches(prefixKeys)
 }
 
 func (psd *PrefixedStorageDriver) GetRange(start []byte, end []byte) (Iterator, error) {
@@ -151,8 +155,9 @@ func (psd *PrefixedStorageDriver) GetRange(start []byte, end []byte) (Iterator, 
 func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
     newBatch := NewBatch()
     
-    for key, op := range batch.ops {
-        newBatch.ops[string(psd.addPrefix([]byte(key)))] = op
+    for key, op := range batch.BatchOps {
+        op.OpKey = psd.addPrefix([]byte(key))
+        newBatch.BatchOps[string(psd.addPrefix([]byte(key)))] = op
     }
     
     return psd.storageDriver.Batch(newBatch)
@@ -269,7 +274,7 @@ func (levelDriver *LevelDBStorageDriver) Close() error {
     }
     
     err := levelDriver.db.Close()
-    
+
     levelDriver.db = nil
     
     return err
@@ -410,10 +415,10 @@ func (levelDriver *LevelDBStorageDriver) Batch(batch *Batch) error {
     ops := batch.Ops()
     
     for _, op := range ops {
-        if op.opType == PUT {
-            b.Put(op.key, op.value)
-        } else if op.opType == DEL {
-            b.Delete(op.key)
+        if op.OpType == PUT {
+            b.Put(op.Key(), op.Value())
+        } else if op.OpType == DEL {
+            b.Delete(op.Key())
         } 
     }
     
