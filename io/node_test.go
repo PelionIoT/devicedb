@@ -1,7 +1,10 @@
-package devicedb_test
+package io_test
 
 import (
-	. "devicedb"
+	. "devicedb/storage"
+	. "devicedb/io"
+	. "devicedb/dbobject"
+	. "devicedb/sync"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega" 

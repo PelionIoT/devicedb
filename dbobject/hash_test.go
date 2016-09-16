@@ -1,4 +1,4 @@
-package devicedb_test
+package dbobject_test
 
 import (
 	//. "devicedb"

@@ -1,4 +1,4 @@
-package devicedb
+package io
 
 import (
     "encoding/json"

@@ -1,7 +1,11 @@
-package devicedb
+package crstrategies
 
-func lastWriterWins(siblingSet *SiblingSet) *SiblingSet {
-    var newestSibling *Sibling
+import (
+    "devicedb/dbobject"
+)
+
+func LastWriterWins(siblingSet *dbobject.SiblingSet) *dbobject.SiblingSet {
+    var newestSibling *dbobject.Sibling
     
     for sibling := range siblingSet.Iter() {
         if newestSibling == nil || sibling.Timestamp() > newestSibling.Timestamp() {
@@ -13,5 +17,5 @@ func lastWriterWins(siblingSet *SiblingSet) *SiblingSet {
         return siblingSet
     }
     
-    return NewSiblingSet(map[*Sibling]bool{ newestSibling: true })
+    return dbobject.NewSiblingSet(map[*dbobject.Sibling]bool{ newestSibling: true })
 }

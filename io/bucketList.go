@@ -1,4 +1,4 @@
-package devicedb
+package io
 
 // each namespace in the database has two main factors that differentiate it from other namespaces or buckets
 // 1) Replication strategy

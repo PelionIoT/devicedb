@@ -5,13 +5,14 @@
 // 19      |   8388608  bytes  (8192  KiB) (8  MiB)
 // 20      |   16777216 bytes  (16384 KiB) (16 MiB)
 
-package devicedb
+package sync
 
 import (
     "math"
     "errors"
     "unsafe"
     "strconv"
+    "devicedb/dbobject"
 )
 
 // MerkleMaxDepth should never exceed 32
@@ -21,7 +22,7 @@ const MerkleMaxDepth uint8 = 28 // 4GB
 
 type MerkleTree struct {
     depth uint8
-    nodes []Hash
+    nodes []dbobject.Hash
 }
 
 func NewMerkleTree(depth uint8) (*MerkleTree, error) {
@@ -29,22 +30,22 @@ func NewMerkleTree(depth uint8) (*MerkleTree, error) {
         return nil, errors.New("depth must be between " + strconv.Itoa(int(MerkleMinDepth)) + " and " + strconv.Itoa(int(MerkleMaxDepth)))
     }
     
-    nodes := make([]Hash, uint32(math.Pow(float64(2), float64(depth))))
+    nodes := make([]dbobject.Hash, uint32(math.Pow(float64(2), float64(depth))))
     
     return &MerkleTree{depth, nodes}, nil
 }
 
-func (tree *MerkleTree) RootHash() Hash {
+func (tree *MerkleTree) RootHash() dbobject.Hash {
     return tree.nodes[1 << (tree.depth - 1)]
 }
 
-func (tree *MerkleTree) RangeHash(rangeMin uint32, rangeMax uint32) Hash {
+func (tree *MerkleTree) RangeHash(rangeMin uint32, rangeMax uint32) dbobject.Hash {
     return tree.nodes[rangeMin + (rangeMax - rangeMin)/2]
 }
 
-func (tree *MerkleTree) NodeHash(node uint32) Hash {
+func (tree *MerkleTree) NodeHash(node uint32) dbobject.Hash {
     if node >= uint32(len(tree.nodes)) {
-        return Hash{}
+        return dbobject.Hash{}
     }
     
     return tree.nodes[node]
@@ -54,17 +55,17 @@ func (tree *MerkleTree) Depth() uint8 {
     return tree.depth
 }
 
-func (tree *MerkleTree) SetNodeHashes(nodeHashes map[uint32]Hash) {
+func (tree *MerkleTree) SetNodeHashes(nodeHashes map[uint32]dbobject.Hash) {
     for nodeID, hash := range nodeHashes {
         tree.nodes[nodeID] = hash
     }
 }
 
-func (tree *MerkleTree) SetNodeHash(nodeID uint32, hash Hash) {
+func (tree *MerkleTree) SetNodeHash(nodeID uint32, hash dbobject.Hash) {
     tree.nodes[nodeID] = hash
 }
 
-func (tree *MerkleTree) UpdateLeafHash(nodeID uint32, hash Hash) {
+func (tree *MerkleTree) UpdateLeafHash(nodeID uint32, hash dbobject.Hash) {
     if !tree.IsLeaf(nodeID) {
         return
     }
@@ -89,21 +90,21 @@ func (tree *MerkleTree) IsLeaf(nodeID uint32) bool {
     return nodeID & 0x1 == 1 && nodeID < (1 << tree.Depth())
 }
 
-func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[string]Hash) {
+func (tree *MerkleTree) Update(update *dbobject.Update) (map[uint32]bool, map[uint32]map[string]dbobject.Hash) {
     modifiedNodes := make(map[uint32]bool)
-    objectHashes := make(map[uint32]map[string]Hash)
+    objectHashes := make(map[uint32]map[string]dbobject.Hash)
     nodeQueue := NewQueue(uint32(update.Size()))
     
     // should return a set of changes that should be persisted
     for diff := range update.Iter() {
         key := diff.Key()
-        keyHash := NewHash([]byte(key))
+        keyHash := dbobject.NewHash([]byte(key))
         newObjectHash := diff.NewSiblingSet().Hash([]byte(key))
         oldObjectHash := diff.OldSiblingSet().Hash([]byte(key))
         leaf := LeafNode(&keyHash, tree.depth)
         
         if _, ok := objectHashes[leaf]; !ok {
-            objectHashes[leaf] = make(map[string]Hash)
+            objectHashes[leaf] = make(map[string]dbobject.Hash)
         }
     
         objectHashes[leaf][key] = newObjectHash
@@ -133,7 +134,7 @@ func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[
     return modifiedNodes, objectHashes
 }
 
-func LeafNode(keyHash *Hash, depth uint8) uint32 {
+func LeafNode(keyHash *dbobject.Hash, depth uint8) uint32 {
     // need to force hash value into depth bytes
     // max: 64 - 1:  63 -> normalizedHash: [0, 1]
     // min: 64 - 28: 36 -> normalizedHash: [0, 268435455]

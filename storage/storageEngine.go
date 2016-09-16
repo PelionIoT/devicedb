@@ -1,4 +1,4 @@
-package devicedb
+package storage
 
 import (
     "strings"
@@ -109,6 +109,10 @@ type Iterator interface {
 type PrefixedStorageDriver struct {
     prefix []byte
     storageDriver StorageDriver
+}
+
+func NewPrefixedStorageDriver(prefix []byte, storageDriver StorageDriver) *PrefixedStorageDriver {
+    return &PrefixedStorageDriver{ prefix, storageDriver }
 }
 
 func (psd *PrefixedStorageDriver) Open() error {

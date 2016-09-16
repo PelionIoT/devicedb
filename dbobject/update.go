@@ -1,4 +1,4 @@
-package devicedb
+package dbobject
 
 type Diff struct {
     key string

@@ -1,4 +1,4 @@
-package devicedb
+package io
 
 import (
     "fmt"
@@ -8,6 +8,9 @@ import (
     "encoding/json"
     "time"
     "github.com/gorilla/mux"
+    "devicedb/storage"
+    "devicedb/crstrategies"
+    "devicedb/sync"
 )
 
 type Shared struct {
@@ -36,11 +39,11 @@ type Server struct {
     bucketList *BucketList
     httpServer *http.Server
     listener net.Listener
-    storageDriver StorageDriver
+    storageDriver storage.StorageDriver
 }
 
 func NewServer(dbFile string) (*Server, error) {
-    storageDriver := NewLevelDBStorageDriver(dbFile, nil)
+    storageDriver := storage.NewLevelDBStorageDriver(dbFile, nil)
     server := &Server{ NewBucketList(), nil, nil, storageDriver }
     nodeID := "nodeA"
     err := server.storageDriver.Open()
@@ -50,9 +53,9 @@ func NewServer(dbFile string) (*Server, error) {
         return nil, err
     }
     
-    defaultNode, _ := NewNode(nodeID, &PrefixedStorageDriver{ []byte{ 0 }, storageDriver }, MerkleDefaultDepth, nil)
-    cloudNode, _ := NewNode(nodeID, &PrefixedStorageDriver{ []byte{ 1 }, storageDriver }, MerkleDefaultDepth, nil) 
-    lwwNode, _ := NewNode(nodeID, &PrefixedStorageDriver{ []byte{ 2 }, storageDriver }, MerkleDefaultDepth, lastWriterWins)
+    defaultNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), sync.MerkleDefaultDepth, nil)
+    cloudNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), sync.MerkleDefaultDepth, nil) 
+    lwwNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), sync.MerkleDefaultDepth, crstrategies.LastWriterWins)
     
     server.bucketList.AddBucket("default", defaultNode, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ })

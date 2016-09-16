@@ -1,10 +1,10 @@
-package devicedb_test
+package io_test
 
 import (
     "sync"
     
-	. "devicedb"
-
+    . "devicedb/io"
+    
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )

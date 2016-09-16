@@ -1,4 +1,4 @@
-package devicedb_test
+package dbobject_test
 
 import (
 	. "github.com/onsi/ginkgo"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestDevicedb(t *testing.T) {
+func TestDbobject(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "devicedb Suite")
+	RunSpecs(t, "dbobject Suite")
 }

@@ -1,4 +1,4 @@
-package devicedb
+package io
 
 import (
     "io"
@@ -6,6 +6,10 @@ import (
     "encoding/binary"
     "time"
     "errors"
+    "devicedb/dbobject"
+    "devicedb/crstrategies"
+    "devicedb/storage"
+    "devicedb/sync"
 )
 
 const MAX_SORTING_KEY_LENGTH = 255
@@ -13,12 +17,6 @@ const MAX_SORTING_KEY_LENGTH = 255
 var MASTER_MERKLE_TREE_PREFIX = []byte{ 0 }
 var PARTITION_MERKLE_LEAF_PREFIX = []byte{ 1 }
 var PARTITION_DATA_PREFIX = []byte{ 2 }
-
-type ConflictResolutionStrategy func(*SiblingSet) *SiblingSet
-
-func defaultConflictResolutionStrategy(siblingSet *SiblingSet) *SiblingSet {
-    return siblingSet
-}
 
 func nodeBytes(node uint32) []byte {
     bytes := make([]byte, 4)
@@ -74,19 +72,19 @@ func encodePartitionMerkleLeafKey(nodeID uint32, k []byte) []byte {
 
 type Node struct {
     id string
-    storageDriver StorageDriver
-    merkleTree *MerkleTree
+    storageDriver storage.StorageDriver
+    merkleTree *sync.MerkleTree
     multiLock *MultiLock
-    resolveConflicts ConflictResolutionStrategy
+    resolveConflicts crstrategies.ConflictResolutionStrategy
 }
 
-func NewNode(id string, storageDriver StorageDriver, merkleDepth uint8, resolveConflicts ConflictResolutionStrategy) (*Node, error) {
+func NewNode(id string, storageDriver storage.StorageDriver, merkleDepth uint8, resolveConflicts crstrategies.ConflictResolutionStrategy) (*Node, error) {
     if resolveConflicts == nil {
-        resolveConflicts = defaultConflictResolutionStrategy
+        resolveConflicts = crstrategies.Default
     }
     
     node := Node{ id, storageDriver, nil, NewMultiLock(), resolveConflicts }
-    node.merkleTree, _ = NewMerkleTree(merkleDepth)
+    node.merkleTree, _ = sync.NewMerkleTree(merkleDepth)
     
     err := node.initializeMerkleTree()
     
@@ -123,7 +121,7 @@ func (node *Node) initializeMerkleTree() error {
         
         hashLow := value[:8]
         hashHigh := value[8:]
-        hash := Hash{ }
+        hash := dbobject.Hash{ }
         hash.SetHigh(binary.BigEndian.Uint64(hashHigh))
         hash.SetLow(binary.BigEndian.Uint64(hashLow))
     
@@ -141,7 +139,7 @@ func (node *Node) ID() string {
     return node.id
 }
 
-func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
+func (node *Node) Get(keys [][]byte) ([]*dbobject.SiblingSet, error) {
     if len(keys) == 0 {
         log.Warningf("Passed empty keys parameter in Get(%v)", keys)
         
@@ -173,7 +171,7 @@ func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
         return nil, EStorage
     }
     
-    siblingSetList := make([]*SiblingSet, len(keys))
+    siblingSetList := make([]*dbobject.SiblingSet, len(keys))
     
     for i := 0; i < len(keys); i += 1 {
         if values[i] == nil {
@@ -182,7 +180,7 @@ func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
             continue
         }
         
-        var siblingSet SiblingSet
+        var siblingSet dbobject.SiblingSet
         
         err := siblingSet.Decode(values[i])
         
@@ -232,8 +230,8 @@ func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
     return NewSiblingSetIterator(iter), nil
 }
 
-func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
-    siblingSetMap := map[string]*SiblingSet{ }
+func (node *Node) updateInit(keys [][]byte) (map[string]*dbobject.SiblingSet, error) {
+    siblingSetMap := map[string]*dbobject.SiblingSet{ }
     
     // db objects
     for i := 0; i < len(keys); i += 1 {
@@ -249,12 +247,12 @@ func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     }
     
     for i := 0; i < len(keys); i += 1 {
-        var siblingSet SiblingSet
+        var siblingSet dbobject.SiblingSet
         key := decodePartitionDataKey(keys[i])
         siblingSetBytes := values[0]
         
         if siblingSetBytes == nil {
-            siblingSetMap[string(key)] = NewSiblingSet(map[*Sibling]bool{ })
+            siblingSetMap[string(key)] = dbobject.NewSiblingSet(map[*dbobject.Sibling]bool{ })
         } else {
             err := siblingSet.Decode(siblingSetBytes)
             
@@ -273,9 +271,9 @@ func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     return siblingSetMap, nil
 }
 
-func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
+func (node *Node) batch(update *dbobject.Update, merkleTree *sync.MerkleTree) *storage.Batch {
     _, leafNodes := merkleTree.Update(update)
-    batch := NewBatch()
+    batch := storage.NewBatch()
     
     // WRITE PARTITION MERKLE LEAFS
     for leafID, _ := range leafNodes {
@@ -298,27 +296,27 @@ func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
     return batch
 }
 
-func (node *Node) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibling {
+func (node *Node) updateToSibling(o storage.Op, c *dbobject.DVV, oldestTombstone *dbobject.Sibling) *dbobject.Sibling {
     if o.IsDelete() {
         if oldestTombstone == nil {
-            return NewSibling(c, nil, uint64(time.Now().Unix()))
+            return dbobject.NewSibling(c, nil, uint64(time.Now().Unix()))
         } else {
-            return NewSibling(c, nil, oldestTombstone.Timestamp())
+            return dbobject.NewSibling(c, nil, oldestTombstone.Timestamp())
         }
     } else {
-        return NewSibling(c, o.Value(), uint64(time.Now().Unix()))
+        return dbobject.NewSibling(c, o.Value(), uint64(time.Now().Unix()))
     }
 }
 
-func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
+func (node *Node) Batch(batch *UpdateBatch) (map[string]*dbobject.SiblingSet, error) {
     if batch == nil {
         log.Warningf("Passed nil batch parameter in Batch(%v)", batch)
         
         return nil, EEmpty
     }
-    
+        
     keys := make([][]byte, 0, len(batch.Batch().Ops()))
-    update := NewUpdate()
+    update := dbobject.NewUpdate()
 
     for key, _ := range batch.Batch().Ops() {
         keyBytes := []byte(key)
@@ -329,6 +327,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     merkleTree := node.merkleTree
     siblingSets, err := node.updateInit(keys)
     
+    //return nil, nil
     if err != nil {
         return nil, err
     }
@@ -350,7 +349,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
         }
         
         updateClock := siblingSet.Event(updateContext, node.ID())
-        var newSibling *Sibling
+        var newSibling *dbobject.Sibling
         
         if siblingSet.IsTombstoneSet() {
             newSibling = node.updateToSibling(op, updateClock, siblingSet.GetOldestTombstone())
@@ -358,7 +357,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
             newSibling = node.updateToSibling(op, updateClock, nil)
         }
         
-        updatedSiblingSet := siblingSet.Discard(updateClock).Sync(NewSiblingSet(map[*Sibling]bool{ newSibling: true }))
+        updatedSiblingSet := siblingSet.Discard(updateClock).Sync(dbobject.NewSiblingSet(map[*dbobject.Sibling]bool{ newSibling: true }))
     
         siblingSets[key] = updatedSiblingSet
         
@@ -378,7 +377,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     return siblingSets, nil
 }
 
-func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
+func (node *Node) Merge(siblingSets map[string]*dbobject.SiblingSet) error {
     if siblingSets == nil {
         log.Warningf("Passed nil sibling sets in Merge(%v)", siblingSets)
         
@@ -398,7 +397,7 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
         return err
     }
     
-    update := NewUpdate()
+    update := dbobject.NewUpdate()
         
     for _, key := range keys {
         siblingSet := siblingSets[string(key)]
@@ -422,19 +421,19 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
 }
 
 type UpdateBatch struct {
-    RawBatch *Batch `json:"batch"`
-    Contexts map[string]*DVV `json:"context"`
+    RawBatch *storage.Batch `json:"batch"`
+    Contexts map[string]*dbobject.DVV `json:"context"`
 }
 
 func NewUpdateBatch() *UpdateBatch {
-    return &UpdateBatch{ NewBatch(), map[string]*DVV{ } }
+    return &UpdateBatch{ storage.NewBatch(), map[string]*dbobject.DVV{ } }
 }
 
-func (updateBatch *UpdateBatch) Batch() *Batch {
+func (updateBatch *UpdateBatch) Batch() *storage.Batch {
     return updateBatch.RawBatch
 }
 
-func (updateBatch *UpdateBatch) Context() map[string]*DVV {
+func (updateBatch *UpdateBatch) Context() map[string]*dbobject.DVV {
     return updateBatch.Contexts
 }
 
@@ -452,14 +451,14 @@ func (updateBatch *UpdateBatch) FromJSON(reader io.Reader) error {
         return err
     }
     
-    updateBatch.Contexts = map[string]*DVV{ }
-    updateBatch.RawBatch = NewBatch()
+    updateBatch.Contexts = map[string]*dbobject.DVV{ }
+    updateBatch.RawBatch = storage.NewBatch()
     
     for k, op := range tempUpdateBatch.Batch().Ops() {
         context, ok := tempUpdateBatch.Context()[k]
         
         if !ok || context == nil {
-            context = NewDVV(NewDot("", 0), map[string]uint64{ })
+            context = dbobject.NewDVV(dbobject.NewDot("", 0), map[string]uint64{ })
         }
         
         err = nil
@@ -478,7 +477,7 @@ func (updateBatch *UpdateBatch) FromJSON(reader io.Reader) error {
     return nil
 }
 
-func (updateBatch *UpdateBatch) Put(key []byte, value []byte, context *DVV) (*UpdateBatch, error) {
+func (updateBatch *UpdateBatch) Put(key []byte, value []byte, context *dbobject.DVV) (*UpdateBatch, error) {
     if len(key) == 0 {
         log.Warningf("Passed an empty key to Put(%v, %v, %v)", key, value, context)
         
@@ -507,7 +506,7 @@ func (updateBatch *UpdateBatch) Put(key []byte, value []byte, context *DVV) (*Up
     return updateBatch, nil
 }
 
-func (updateBatch *UpdateBatch) Delete(key []byte, context *DVV) (*UpdateBatch, error) {
+func (updateBatch *UpdateBatch) Delete(key []byte, context *dbobject.DVV) (*UpdateBatch, error) {
     if len(key) == 0 {
         log.Warningf("Passed an empty key to Delete(%v, %v)", key, context)
         
@@ -533,13 +532,13 @@ func (updateBatch *UpdateBatch) Delete(key []byte, context *DVV) (*UpdateBatch, 
 }
 
 type SiblingSetIterator struct {
-    dbIterator Iterator
+    dbIterator storage.Iterator
     parseError error
     currentKey []byte
-    currentValue *SiblingSet
+    currentValue *dbobject.SiblingSet
 }
 
-func NewSiblingSetIterator(dbIterator Iterator) *SiblingSetIterator {
+func NewSiblingSetIterator(dbIterator storage.Iterator) *SiblingSetIterator {
     return &SiblingSetIterator{ dbIterator, nil, nil, nil }
 }
 
@@ -555,7 +554,7 @@ func (ssIterator *SiblingSetIterator) Next() bool {
         return false
     }
 
-    var siblingSet SiblingSet
+    var siblingSet dbobject.SiblingSet
     
     ssIterator.parseError = siblingSet.Decode(ssIterator.dbIterator.Value())
     
@@ -585,7 +584,7 @@ func (ssIterator *SiblingSetIterator) Key() []byte {
     return decodePartitionDataKey(ssIterator.currentKey)
 }
 
-func (ssIterator *SiblingSetIterator) Value() *SiblingSet {
+func (ssIterator *SiblingSetIterator) Value() *dbobject.SiblingSet {
     return ssIterator.currentValue
 }
 

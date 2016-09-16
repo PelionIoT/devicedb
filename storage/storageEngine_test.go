@@ -1,7 +1,7 @@
-package devicedb_test
+package storage_test
 
 import (
-	. "devicedb"
+	. "devicedb/storage"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"

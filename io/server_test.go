@@ -1,4 +1,4 @@
-package devicedb_test
+package io_test
 
 import (
     "fmt"
@@ -7,12 +7,23 @@ import (
     "bytes"
     "encoding/json"
     "bufio"
+    "testing"
+    "sync"
     
-	. "devicedb"
+	. "devicedb/io"
+	. "devicedb/dbobject"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
+
+func url(u string, server *Server) string {
+    return "http://localhost:" + fmt.Sprintf("%d", server.Port()) + u
+}
+
+func buffer(j string) *bytes.Buffer {
+    return bytes.NewBuffer([]byte(j))
+}
 
 var _ = Describe("Server", func() {
     var client *http.Client
@@ -35,14 +46,6 @@ var _ = Describe("Server", func() {
         server.Stop()
         <-stop
     })
-        
-    url := func(u string, server *Server) string {
-        return "http://localhost:" + fmt.Sprintf("%d", server.Port()) + u
-    }
-    
-    buffer := func(j string) *bytes.Buffer {
-        return bytes.NewBuffer([]byte(j))
-    }
     
     Describe("POST /{bucket}/values", func() {
         Context("The values being queried are empty", func() {
@@ -283,3 +286,53 @@ var _ = Describe("Server", func() {
         })
     })
 })
+
+func BenchmarkParallelBatchRequests(b *testing.B) {
+    var client *http.Client
+    var server *Server
+    stop := make(chan int)
+    
+    client = &http.Client{ Transport: &http.Transport{ MaxIdleConns: 10000 } }
+    server, _ = NewServer("/tmp/testdb-" + randomString())
+        
+    go func() {
+        server.Start()
+        stop <- 1
+    }()
+    
+    time.Sleep(time.Millisecond*100)
+    
+    var wg sync.WaitGroup
+    
+    c := 0
+    fmt.Println("start 3")
+    
+    for i := 0; i < b.N; i += 1 {
+        c += 1
+        wg.Add(1)
+        
+        //go func() {
+            updateBatch := NewUpdateBatch()
+            updateBatch.Put([]byte("key"+randomString()), []byte("value"+randomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            jsonBytes, _ := updateBatch.ToJSON()
+            
+            fmt.Println("JSON", string(jsonBytes))
+        
+            resp, err := client.Post(url("/asdf/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
+            
+            if err != nil {
+                fmt.Println(err)
+            } else {
+                resp.Body.Close()
+            }
+            
+            wg.Done()
+        //}()
+    }
+    
+    wg.Wait()
+    fmt.Println("3", c)
+    
+    server.Stop()
+    <-stop
+}

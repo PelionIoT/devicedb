@@ -1,4 +1,4 @@
-package devicedb
+package dbobject
 
 import (
     "encoding/json"
@@ -200,6 +200,8 @@ func (siblingSet *SiblingSet) UnmarshalBinary(data []byte) error {
 }
 
 func (siblingSet *SiblingSet) Encode() []byte {
+    b, _ := siblingSet.MarshalJSON()
+    return b
     var encoding bytes.Buffer
     
     encoder := gob.NewEncoder(&encoding)
@@ -210,6 +212,7 @@ func (siblingSet *SiblingSet) Encode() []byte {
 }
 
 func (siblingSet *SiblingSet) Decode(encodedSiblingSet []byte) error {
+    return siblingSet.UnmarshalJSON(encodedSiblingSet)
     encodedBuffer := bytes.NewBuffer(encodedSiblingSet)
     decoder := gob.NewDecoder(encodedBuffer)
     

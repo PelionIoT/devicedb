@@ -1,9 +1,9 @@
-package devicedb_test
+package dbobject_test
 
 import (
     "reflect"
     
-	. "devicedb"
+	. "devicedb/dbobject"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"

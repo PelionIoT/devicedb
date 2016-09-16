@@ -1,4 +1,4 @@
-package devicedb
+package dbobject
 
 import (
     "encoding/gob"
