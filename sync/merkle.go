@@ -13,6 +13,7 @@ import (
     "unsafe"
     "strconv"
     "devicedb/dbobject"
+    "sync"
 )
 
 // MerkleMaxDepth should never exceed 32
@@ -23,6 +24,7 @@ const MerkleMaxDepth uint8 = 28 // 4GB
 type MerkleTree struct {
     depth uint8
     nodes []dbobject.Hash
+    updateLock sync.Mutex
 }
 
 func NewMerkleTree(depth uint8) (*MerkleTree, error) {
@@ -32,7 +34,8 @@ func NewMerkleTree(depth uint8) (*MerkleTree, error) {
     
     nodes := make([]dbobject.Hash, uint32(math.Pow(float64(2), float64(depth))))
     
-    return &MerkleTree{depth, nodes}, nil
+    var updateLock sync.Mutex
+    return &MerkleTree{depth, nodes, updateLock}, nil
 }
 
 func (tree *MerkleTree) RootHash() dbobject.Hash {
@@ -65,7 +68,18 @@ func (tree *MerkleTree) SetNodeHash(nodeID uint32, hash dbobject.Hash) {
     tree.nodes[nodeID] = hash
 }
 
+func (tree *MerkleTree) LeafNode(key []byte) uint32 {
+    keyHash := dbobject.NewHash(key)
+    
+    return LeafNode(&keyHash, tree.depth)
+}
+
+// this
 func (tree *MerkleTree) UpdateLeafHash(nodeID uint32, hash dbobject.Hash) {
+    tree.updateLock.Lock()
+    
+    defer tree.updateLock.Unlock()
+    
     if !tree.IsLeaf(nodeID) {
         return
     }
@@ -90,7 +104,12 @@ func (tree *MerkleTree) IsLeaf(nodeID uint32) bool {
     return nodeID & 0x1 == 1 && nodeID < (1 << tree.Depth())
 }
 
+// this
 func (tree *MerkleTree) Update(update *dbobject.Update) (map[uint32]bool, map[uint32]map[string]dbobject.Hash) {
+    tree.updateLock.Lock()
+    
+    defer tree.updateLock.Unlock()
+    
     modifiedNodes := make(map[uint32]bool)
     objectHashes := make(map[uint32]map[string]dbobject.Hash)
     nodeQueue := NewQueue(uint32(update.Size()))

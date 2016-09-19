@@ -10,6 +10,7 @@ import (
     "devicedb/crstrategies"
     "devicedb/storage"
     "devicedb/sync"
+    "sort"
 )
 
 const MAX_SORTING_KEY_LENGTH = 255
@@ -75,6 +76,7 @@ type Node struct {
     storageDriver storage.StorageDriver
     merkleTree *sync.MerkleTree
     multiLock *MultiLock
+    merkleLock *MultiLock
     resolveConflicts crstrategies.ConflictResolutionStrategy
 }
 
@@ -83,7 +85,7 @@ func NewNode(id string, storageDriver storage.StorageDriver, merkleDepth uint8, 
         resolveConflicts = crstrategies.Default
     }
     
-    node := Node{ id, storageDriver, nil, NewMultiLock(), resolveConflicts }
+    node := Node{ id, storageDriver, nil, NewMultiLock(), NewMultiLock(), resolveConflicts }
     node.merkleTree, _ = sync.NewMerkleTree(merkleDepth)
     
     err := node.initializeMerkleTree()
@@ -323,6 +325,9 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*dbobject.SiblingSet, er
         
         keys = append(keys, keyBytes)
     }
+    
+    node.lock(keys)
+    defer node.unlock(keys)
 
     merkleTree := node.merkleTree
     siblingSets, err := node.updateInit(keys)
@@ -370,7 +375,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*dbobject.SiblingSet, er
     
     if err != nil {
         log.Errorf("Storage driver error in Batch(%v): %s", batch, err.Error())
-            
+        
         return nil, EStorage
     }
     
@@ -389,6 +394,9 @@ func (node *Node) Merge(siblingSets map[string]*dbobject.SiblingSet) error {
     for key, _ := range siblingSets {
         keys = append(keys, []byte(key))
     }
+    
+    node.lock(keys)
+    defer node.unlock(keys)
     
     merkleTree := node.merkleTree
     siblingSets, err := node.updateInit(keys)
@@ -418,6 +426,56 @@ func (node *Node) Merge(siblingSets map[string]*dbobject.SiblingSet) error {
     }
     
     return nil
+}
+
+func (node *Node) sortedLockKeys(keys [][]byte) ([]string, []string) {
+    leafSet := make(map[string]bool, len(keys))
+    keyStrings := make([]string, 0, len(keys))
+    nodeStrings := make([]string, 0, len(keys))
+    
+    for _, key := range keys {
+        keyStrings = append(keyStrings, string(key))
+        leafSet[string(nodeBytes(node.merkleTree.LeafNode(key)))] = true
+    }
+    
+    for node, _ := range leafSet {
+        nodeStrings = append(nodeStrings, node)
+    }
+    
+    sort.Strings(keyStrings)
+    sort.Strings(nodeStrings)
+    
+    return keyStrings, nodeStrings
+}
+
+func (node *Node) lock(keys [][]byte) {
+    keyStrings, nodeStrings := node.sortedLockKeys(keys)
+    
+    for _, key := range keyStrings {
+        node.multiLock.Lock([]byte(key))
+    }
+    
+    for _, key := range nodeStrings {
+        node.merkleLock.Lock([]byte(key))
+    }
+}
+
+func (node *Node) unlock(keys [][]byte) {
+    tKeys := make([][]byte, 0, len(keys))
+    
+    for _, key := range keys {
+        tKeys = append(tKeys, key[1:])
+    }
+    
+    keyStrings, nodeStrings := node.sortedLockKeys(tKeys)
+    
+    for _, key := range keyStrings {
+        node.multiLock.Unlock([]byte(key))
+    }
+    
+    for _, key := range nodeStrings {
+        node.merkleLock.Unlock([]byte(key))
+    }
 }
 
 type UpdateBatch struct {
