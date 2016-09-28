@@ -7,8 +7,6 @@ import (
     "bytes"
     "encoding/json"
     "bufio"
-    "testing"
-    "sync"
     
 	. "devicedb/io"
 	. "devicedb/dbobject"
