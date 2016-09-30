@@ -18,8 +18,8 @@ func NewHash(input []byte) Hash {
     
     sum := md5.Sum(input)
     
-    newHash.hash[0] = binary.BigEndian.Uint64(sum[0:8])
-    newHash.hash[1] = binary.BigEndian.Uint64(sum[8:16])
+    newHash.hash[1] = binary.BigEndian.Uint64(sum[0:8])
+    newHash.hash[0] = binary.BigEndian.Uint64(sum[8:16])
     
     return newHash
 }
@@ -31,8 +31,8 @@ func (hash Hash) Xor(otherHash Hash) Hash {
 func (hash Hash) Bytes() [16]byte {
     var result [16]byte
     
-    binary.BigEndian.PutUint64(result[0:8], hash.hash[0])
-    binary.BigEndian.PutUint64(result[8:16], hash.hash[1])
+    binary.BigEndian.PutUint64(result[0:8], hash.hash[1])
+    binary.BigEndian.PutUint64(result[8:16], hash.hash[0])
     
     return result
 }
