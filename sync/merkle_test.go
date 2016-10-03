@@ -52,15 +52,15 @@ var _ = Describe("Merkle", func() {
             const depth uint8 = 10
             
             for i := 0; i < (1 << depth); i++ {
-                var hash Hash = Hash{ }.SetHigh(0).SetLow(uint64(i))
-                var shiftAmount uint8 = uint8(unsafe.Sizeof(hash.Low()))*8 - depth
+                var hash Hash = Hash{ }.SetHigh(uint64(i)).SetLow(0)
+                var shiftAmount uint8 = uint8(unsafe.Sizeof(hash.High()))*8 - depth
                 
-                hash = hash.SetLow(hash.Low() << shiftAmount)
+                hash = hash.SetHigh(hash.High() << shiftAmount)
                 
                 Expect(LeafNode(&hash, depth)).Should(Equal(uint32(i | 0x1)))
             }
             
-            var hash Hash = Hash{ }.SetHigh(0).SetLow(math.MaxUint64)
+            var hash Hash = Hash{ }.SetHigh(math.MaxUint64).SetLow(0)
             Expect(LeafNode(&hash, depth)).Should(Equal(uint32((1 << depth) - 1)))
         })
     })

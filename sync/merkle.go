@@ -157,8 +157,8 @@ func LeafNode(keyHash *dbobject.Hash, depth uint8) uint32 {
     // need to force hash value into depth bytes
     // max: 64 - 1:  63 -> normalizedHash: [0, 1]
     // min: 64 - 28: 36 -> normalizedHash: [0, 268435455]
-    var shiftAmount uint8 = uint8(unsafe.Sizeof(keyHash.Low()))*8 - depth
-    var normalizedHash uint32 = uint32(keyHash.Low() >> shiftAmount)
+    var shiftAmount uint8 = uint8(unsafe.Sizeof(keyHash.High()))*8 - depth
+    var normalizedHash uint32 = uint32(keyHash.High() >> shiftAmount)
     
     return normalizedHash | 0x1
 }
