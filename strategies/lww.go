@@ -1,4 +1,4 @@
-package crstrategies
+package strategies
 
 import (
     "devicedb/dbobject"

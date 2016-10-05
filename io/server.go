@@ -9,7 +9,7 @@ import (
     "time"
     "github.com/gorilla/mux"
     "devicedb/storage"
-    "devicedb/crstrategies"
+    "devicedb/strategies"
     "devicedb/sync"
 )
 
@@ -55,7 +55,7 @@ func NewServer(dbFile string) (*Server, error) {
     
     defaultNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), sync.MerkleDefaultDepth, nil)
     cloudNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), sync.MerkleDefaultDepth, nil) 
-    lwwNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), sync.MerkleDefaultDepth, crstrategies.LastWriterWins)
+    lwwNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), sync.MerkleDefaultDepth, strategies.LastWriterWins)
     
     server.bucketList.AddBucket("default", defaultNode, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ })

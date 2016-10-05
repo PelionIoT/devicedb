@@ -7,7 +7,7 @@ import (
     "time"
     "errors"
     "devicedb/dbobject"
-    "devicedb/crstrategies"
+    "devicedb/strategies"
     "devicedb/storage"
     "devicedb/sync"
     "sort"
@@ -77,12 +77,12 @@ type Node struct {
     merkleTree *sync.MerkleTree
     multiLock *MultiLock
     merkleLock *MultiLock
-    resolveConflicts crstrategies.ConflictResolutionStrategy
+    resolveConflicts strategies.ConflictResolutionStrategy
 }
 
-func NewNode(id string, storageDriver storage.StorageDriver, merkleDepth uint8, resolveConflicts crstrategies.ConflictResolutionStrategy) (*Node, error) {
+func NewNode(id string, storageDriver storage.StorageDriver, merkleDepth uint8, resolveConflicts strategies.ConflictResolutionStrategy) (*Node, error) {
     if resolveConflicts == nil {
-        resolveConflicts = crstrategies.Default
+        resolveConflicts = strategies.Default
     }
     
     node := Node{ id, storageDriver, nil, NewMultiLock(), NewMultiLock(), resolveConflicts }

@@ -5,7 +5,8 @@ import (
     "github.com/op/go-logging"
 )
 
-var log = logging.MustGetLogger("devicedb")
+var Log = logging.MustGetLogger("devicedb")
+var log = Log
 
 func init() {
     var format = logging.MustStringFormatter(`%{color}%{time:15:04:05.000} ▶ %{level:.4s} %{shortfile}%{color:reset} %{message}`)
