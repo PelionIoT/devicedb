@@ -220,9 +220,82 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             return nil
         } else {
             // TODO push to DATABASE
-            return nil
+            return &ObjectHash{ // sending this will request the next item in the iteration
+                NodeID: syncSession.node
+            }
         }
     case 7:
+        return nil
+    }
+}
+
+// the state machine
+type ResponderSyncSession struct {
+    currentState int
+    node uint32
+    maxDepth uint32
+}
+
+func NewSyncSession(rootNode uint32, maxDepth uint32) {
+    return &ResponderSyncSession{ 0, rootNode, maxDepth }
+}
+
+func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessageWrapper) *SyncMessageWrapper {
+    switch syncSession.currentState {
+    case 0:
+        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
+            syncSession.currentState = 3
+            
+            return &Abort{
+                SessionID: 0
+            }
+        }
+        
+        syncSession.currentState = 1
+        
+        return &Start{
+            ProtocolVersion: 1,
+            MerkleDepth: 0,
+            Bucket: "",
+            SessionID: 0
+        }
+    case 1:
+        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH && syncMessageWrapper.MessageType != SYNC_PUSH_MESSAGE {
+            syncSession.currentState = 3
+            
+            return &Abort{
+                SessionID: 0
+            }
+        }
+        
+        if syncMessageWrapper.MessageType == SYNC_NODE_HASH {
+            // TODO include range check for hash and abort if not in our range
+            
+            return &MerkleNodeHash{
+                SessionID: 0,
+                NodeID: 0,
+                HashHigh: 0,
+                HashLow: 0
+            }
+        } else {
+            // if items to iterate over, send first
+            syncSession.currentState = 2
+            
+            return &PushMessage{
+            }
+        }
+    case 2:
+        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_PUSH_MESSAGE {
+            syncSession.currentState = 3
+            
+            return &Abort{
+                SessionID: 0
+            }
+        }
+        
+        return &PushMessage{
+        }
+    case 3:
         return nil
     }
 }
