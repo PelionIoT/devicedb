@@ -78,9 +78,10 @@ type InitiatorSyncSession struct {
     currentState int
     node uint32
     maxDepth uint32
+    bucket *Bucket
 }
 
-func NewSyncSession(rootNode uint32, maxDepth uint32) {
+func NewInitiatorSyncSession(rootNode uint32, maxDepth uint32) {
     return &InitiatorSyncSession{ 0, rootNode, maxDepth }
 }
 
@@ -234,9 +235,10 @@ type ResponderSyncSession struct {
     currentState int
     node uint32
     maxDepth uint32
+    bucket *Bucket
 }
 
-func NewSyncSession(rootNode uint32, maxDepth uint32) {
+func NewResponderSyncSession(rootNode uint32, maxDepth uint32) {
     return &ResponderSyncSession{ 0, rootNode, maxDepth }
 }
 
