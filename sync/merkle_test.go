@@ -65,6 +65,21 @@ var _ = Describe("Merkle", func() {
         })
     })
     
+    Describe("#RootNode", func() {
+        It("Should return the root node of the tree", func() {
+            const depth uint8 = 4
+            merkleTree, _ := NewMerkleTree(depth)
+            
+            Expect(merkleTree.RootNode()).Should(Equal(uint32(8)))
+            Expect(merkleTree.LeftChild(8)).Should(Equal(uint32(4)))
+            Expect(merkleTree.RightChild(8)).Should(Equal(uint32(12)))
+            Expect(merkleTree.LeftChild(2)).Should(Equal(uint32(1)))
+            Expect(merkleTree.RightChild(2)).Should(Equal(uint32(3)))
+            Expect(merkleTree.LeftChild(1)).Should(Equal(uint32(1)))
+            Expect(merkleTree.RightChild(1)).Should(Equal(uint32(1)))
+        })
+    })
+    
     Describe("#ParentNode", func() {
         It("Should return the leaf node corresponding to a certain hash", func() {
             type nodeRange struct {

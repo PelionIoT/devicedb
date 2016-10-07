@@ -74,6 +74,26 @@ func (tree *MerkleTree) LeafNode(key []byte) uint32 {
     return LeafNode(&keyHash, tree.depth)
 }
 
+func (tree *MerkleTree) RootNode() uint32 {
+    return 1 << (tree.depth - 1)
+}
+
+func (tree *MerkleTree) LeftChild(node uint32) uint32 {
+    if node & 0x1 == 0x1 {
+        return node
+    }
+    
+    return node - (1 << (CountTrailingZeros(node) - 1))
+}
+
+func (tree *MerkleTree) RightChild(node uint32) uint32 {
+    if node & 0x1 == 0x1 {
+        return node
+    }
+    
+    return node + (1 << (CountTrailingZeros(node) - 1))
+}
+
 // this
 func (tree *MerkleTree) UpdateLeafHash(nodeID uint32, hash dbobject.Hash) {
     tree.updateLock.Lock()
