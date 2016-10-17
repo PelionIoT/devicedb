@@ -137,6 +137,10 @@ func (node *Node) initializeMerkleTree() error {
     return nil
 }
 
+func (node *Node) MerkleTree() *sync.MerkleTree {
+    return node.merkleTree
+}
+
 func (node *Node) ID() string {
     return node.id
 }
@@ -226,6 +230,25 @@ func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
     if err != nil {
         log.Errorf("Storage driver error in GetMatches(%v): %s", keys, err.Error())
             
+        return nil, EStorage
+    }
+    
+    return NewSiblingSetIterator(iter), nil
+}
+
+func (node *Node) GetSyncChildren(nodeID uint32) (*SiblingSetIterator, error) {
+    if nodeID >= node.merkleTree.NodeLimit() {
+        return nil, EMerkleRange
+    }
+    
+    min := encodePartitionMerkleLeafKey(node.merkleTree.SubRangeMin(nodeID), []byte{})
+    max := encodePartitionMerkleLeafKey(node.merkleTree.SubRangeMax(nodeID), []byte{})
+    
+    iter, err := node.storageDriver.GetRange(min, max)
+    
+    if err != nil {
+        log.Errorf("Storage driver error in GetSyncChildren(%v): %s", nodeID, err.Error())
+        
         return nil, EStorage
     }
     

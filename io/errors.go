@@ -31,6 +31,7 @@ const (
     eINVALID_KEY = iota
     eINVALID_BUCKET = iota
     eINVALID_BATCH = iota
+    eMERKLE_RANGE = iota
 )
 
 var (
@@ -41,4 +42,5 @@ var (
     EInvalidKey            = DBerror{ "A key was misformatted", eINVALID_KEY }
     EInvalidBucket         = DBerror{ "An invalid bucket was specified", eINVALID_BUCKET }
     EInvalidBatch          = DBerror{ "An invalid batch was specified", eINVALID_BATCH }
+    EMerkleRange           = DBerror{ "An invalid merkle node was requested", eMERKLE_RANGE }
 )

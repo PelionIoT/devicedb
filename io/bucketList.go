@@ -15,6 +15,7 @@ type ReplicationStrategy interface {
 }
 
 type Bucket struct {
+    Name string
     Node *Node
     ReplicationStrategy ReplicationStrategy
 }
@@ -28,7 +29,7 @@ func NewBucketList() *BucketList {
 }
 
 func (bucketList *BucketList) AddBucket(name string, node *Node, replicationStrategy ReplicationStrategy) *BucketList {
-    bucketList.buckets[name] = Bucket{ node, replicationStrategy }
+    bucketList.buckets[name] = Bucket{ name, node, replicationStrategy }
     
     return bucketList
 }

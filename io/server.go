@@ -68,6 +68,10 @@ func (server *Server) Port() int {
     return 8080
 }
 
+func (server *Server) Buckets() *BucketList {
+    return server.bucketList
+}
+
 func (server *Server) Start() error {
     r := mux.NewRouter()
     

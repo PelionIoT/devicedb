@@ -54,6 +54,22 @@ func (tree *MerkleTree) NodeHash(node uint32) dbobject.Hash {
     return tree.nodes[node]
 }
 
+func (tree *MerkleTree) NodeLimit() uint32 {
+    return uint32(len(tree.nodes))
+}
+
+func (tree *MerkleTree) SubRangeMin(nodeID uint32) uint32 {
+    return nodeID - (1 << CountTrailingZeros(nodeID))
+}
+
+func (tree *MerkleTree) SubRangeMax(nodeID uint32) uint32 {
+    return nodeID + (1 << CountTrailingZeros(nodeID))
+}
+
+func (tree *MerkleTree) Level(nodeID uint32) uint8 {
+    return tree.Depth() - uint8(CountTrailingZeros(nodeID))
+}
+
 func (tree *MerkleTree) Depth() uint8 {
     return tree.depth
 }
