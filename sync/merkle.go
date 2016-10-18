@@ -84,6 +84,14 @@ func (tree *MerkleTree) SetNodeHash(nodeID uint32, hash dbobject.Hash) {
     tree.nodes[nodeID] = hash
 }
 
+func (tree *MerkleTree) TranslateNode(nodeID uint32, depth uint8) uint32 {
+    if tree.Depth() < depth {
+        return nodeID << (depth - tree.Depth())
+    }
+    
+    return nodeID >> (tree.Depth() - depth)
+}
+
 func (tree *MerkleTree) LeafNode(key []byte) uint32 {
     keyHash := dbobject.NewHash(key)
     
