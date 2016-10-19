@@ -243,7 +243,11 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_PUSH_MESSAGE {
             syncSession.currentState = END
             
-            return nil
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
+            }
         } else {
             // TODO push to DATABASE
             
@@ -296,14 +300,16 @@ func (syncSession *ResponderSyncSession) SetInitiatorDepth(d uint8) {
     syncSession.theirDepth = d
 }
 
-func (syncSession *InitiatorSyncSession) InitiatorDepth() uint8 {
+func (syncSession *ResponderSyncSession) InitiatorDepth() uint8 {
     return syncSession.theirDepth
 }
 
 func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessageWrapper) *SyncMessageWrapper {
     switch syncSession.currentState {
     case START:
-        syncSession.sessionID = syncMessageWrapper.SessionID
+        if syncMessageWrapper != nil {
+            syncSession.sessionID = syncMessageWrapper.SessionID
+        }
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
             syncSession.currentState = END
@@ -341,7 +347,7 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
         if syncMessageWrapper.MessageType == SYNC_NODE_HASH {
             nodeID := syncMessageWrapper.MessageBody.(MerkleNodeHash).NodeID
             
-            if nodeID >= syncSession.bucket.Node.MerkleTree().NodeLimit() {
+            if nodeID >= syncSession.bucket.Node.MerkleTree().NodeLimit() || nodeID == 0 {
                 syncSession.currentState = END
                 
                 return &SyncMessageWrapper{
@@ -359,7 +365,7 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageBody: MerkleNodeHash{
                     NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(nodeID, syncSession.theirDepth),
                     HashHigh: nodeHash.High(),
-                    HashLow: nodeHash.Low(), 
+                    HashLow: nodeHash.Low(),
                 },
             }
         } else {
@@ -378,6 +384,8 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             }
             
             if !iter.Next() {
+                iter.Release()
+                
                 syncSession.currentState = END
                 
                 return &SyncMessageWrapper{
@@ -401,6 +409,10 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
         }
     case DB_OBJECT_PUSH:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_OBJECT_NEXT {
+            if syncSession.iter != nil {
+                syncSession.iter.Release()
+            }
+                
             syncSession.currentState = END
             
             return &SyncMessageWrapper{
@@ -410,7 +422,11 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             }
         }
         
-        if !syncSession.iter.Next() {
+        if syncSession.iter == nil || !syncSession.iter.Next() {
+            if syncSession.iter != nil {
+                syncSession.iter.Release()
+            }
+            
             syncSession.currentState = END
             
             return &SyncMessageWrapper{

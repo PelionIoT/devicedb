@@ -15,22 +15,14 @@ var _ = Describe("Sync", func() {
     Describe("InitiatorSyncSession", func() {
         Describe("#NextState", func() {
             var server1 *Server
-            var server2 *Server
             stop1 := make(chan int)
-            stop2 := make(chan int)
             
             BeforeEach(func() {
                 server1, _ = NewServer("/tmp/testdb-" + randomString())
-                server2, _ = NewServer("/tmp/testdb-" + randomString())
                 
                 go func() {
                     server1.Start()
                     stop1 <- 1
-                }()
-                
-                go func() {
-                    server2.Start()
-                    stop2 <- 1
                 }()
                 
                 time.Sleep(time.Millisecond * 200)
@@ -38,9 +30,7 @@ var _ = Describe("Sync", func() {
             
             AfterEach(func() {
                 server1.Stop()
-                server2.Stop()
                 <-stop1
-                <-stop2
             })
             
             It("START -> HANDSHAKE", func() {
@@ -440,7 +430,9 @@ var _ = Describe("Sync", func() {
                 
                 req := initiatorSyncSession.NextState(nil)
                 
-                Expect(req).Should(BeNil())
+                Expect(req.SessionID).Should(Equal(uint(123)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(initiatorSyncSession.State()).Should(Equal(END))
                 Expect(initiatorSyncSession.State()).Should(Equal(END))
             })
             
@@ -455,7 +447,9 @@ var _ = Describe("Sync", func() {
                     MessageBody: Abort{ },
                 })
                 
-                Expect(req).Should(BeNil())
+                Expect(req.SessionID).Should(Equal(uint(123)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(initiatorSyncSession.State()).Should(Equal(END))
                 Expect(initiatorSyncSession.State()).Should(Equal(END))
             })
             
@@ -481,6 +475,194 @@ var _ = Describe("Sync", func() {
                 Expect(req.MessageType).Should(Equal(SYNC_OBJECT_NEXT))
                 Expect(req.MessageBody.(ObjectNext).NodeID).Should(Equal(server1.Buckets().Get("default").Node.MerkleTree().TranslateNode(initiatorSyncSession.CurrentNode(), 2)))
                 Expect(initiatorSyncSession.State()).Should(Equal(DB_OBJECT_PUSH))
+            })
+        })
+    })
+    
+    Describe("ResponderSyncSession", func() {
+        Describe("#NextState", func() {
+            var server1 *Server
+            stop1 := make(chan int)
+            
+            BeforeEach(func() {
+                server1, _ = NewServer("/tmp/testdb-" + randomString())
+                
+                go func() {
+                    server1.Start()
+                    stop1 <- 1
+                }()
+                
+                time.Sleep(time.Millisecond * 200)
+            })
+            
+            AfterEach(func() {
+                server1.Stop()
+                <-stop1
+            })
+            
+            It("START -> END nil message", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(START)
+                
+                req := responderSyncSession.NextState(nil)
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
+            })
+            
+            It("START -> END non nil message", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(START)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_ABORT,
+                    MessageBody: Abort{ },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(123)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
+            })
+            
+            It("START -> HASH_COMPARE", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(START)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_START,
+                    MessageBody: Start{
+                        ProtocolVersion: PROTOCOL_VERSION,
+                        MerkleDepth: 10,
+                        Bucket: "default",
+                    },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(123)))
+                Expect(req.MessageType).Should(Equal(SYNC_START))
+                Expect(req.MessageBody.(Start).ProtocolVersion).Should(Equal(PROTOCOL_VERSION))
+                Expect(req.MessageBody.(Start).MerkleDepth).Should(Equal(server1.Buckets().Get("default").Node.MerkleTree().Depth()))
+                Expect(req.MessageBody.(Start).Bucket).Should(Equal("default"))
+                Expect(responderSyncSession.State()).Should(Equal(HASH_COMPARE))
+                Expect(responderSyncSession.InitiatorDepth()).Should(Equal(uint8(10)))
+            })
+            
+            It("HASH_COMPARE -> END nil message", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(HASH_COMPARE)
+                
+                req := responderSyncSession.NextState(nil)
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
+            })
+            
+            It("HASH_COMPARE -> END non nil message", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(HASH_COMPARE)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_ABORT,
+                    MessageBody: Abort{ },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
+            })
+            
+            It("HASH_COMPARE -> END SYNC_NODE_HASH message with 0 node ID", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(HASH_COMPARE)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_NODE_HASH,
+                    MessageBody: MerkleNodeHash{ 
+                        NodeID: 0,
+                        HashHigh: 0,
+                        HashLow: 0,
+                    },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
+            })
+            
+            It("HASH_COMPARE -> END SYNC_NODE_HASH message with limit node ID", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(HASH_COMPARE)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_NODE_HASH,
+                    MessageBody: MerkleNodeHash{ 
+                        NodeID: server1.Buckets().Get("default").Node.MerkleTree().NodeLimit(),
+                        HashHigh: 0,
+                        HashLow: 0,
+                    },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
+            })
+            
+            It("HASH_COMPARE -> HASH_COMPARE", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetInitiatorDepth(3)
+                responderSyncSession.SetState(HASH_COMPARE)
+                
+                nodeID := server1.Buckets().Get("default").Node.MerkleTree().NodeLimit() - 1
+                nodeHash := server1.Buckets().Get("default").Node.MerkleTree().NodeHash(nodeID)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_NODE_HASH,
+                    MessageBody: MerkleNodeHash{ 
+                        NodeID: nodeID,
+                        HashHigh: 0,
+                        HashLow: 0,
+                    },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_NODE_HASH))
+                Expect(req.MessageBody.(MerkleNodeHash).NodeID).Should(Equal(server1.Buckets().Get("default").Node.MerkleTree().TranslateNode(nodeID, 3)))
+                Expect(req.MessageBody.(MerkleNodeHash).HashHigh).Should(Equal(nodeHash.High()))
+                Expect(req.MessageBody.(MerkleNodeHash).HashLow).Should(Equal(nodeHash.Low()))
+                Expect(responderSyncSession.State()).Should(Equal(HASH_COMPARE))
+            })
+            
+            It("HASH_COMPARE -> END SYNC_OBJECT_NEXT message with empty node", func() {
+                responderSyncSession := NewResponderSyncSession(server1.Buckets().Get("default"))
+                
+                responderSyncSession.SetState(HASH_COMPARE)
+                
+                req := responderSyncSession.NextState(&SyncMessageWrapper{
+                    SessionID: 123,
+                    MessageType: SYNC_OBJECT_NEXT,
+                    MessageBody: ObjectNext{ 
+                        NodeID: 1,
+                    },
+                })
+                
+                Expect(req.SessionID).Should(Equal(uint(0)))
+                Expect(req.MessageType).Should(Equal(SYNC_ABORT))
+                Expect(responderSyncSession.State()).Should(Equal(END))
             })
         })
     })
