@@ -15,6 +15,21 @@ const (
     END = iota
 )
 
+func StateName(s int) string {
+    names := map[int]string{
+        START: "START",
+        HANDSHAKE: "HANDSHAKE",
+        ROOT_HASH_COMPARE: "ROOT_HASH_COMPARE",
+        LEFT_HASH_COMPARE: "LEFT_HASH_COMPARE",
+        RIGHT_HASH_COMPARE: "RIGHT_HASH_COMPARE",
+        HASH_COMPARE: "HASH_COMPARE",
+        DB_OBJECT_PUSH: "DB_OBJECT_PUSH",
+        END: "END",
+    }
+    
+    return names[s]
+}
+
 const PROTOCOL_VERSION uint = 1
 
 // the state machine
@@ -249,7 +264,20 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageBody: Abort{ },
             }
         } else {
-            // TODO push to DATABASE
+            var key string = syncMessageWrapper.MessageBody.(PushMessage).Key
+            var siblingSet *dbobject.SiblingSet = syncMessageWrapper.MessageBody.(PushMessage).Value
+            
+            err := syncSession.bucket.Node.Merge(map[string]*dbobject.SiblingSet{ key: siblingSet })
+            
+            if err != nil {
+                syncSession.currentState = END
+            
+                return &SyncMessageWrapper{
+                    SessionID: syncSession.sessionID,
+                    MessageType: SYNC_ABORT,
+                    MessageBody: Abort{ },
+                }
+            }
             
             return &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
@@ -274,7 +302,7 @@ type ResponderSyncSession struct {
     maxDepth uint8
     theirDepth uint8
     bucket Bucket
-    iter *SiblingSetIterator
+    iter *MerkleChildrenIterator
 }
 
 func NewResponderSyncSession(bucket Bucket) *ResponderSyncSession {
@@ -374,6 +402,7 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             iter, err := syncSession.bucket.Node.GetSyncChildren(nodeID)
             
             if err != nil {
+                log.Info("E1")
                 syncSession.currentState = END
                 
                 return &SyncMessageWrapper{
@@ -384,6 +413,7 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             }
             
             if !iter.Next() {
+                log.Info("E2")
                 iter.Release()
                 
                 syncSession.currentState = END

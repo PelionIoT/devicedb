@@ -30,7 +30,7 @@ var _ = Describe("Server", func() {
     
     BeforeEach(func() {
         client = &http.Client{ Transport: &http.Transport{ DisableKeepAlives: true } }
-        server, _ = NewServer("/tmp/testdb-" + randomString())
+        server, _ = NewServer("/tmp/testdb-" + randomString(), 8080)
         
         go func() {
             server.Start()

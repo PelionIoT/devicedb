@@ -184,6 +184,10 @@ type PrefixedIterator struct {
     iterator Iterator
 }
 
+func NewPrefixedIterator(iter Iterator, prefix []byte) *PrefixedIterator {
+    return &PrefixedIterator{ prefix, iter }
+}
+
 func (prefixedIterator *PrefixedIterator) Next() bool {
     return prefixedIterator.iterator.Next()
 }

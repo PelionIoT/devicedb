@@ -7,6 +7,7 @@ import (
     "net/http"
     "encoding/json"
     "time"
+    "strconv"
     "github.com/gorilla/mux"
     "devicedb/storage"
     "devicedb/strategies"
@@ -40,11 +41,12 @@ type Server struct {
     httpServer *http.Server
     listener net.Listener
     storageDriver storage.StorageDriver
+    port int
 }
 
-func NewServer(dbFile string) (*Server, error) {
+func NewServer(dbFile string, port int) (*Server, error) {
     storageDriver := storage.NewLevelDBStorageDriver(dbFile, nil)
-    server := &Server{ NewBucketList(), nil, nil, storageDriver }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, port }
     nodeID := "nodeA"
     err := server.storageDriver.Open()
     
@@ -65,7 +67,7 @@ func NewServer(dbFile string) (*Server, error) {
 }
 
 func (server *Server) Port() int {
-    return 8080
+    return server.port
 }
 
 func (server *Server) Buckets() *BucketList {
@@ -284,7 +286,7 @@ func (server *Server) Start() error {
         ReadTimeout: 15 * time.Second,
     }
     
-    listener, err := net.Listen("tcp", "0.0.0.0:8080")
+    listener, err := net.Listen("tcp", "0.0.0.0:" + strconv.Itoa(server.Port()))
     
     if err != nil {
         server.Stop()

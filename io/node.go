@@ -71,6 +71,16 @@ func encodePartitionMerkleLeafKey(nodeID uint32, k []byte) []byte {
     return result
 }
 
+func decodePartitionMerkleLeafKey(k []byte) (uint32, []byte, error) {
+    if len(k) < len(PARTITION_MERKLE_LEAF_PREFIX) + 5 {
+        return 0, nil, errors.New("Invalid partition merkle leaf key")
+    }
+    
+    k = k[len(PARTITION_MERKLE_LEAF_PREFIX):]
+    
+    return binary.BigEndian.Uint32(k[:4]), k[4:], nil
+}
+
 type Node struct {
     id string
     storageDriver storage.StorageDriver
@@ -236,7 +246,7 @@ func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
     return NewSiblingSetIterator(iter), nil
 }
 
-func (node *Node) GetSyncChildren(nodeID uint32) (*SiblingSetIterator, error) {
+func (node *Node) GetSyncChildren(nodeID uint32) (*MerkleChildrenIterator, error) {
     if nodeID >= node.merkleTree.NodeLimit() {
         return nil, EMerkleRange
     }
@@ -251,8 +261,8 @@ func (node *Node) GetSyncChildren(nodeID uint32) (*SiblingSetIterator, error) {
         
         return nil, EStorage
     }
-    
-    return NewSiblingSetIterator(iter), nil
+
+    return NewMerkleChildrenIterator(iter, node.storageDriver), nil
 }
 
 func (node *Node) updateInit(keys [][]byte) (map[string]*dbobject.SiblingSet, error) {
@@ -422,7 +432,7 @@ func (node *Node) Merge(siblingSets map[string]*dbobject.SiblingSet) error {
     defer node.unlock(keys)
     
     merkleTree := node.merkleTree
-    siblingSets, err := node.updateInit(keys)
+    mySiblingSets, err := node.updateInit(keys)
     
     if err != nil {
         return err
@@ -431,8 +441,18 @@ func (node *Node) Merge(siblingSets map[string]*dbobject.SiblingSet) error {
     update := dbobject.NewUpdate()
         
     for _, key := range keys {
+        key = decodePartitionDataKey(key)
         siblingSet := siblingSets[string(key)]
-        mySiblingSet := siblingSets[string(key)]
+        mySiblingSet := mySiblingSets[string(key)]
+        
+        if siblingSet == nil {
+            continue
+        }
+        
+        if mySiblingSet == nil {
+            mySiblingSet = dbobject.NewSiblingSet(map[*dbobject.Sibling]bool{ })
+        }
+        
         updatedSiblingSet := siblingSet.Sync(mySiblingSet)
         
         for sibling := range updatedSiblingSet.Iter() {
@@ -612,6 +632,101 @@ func (updateBatch *UpdateBatch) Delete(key []byte, context *dbobject.DVV) (*Upda
     return updateBatch, nil
 }
 
+type MerkleChildrenIterator struct {
+    dbIterator storage.Iterator
+    storageDriver storage.StorageDriver
+    parseError error
+    currentKey []byte
+    currentValue *dbobject.SiblingSet
+}
+
+func NewMerkleChildrenIterator(iter storage.Iterator, storageDriver storage.StorageDriver) *MerkleChildrenIterator {
+    return &MerkleChildrenIterator{ iter, storageDriver, nil, nil, nil }
+    // not actually the prefix for all keys in the range, but it will be a consistent length
+    // prefix := encodePartitionMerkleLeafKey(nodeID, []byte{ })
+}
+
+func (mIterator *MerkleChildrenIterator) Next() bool {
+    mIterator.currentKey = nil
+    mIterator.currentValue = nil
+    
+    if !mIterator.dbIterator.Next() {
+        if mIterator.dbIterator.Error() != nil {
+            log.Errorf("Storage driver error in Next(): %s", mIterator.dbIterator.Error())
+        }
+        
+        mIterator.Release()
+        
+        return false
+    }
+    
+    _, key, err := decodePartitionMerkleLeafKey(mIterator.dbIterator.Key())
+    
+    if err != nil {
+        log.Errorf("Corrupt partition merkle leaf key in Next(): %v", mIterator.dbIterator.Key())
+        
+        mIterator.Release()
+        
+        return false
+    }
+    
+    values, err := mIterator.storageDriver.Get([][]byte{ encodePartitionDataKey(key) })
+    
+    if err != nil {
+        log.Errorf("Storage driver error in Next(): %s", err)
+        
+        mIterator.Release()
+        
+        return false
+    }
+    
+    value := values[0]
+
+    var siblingSet dbobject.SiblingSet
+    
+    mIterator.parseError = siblingSet.Decode(value)
+    
+    log.Infof("Key = %s", string(key))
+    log.Infof("Value = %s", string(value))
+    
+    if mIterator.parseError != nil {
+        log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", key, value, mIterator.parseError.Error())
+        
+        mIterator.Release()
+        
+        return false
+    }
+    
+    mIterator.currentKey = key
+    mIterator.currentValue = &siblingSet
+    
+    return true
+}
+
+func (mIterator *MerkleChildrenIterator) Key() []byte {
+    return mIterator.currentKey
+}
+
+func (mIterator *MerkleChildrenIterator) Value() *dbobject.SiblingSet {
+    return mIterator.currentValue
+}
+
+func (mIterator *MerkleChildrenIterator) Release() {
+    mIterator.dbIterator.Release()
+}
+
+func (mIterator *MerkleChildrenIterator) Error() error {
+    if mIterator.parseError != nil {
+        return EStorage
+    }
+        
+    if mIterator.dbIterator.Error() != nil {
+        return EStorage
+    }
+    
+    return nil
+}
+
 type SiblingSetIterator struct {
     dbIterator storage.Iterator
     parseError error
@@ -638,6 +753,9 @@ func (ssIterator *SiblingSetIterator) Next() bool {
     var siblingSet dbobject.SiblingSet
     
     ssIterator.parseError = siblingSet.Decode(ssIterator.dbIterator.Value())
+    
+    log.Infof("Key = %s\n", string(decodePartitionDataKey(ssIterator.dbIterator.Key())))
+    log.Infof("Value = %s\n", string(ssIterator.dbIterator.Value()))
     
     if ssIterator.parseError != nil {
         log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", ssIterator.dbIterator.Key(), ssIterator.dbIterator.Value(), ssIterator.parseError.Error())
