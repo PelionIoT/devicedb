@@ -184,6 +184,13 @@ var _ = Describe("Sync", func() {
                     for _, k := range keys2 {
                         Expect(get(server1.Buckets().Get("default"), k)).Should(Equal(get(server2.Buckets().Get("default"), k)))
                     }
+                    
+                    for i := uint32(1); i < server1.Buckets().Get("default").Node.MerkleTree().NodeLimit(); i += 1 {
+                        v1 := server1.Buckets().Get("default").Node.MerkleTree().NodeHash(i)
+                        v2 := server2.Buckets().Get("default").Node.MerkleTree().NodeHash(i)
+                        
+                        Expect(v1).Should(Equal(v2))
+                    }
                 })
             })
         })
