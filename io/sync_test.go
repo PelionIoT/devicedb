@@ -201,6 +201,86 @@ var _ = Describe("Sync", func() {
                 Expect(server1.Buckets().Get("default").Node.MerkleTree().RootHash()).Should(Not(Equal(NewHash([]byte{ }).SetLow(0).SetHigh(0))))
             })
         })
+        
+        Context("Initiator has a larger merkle depth", func() {
+            var server1 *Server
+            var server2 *Server
+            stop1 := make(chan int)
+            stop2 := make(chan int)
+            
+            BeforeEach(func() {
+                server1, _ = NewServer(ServerConfig{
+                    DBFile: "/tmp/testdb-" + randomString(),
+                    Port: 8080,
+                    MerkleDepth: sync.MerkleDefaultDepth,
+                })
+                
+                server2, _ = NewServer(ServerConfig{
+                    DBFile: "/tmp/testdb-" + randomString(),
+                    Port: 9090,
+                    MerkleDepth: sync.MerkleMinDepth,
+                })
+                
+                go func() {
+                    server1.Start()
+                    stop1 <- 1
+                }()
+                
+                go func() {
+                    server2.Start()
+                    stop2 <- 1
+                }()
+                
+                time.Sleep(time.Millisecond * 200)
+            })
+            
+            AfterEach(func() {
+                server1.Stop()
+                server2.Stop()
+                <-stop1
+                <-stop2
+            })
+            
+            It("should result in the initiator receiving the object it doesn't have", func() {
+                // write a value to key "OBJ1" at the responder
+                updateBatch := NewUpdateBatch()
+                updateBatch.Put([]byte("OBJ1"), []byte("hello"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                _, err := server2.Buckets().Get("default").Node.Batch(updateBatch)
+                
+                Expect(err).Should(BeNil())
+                
+                var message *SyncMessageWrapper = nil
+                direction := 0
+                
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"))
+                responderSyncSession := NewResponderSyncSession(server2.Buckets().Get("default"))
+                
+                for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
+                    if direction == 0 {
+                        message = initiatorSyncSession.NextState(message)
+                        direction = 1
+                    } else {
+                        message = responderSyncSession.NextState(message)
+                        direction = 0
+                    }
+                }
+                
+                siblingSets, err := server1.Buckets().Get("default").Node.Get([][]byte{ []byte("OBJ1") })
+                
+                Expect(err).Should(BeNil())
+                Expect(len(siblingSets)).Should(Equal(1))
+                Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))
+                
+                for i := uint32(1); i < server2.Buckets().Get("default").Node.MerkleTree().NodeLimit(); i += 1 {
+                    v1 := server1.Buckets().Get("default").Node.MerkleTree().NodeHash(server2.Buckets().Get("default").Node.MerkleTree().TranslateNode(i, sync.MerkleDefaultDepth))
+                    v2 := server2.Buckets().Get("default").Node.MerkleTree().NodeHash(i)
+                    
+                    Expect(v1).Should(Equal(v2))
+                }
+                
+                Expect(server1.Buckets().Get("default").Node.MerkleTree().RootHash()).Should(Not(Equal(NewHash([]byte{ }).SetLow(0).SetHigh(0))))
+            })
+        })
     })
     
     Describe("InitiatorSyncSession", func() {
