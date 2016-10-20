@@ -10,10 +10,10 @@ import (
     "unsafe"
     "math"
     "math/big"
-    //"strconv"
+    "strconv"
     "testing"
-    //"fmt"
-    //"strings"
+    "fmt"
+    "strings"
 )
 
 func combination(n, k int64) *big.Rat {
@@ -110,7 +110,7 @@ var _ = Describe("Merkle", func() {
     })
     
     Describe("#Update", func() {
-        /*It("Root hash should be the xor sum of the hashes of all sibling sets added to the tree", func() {
+        It("Root hash should be the xor sum of the hashes of all sibling sets added to the tree", func() {
             const depth uint8 = 19
             const objectCount int = (1 << (depth+2))
             
@@ -200,7 +200,7 @@ var _ = Describe("Merkle", func() {
             // this is fragile and can be commented out. It's here to illustrate that
             // the count distribution should closely follow a binomial distribution
             Expect(cost).Should(BeNumerically("~", 0.0, 0.009))
-        })*/
+        })
     })
 })
 
