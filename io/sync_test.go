@@ -23,10 +23,12 @@ var _ = Describe("Sync", func() {
                 server1, _ = NewServer(ServerConfig{
                     DBFile: "/tmp/testdb-" + randomString(),
                     Port: 8080,
+                    NodeID: "nodeA",
                 })
                 server2, _ = NewServer(ServerConfig{
                     DBFile: "/tmp/testdb-" + randomString(),
                     Port: 9090,
+                    NodeID: "nodeB",
                 })
                 
                 go func() {
@@ -118,6 +120,70 @@ var _ = Describe("Sync", func() {
                     }
                     
                     Expect(server1.Buckets().Get("default").Node.MerkleTree().RootHash()).Should(Not(Equal(NewHash([]byte{ }).SetLow(0).SetHigh(0))))
+                })
+            })
+            
+            Context("Both have objects", func() {
+                populate := func(node *Node, count int) []string {
+                    keys := make([]string, count)
+                    
+                    for i := 0; i < count; i += 1 {
+                        keys[i] = "key" + randomString()
+                        
+                        updateBatch := NewUpdateBatch()
+                        updateBatch.Put([]byte(keys[i]), []byte(randomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                        node.Batch(updateBatch)
+                    }
+                    
+                    return keys
+                }
+                
+                sync := func(initiator Bucket, responder Bucket) {
+                    var message *SyncMessageWrapper = nil
+                    direction := 0
+                    
+                    initiatorSyncSession := NewInitiatorSyncSession(123, initiator)
+                    responderSyncSession := NewResponderSyncSession(responder)
+                    
+                    for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
+                        if direction == 0 {
+                            //s1 := initiatorSyncSession.State()
+                            message = initiatorSyncSession.NextState(message)
+                            //s2 := initiatorSyncSession.State()
+                            //fmt.Printf("Initiator %s -> %s\n", StateName(s1), StateName(s2))
+                            direction = 1
+                        } else {
+                            //s1 := responderSyncSession.State()
+                            message = responderSyncSession.NextState(message)
+                            //s2 := responderSyncSession.State()
+                            //fmt.Printf("Responder %s -> %s\n", StateName(s1), StateName(s2))
+                            direction = 0
+                        }
+                    }
+                }
+                
+                get := func(b Bucket, key string) string {
+                    siblingSets, _ := b.Node.Get([][]byte{ []byte(key) })
+                    
+                    return string(siblingSets[0].Value())
+                }
+                
+                It("should result in both having the same objects after several sync iterations", func() {
+                    keys1 := populate(server1.Buckets().Get("default").Node, 100)
+                    keys2 := populate(server2.Buckets().Get("default").Node, 100)
+                    
+                    for i := 0; i < 2*len(keys1); i += 1 {
+                        sync(server1.Buckets().Get("default"), server2.Buckets().Get("default"))
+                        sync(server2.Buckets().Get("default"), server1.Buckets().Get("default"))
+                    }
+                    
+                    for _, k := range keys1 {
+                        Expect(get(server1.Buckets().Get("default"), k)).Should(Equal(get(server2.Buckets().Get("default"), k)))
+                    }
+                    
+                    for _, k := range keys2 {
+                        Expect(get(server1.Buckets().Get("default"), k)).Should(Equal(get(server2.Buckets().Get("default"), k)))
+                    }
                 })
             })
         })

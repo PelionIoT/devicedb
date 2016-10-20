@@ -40,6 +40,7 @@ type ServerConfig struct {
     DBFile string
     Port int
     MerkleDepth uint8
+    NodeID string
 }
 
 type Server struct {
@@ -55,9 +56,13 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         serverConfig.MerkleDepth = sync.MerkleDefaultDepth
     }
     
+    if len(serverConfig.NodeID) == 0 {
+        serverConfig.NodeID = "Node"
+    }
+    
     storageDriver := storage.NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port }
-    nodeID := "nodeA"
+    nodeID := serverConfig.NodeID
     err := server.storageDriver.Open()
     
     if err != nil {

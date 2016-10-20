@@ -402,7 +402,6 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             iter, err := syncSession.bucket.Node.GetSyncChildren(nodeID)
             
             if err != nil {
-                log.Info("E1")
                 syncSession.currentState = END
                 
                 return &SyncMessageWrapper{
@@ -413,7 +412,6 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             }
             
             if !iter.Next() {
-                log.Info("E2")
                 iter.Release()
                 
                 syncSession.currentState = END

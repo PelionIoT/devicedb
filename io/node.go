@@ -463,7 +463,7 @@ func (node *Node) Merge(siblingSets map[string]*dbobject.SiblingSet) error {
             }
         }
     }
-    
+
     if update.Size() != 0 {
         return node.storageDriver.Batch(node.batch(update, merkleTree))
     }
@@ -685,9 +685,6 @@ func (mIterator *MerkleChildrenIterator) Next() bool {
     var siblingSet dbobject.SiblingSet
     
     mIterator.parseError = siblingSet.Decode(value)
-    
-    log.Infof("Key = %s", string(key))
-    log.Infof("Value = %s", string(value))
     
     if mIterator.parseError != nil {
         log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", key, value, mIterator.parseError.Error())
