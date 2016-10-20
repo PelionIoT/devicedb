@@ -36,6 +36,12 @@ func (cloud *Cloud) ShouldReplicateIncoming(peerID string) bool {
     return peerID == "cloud"
 }
 
+type ServerConfig struct {
+    DBFile string
+    Port int
+    MerkleDepth uint8
+}
+
 type Server struct {
     bucketList *BucketList
     httpServer *http.Server
@@ -44,9 +50,13 @@ type Server struct {
     port int
 }
 
-func NewServer(dbFile string, port int) (*Server, error) {
-    storageDriver := storage.NewLevelDBStorageDriver(dbFile, nil)
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, port }
+func NewServer(serverConfig ServerConfig) (*Server, error) {
+    if serverConfig.MerkleDepth < sync.MerkleMinDepth || serverConfig.MerkleDepth > sync.MerkleMaxDepth {
+        serverConfig.MerkleDepth = sync.MerkleDefaultDepth
+    }
+    
+    storageDriver := storage.NewLevelDBStorageDriver(serverConfig.DBFile, nil)
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port }
     nodeID := "nodeA"
     err := server.storageDriver.Open()
     
@@ -55,9 +65,9 @@ func NewServer(dbFile string, port int) (*Server, error) {
         return nil, err
     }
     
-    defaultNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), sync.MerkleDefaultDepth, nil)
-    cloudNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), sync.MerkleDefaultDepth, nil) 
-    lwwNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), sync.MerkleDefaultDepth, strategies.LastWriterWins)
+    defaultNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), serverConfig.MerkleDepth, nil)
+    cloudNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), serverConfig.MerkleDepth, nil) 
+    lwwNode, _ := NewNode(nodeID, storage.NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), serverConfig.MerkleDepth, strategies.LastWriterWins)
     
     server.bucketList.AddBucket("default", defaultNode, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ })
