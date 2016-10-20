@@ -89,20 +89,11 @@ var _ = Describe("Sync", func() {
                 
                 for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
                     if direction == 0 {
-                        //s1 := initiatorSyncSession.State()
                         message = initiatorSyncSession.NextState(message)
-                        //s2 := initiatorSyncSession.State()
-                        //fmt.Printf("Initiator %s -> %s\n", StateName(s1), StateName(s2))
                         direction = 1
-                        //initiatorStateTransitions = initiatorStateTransitions[1:]
                     } else {
-                        //Expect(responderStateTransitions[0]).Should(Equal(responderSyncSession.State()))
-                        //s1 := responderSyncSession.State()
                         message = responderSyncSession.NextState(message)
-                        //s2 := responderSyncSession.State()
-                        //fmt.Printf("Responder %s -> %s\n", StateName(s1), StateName(s2))
                         direction = 0
-                        //responderStateTransitions = responderStateTransitions[1:]
                     }
                 }
                 
