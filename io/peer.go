@@ -1,8 +1,9 @@
 package io
 
-/*import (
-    "bufio"
-    "devicedb/dbobject"
+import (
+    //"bufio"
+    //"devicedb/dbobject"
+    "github.com/gorilla/websocket"
 )
 
 type Peer struct {
@@ -15,6 +16,8 @@ func NewPeer(bucketList *BucketList) *Peer {
         connections: make(map[*websocket.Conn]bool),
         buckets: bucketList,
     }
+    
+    return peer
 }
 
 func (peer *Peer) Accept(connection *websocket.Conn) {
@@ -25,7 +28,7 @@ func (peer *Peer) Connect(url string) {
     // establish a new connection with another peer
 }
 
-func (peer *Peer) register(connection *websocket.Conn) {
+/*func (peer *Peer) register(connection *websocket.Conn) {
     reader := bufio.NewReader(connection)
 
     for {
