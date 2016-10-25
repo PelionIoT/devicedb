@@ -485,12 +485,16 @@ const (
     SYNC_NODE_HASH = iota
     SYNC_OBJECT_NEXT = iota
     SYNC_PUSH_MESSAGE = iota
+    REQUEST = iota
+    RESPONSE = iota
 )
 
 type SyncMessageWrapper struct {
     SessionID uint `json:"sessionID"`
     MessageType int `json:"type"`
     MessageBody interface{ } `json:"body"`
+    Direction uint `json:"dir"`
+    nodeID string
 }
 
 type Start struct {
