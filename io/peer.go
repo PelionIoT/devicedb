@@ -1,20 +1,20 @@
 package io
 
 import (
-    //"devicedb/dbobject"
     "github.com/gorilla/websocket"
     "sync"
     "errors"
+    "time"
+    "math/rand"
 )
 
 type Peer struct {
-    buckets *BucketList
     syncController *SyncController
 }
 
-func NewPeer(bucketList *BucketList) *Peer {
+func NewPeer(syncController *SyncController) *Peer {
     peer := &Peer{
-        buckets: bucketList,
+        syncController: syncController,
     }
     
     return peer
@@ -39,6 +39,8 @@ func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
             err := connection.ReadJSON(nextMessage)
             
             if err != nil {
+                peer.syncController.removePeer(peerID)
+                
                 break
             }
             
@@ -74,13 +76,13 @@ type SyncController struct {
     buckets *BucketList
     incoming chan *SyncMessageWrapper
     peers map[string]chan *SyncMessageWrapper
-    waitGroups map[string]chan *sync.WaitGroup
-    initiatorSessionsMap map[string]map[uint]*InitiatorSyncSession
-    responderSessionsMap map[string]map[uint]*ResponderSyncSession
+    waitGroups map[string]*sync.WaitGroup
+    initiatorSessionsMap map[string]map[uint]*SyncSession
+    responderSessionsMap map[string]map[uint]*SyncSession
     initiatorSessions chan *SyncSession
     responderSessions chan *SyncSession
     maxSyncSessions uint
-    nextSessionID uint64
+    nextSessionID uint
     mapMutex sync.RWMutex
 }
 
@@ -110,8 +112,8 @@ func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) erro
     
     s.peers[peerID] = w
     s.waitGroups[peerID] = &sync.WaitGroup{ }
-    s.initiatorSessionsMap[peerID] = make(map[uint]*InitiatorSyncSession)
-    s.responderSessionsMap[peerID] = make(map[uint]*ResponderSyncSession)
+    s.initiatorSessionsMap[peerID] = make(map[uint]*SyncSession)
+    s.responderSessionsMap[peerID] = make(map[uint]*SyncSession)
     
     return nil
 }
@@ -123,28 +125,39 @@ func (s *SyncController) removePeer(peerID string) {
         return
     }
     
-    for _, syncSession := range s.initiatorSessions[peerID] {
+    for _, syncSession := range s.initiatorSessionsMap[peerID] {
         close(syncSession.receiver)
     }
     
-    for _, syncSession := range s.responderSessions[peerID] {
+    for _, syncSession := range s.responderSessionsMap[peerID] {
         close(syncSession.receiver)
     }
     
     s.mapMutex.Unlock()
     s.waitGroups[peerID].Wait()
-    
+
+    close(s.peers[peerID])
     delete(s.peers, peerID)
     delete(s.waitGroups, peerID)
     delete(s.initiatorSessionsMap, peerID)
     delete(s.responderSessionsMap, peerID)
-    
-    wg.Wait()
 }
 
-func (s *SyncController) addResponderSession(peerID string, sessionID uint) bool {
-    s.mapLock.Lock()
-    defer s.mapLock.Unlock()
+func (s *SyncController) addResponderSession(peerID string, sessionID uint, bucketName string) bool {
+    if !s.buckets.HasBucket(bucketName) {
+        return false
+    } else if !s.buckets.Get(bucketName).ReplicationStrategy.ShouldReplicateOutgoing(peerID) {
+        return false
+    }
+    
+    bucket := s.buckets.Get(bucketName)
+    
+    s.mapMutex.Lock()
+    defer s.mapMutex.Unlock()
+    
+    if _, ok := s.responderSessionsMap[peerID]; !ok {
+        return false
+    }
     
     newResponderSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper),
@@ -155,20 +168,38 @@ func (s *SyncController) addResponderSession(peerID string, sessionID uint) bool
         sessionID: sessionID,
     }
     
+    s.responderSessionsMap[peerID][sessionID] = newResponderSession
     newResponderSession.waitGroup.Add(1)
+    
+    if _, ok := s.responderSessionsMap[peerID][sessionID]; ok {
+        return false
+    }
     
     select {
     case s.responderSessions <- newResponderSession:
         return true
     default:
+        delete(s.responderSessionsMap[peerID], sessionID)
         newResponderSession.waitGroup.Done()
         return false
     }
 }
 
-func (s *SyncController) addInitiatorSession(peerID string, sessionID uint) bool {
-    s.mapLock.Lock()
-    defer s.mapLock.Unlock()
+func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, bucketName string) bool {
+    if !s.buckets.HasBucket(bucketName) {
+        return false
+    } else if !s.buckets.Get(bucketName).ReplicationStrategy.ShouldReplicateIncoming(peerID) {
+        return false
+    }
+    
+    bucket := s.buckets.Get(bucketName)
+    
+    s.mapMutex.Lock()
+    defer s.mapMutex.Unlock()
+    
+    if _, ok := s.initiatorSessionsMap[peerID]; !ok {
+        return false
+    }
     
     newInitiatorSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper),
@@ -180,31 +211,48 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint) bool
     }
     
     // check map to see if it has this one
+    if _, ok := s.initiatorSessionsMap[peerID][sessionID]; ok {
+        return false
+    }
     
+    s.initiatorSessionsMap[peerID][sessionID] = newInitiatorSession
     newInitiatorSession.waitGroup.Add(1)
     
     select {
     case s.initiatorSessions <- newInitiatorSession:
         return true
     default:
-        newResponderSession.waitGroup.Done()
+        delete(s.initiatorSessionsMap[peerID], sessionID)
+        newInitiatorSession.waitGroup.Done()
         return false
     }
 }
 
 func (s *SyncController) removeResponderSession(responderSession *SyncSession) {
-    s.mapLock.Lock()
+    s.mapMutex.Lock()
     
+    if _, ok := s.responderSessionsMap[responderSession.peerID]; !ok {
+        s.mapMutex.Unlock()
+        return
+    }
     
+    delete(s.responderSessionsMap[responderSession.peerID], responderSession.sessionID)
     
-    s.mapLock.Unlock()
+    s.mapMutex.Unlock()
     responderSession.waitGroup.Done()
 }
 
 func (s *SyncController) removeInitiatorSession(initiatorSession *SyncSession) {
-    s.mapLock.Lock()
+    s.mapMutex.Lock()
     
-    s.mapLock.Unlock()
+    if _, ok := s.initiatorSessionsMap[initiatorSession.peerID]; !ok {
+        s.mapMutex.Unlock()
+        return
+    }
+    
+    delete(s.initiatorSessionsMap[initiatorSession.peerID], initiatorSession.sessionID)
+    
+    s.mapMutex.Unlock()
     initiatorSession.waitGroup.Done()
 }
 
@@ -213,26 +261,32 @@ func (s *SyncController) sendAbort(peerID string, sessionID uint) {
         SessionID: sessionID,
         MessageType: SYNC_ABORT,
         MessageBody: &Abort{ },
-    })
+    }
 }
 
 func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
     nodeID := msg.nodeID
     sessionID := msg.SessionID
     
+    if !s.typeCheck(msg) {
+        s.sendAbort(nodeID, sessionID)
+        
+        return
+    }
+    
     if msg.Direction == REQUEST {
         if msg.MessageType == SYNC_START {
-            s.mapLock.Lock()
+            s.mapMutex.Lock()
             
-            if !s.addResponderSession(nodeID, sessionID) {
+            if !s.addResponderSession(nodeID, sessionID, msg.MessageBody.(Start).Bucket) {
                 s.sendAbort(nodeID, sessionID)
             }
             
-            s.mapLock.Unlock()
+            s.mapMutex.Unlock()
         }
         
-        s.mapLock.RLock()
-        defer s.mapLock.RUnlock()
+        s.mapMutex.RLock()
+        defer s.mapMutex.RUnlock()
         
         if _, ok := s.responderSessionsMap[nodeID]; !ok {
             s.sendAbort(nodeID, sessionID)
@@ -248,8 +302,8 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
         
         s.responderSessionsMap[nodeID][sessionID].receiver <- msg
     } else { // RESPONSE
-        s.mapLock.RLock()
-        defer s.mapLock.RUnlock()
+        s.mapMutex.RLock()
+        defer s.mapMutex.RUnlock()
         
         if _, ok := s.initiatorSessionsMap[nodeID]; !ok {
             s.sendAbort(nodeID, sessionID)
@@ -267,17 +321,39 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
     }
 }
 
+func (s *SyncController) typeCheck(msg *SyncMessageWrapper) bool {
+    ok := false
+    
+    switch msg.MessageType {
+    case SYNC_START:
+        _, ok = msg.MessageBody.(Start)
+    case SYNC_ABORT:
+        _, ok = msg.MessageBody.(Abort)
+    case SYNC_NODE_HASH:
+        _, ok = msg.MessageBody.(MerkleNodeHash)
+    case SYNC_OBJECT_NEXT:
+        _, ok = msg.MessageBody.(MerkleNodeHash)
+    case SYNC_PUSH_MESSAGE:
+        _, ok = msg.MessageBody.(PushMessage)
+    }
+    
+    return ok
+}
+
 func (s *SyncController) runInitiatorSession() {
-    for initatorSession := range s.initiatorSessions {
+    for initiatorSession := range s.initiatorSessions {
         state := initiatorSession.sessionState.(InitiatorSyncSession)
         
-        for receivedMessage := range initatorSession.receiver {
-            var m *SyncMessageWrapper = state.NextState(msg)
-                    
-            if state.State() == END {
+        for receivedMessage := range initiatorSession.receiver {
+            var m *SyncMessageWrapper = state.NextState(receivedMessage)
+        
+            if m != nil {
+                initiatorSession.sender <- m
             }
             
-            initiatorSession.sender <- m
+            if state.State() == END {
+                break
+            }
         }
     
         s.removeInitiatorSession(initiatorSession)
@@ -289,12 +365,15 @@ func (s *SyncController) runResponderSession() {
         state := responderSession.sessionState.(ResponderSyncSession)
         
         for receivedMessage := range responderSession.receiver {
-            var m *SyncMessageWrapper = state.NextState(msg)
-                    
-            if state.State() == END {
+            var m *SyncMessageWrapper = state.NextState(receivedMessage)
+        
+            if m != nil {
+                responderSession.sender <- m
             }
             
-            responderSession.sender <- m
+            if state.State() == END {
+                break
+            }
         }
         
         s.removeResponderSession(responderSession)
@@ -314,9 +393,44 @@ func (s *SyncController) Start() {
         }
     }()
     
-    /*go func() {
-        // wait X ms
-        
-    }*/
+    go func() {
+        for {
+            time.Sleep(time.Millisecond * 1000)
+            
+            s.mapMutex.RLock()
+            defer s.mapMutex.RUnlock()
+            
+            peerIndex := rand.Int() % len(s.peers)
+            peerID := ""
+            
+            for id, _ := range s.peers {
+                if peerIndex == 0 {
+                    peerID = id
+                    
+                    break
+                }
+                
+                peerIndex -= 1
+            }
+            
+            if len(peerID) == 0 {
+                continue
+            }
+            
+            incoming := s.buckets.Incoming(peerID)
+            
+            if len(incoming) == 0 {
+                continue
+            }
+            
+            bucket := incoming[rand.Int() % len(incoming)]
+            
+            if s.addInitiatorSession(peerID, s.nextSessionID, bucket.Name) {
+                s.nextSessionID += 1
+            } else {
+                
+            }
+        }
+    }()
 }
 
