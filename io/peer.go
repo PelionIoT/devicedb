@@ -6,26 +6,106 @@ import (
     "errors"
     "time"
     "math/rand"
+    "crypto/tls"
+    crand "crypto/rand"
+    "fmt"
+    "encoding/binary"
+    "strconv"
 )
+
+func randomID() string {
+    randomBytes := make([]byte, 16)
+    crand.Read(randomBytes)
+    
+    high := binary.BigEndian.Uint64(randomBytes[:8])
+    low := binary.BigEndian.Uint64(randomBytes[8:])
+    
+    return fmt.Sprintf("%016x%016x", high, low)
+}
 
 type Peer struct {
     syncController *SyncController
+    dialer *websocket.Dialer
 }
 
-func NewPeer(syncController *SyncController) *Peer {
+func NewPeer(syncController *SyncController, tlsConfig *tls.Config) *Peer {
+    dialer := &websocket.Dialer{
+        TLSClientConfig: tlsConfig,
+    }
+    
     peer := &Peer{
         syncController: syncController,
+        dialer: dialer,
     }
     
     return peer
 }
 
-func (peer *Peer) Accept(connection *websocket.Conn) {
-    //peer.register("peerID", connection)
+func (peer *Peer) Accept(connection *websocket.Conn) error {
+    conn := connection.UnderlyingConn()
+    
+    if _, ok := conn.(*tls.Conn); ok {
+        // https connection
+        // extract peer id from common name
+        peerID, err := peer.extractPeerID(conn.(*tls.Conn))
+        
+        if err != nil {
+            log.Errorf("Unable to accept peer connection: %v", err)
+            
+            return err
+        }
+        
+        err = peer.register(peerID, connection)
+        
+        if err != nil {
+            log.Errorf("Unable to register peer connection from %s: %v", peerID, err)
+            
+            return err
+        }
+        
+        log.Infof("Accepted peer connection from %s", peerID)
+    } else {
+        // http connection
+        err := peer.register(randomID(), connection)
+        
+        if err != nil {
+            log.Errorf("Unable to register peer connection: %v", err)
+            
+            return err
+        }
+        
+        log.Infof("Accepted peer connection")
+    }
+        
+    return nil
 }
 
-func (peer *Peer) Connect(url string) {
-    //peer.register("peerID", connection)
+func (peer *Peer) extractPeerID(conn *tls.Conn) (string, error) {
+    // VerifyClientCertIfGiven
+    verifiedChains := conn.ConnectionState().VerifiedChains
+    
+    if len(verifiedChains) != 1 {
+        return "", errors.New("Invalid client certificate")
+    }
+    
+    peerID := verifiedChains[0][0].Subject.CommonName
+    
+    return peerID, nil
+}
+
+func (peer *Peer) Connect(host string, port int) error {
+    //url := host:" + strconv.Itoa(server.Port()))
+    conn, _, err := peer.dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
+    
+    if err != nil {
+        log.Errorf("Unable to connect to %s on port %d: %v", host, port, err)
+        
+        return err
+    }
+    
+    log.Infof("Connected to %s on port %d: %v", host, port, conn)
+    
+    return nil
 }
 
 func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
@@ -91,6 +171,7 @@ func NewSyncController(maxSyncSessions uint, bucketList *BucketList) *SyncContro
         buckets: bucketList,
         incoming: make(chan *SyncMessageWrapper),
         peers: make(map[string]chan *SyncMessageWrapper),
+        waitGroups: make(map[string]*sync.WaitGroup),
         initiatorSessionsMap: make(map[string]map[uint]*SyncSession),
         responderSessionsMap: make(map[string]map[uint]*SyncSession),
         initiatorSessions: make(chan *SyncSession),

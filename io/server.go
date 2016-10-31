@@ -5,10 +5,12 @@ import (
     "io"
     "net"
     "net/http"
+    "crypto/tls"
     "encoding/json"
     "time"
     "strconv"
     "github.com/gorilla/mux"
+    "github.com/gorilla/websocket"
     "devicedb/storage"
     "devicedb/strategies"
     "devicedb/sync"
@@ -41,6 +43,8 @@ type ServerConfig struct {
     Port int
     MerkleDepth uint8
     NodeID string
+    Peer *Peer
+    ServerTLS *tls.Config
 }
 
 type Server struct {
@@ -49,6 +53,9 @@ type Server struct {
     listener net.Listener
     storageDriver storage.StorageDriver
     port int
+    upgrader websocket.Upgrader
+    peer *Peer
+    serverTLS *tls.Config
 }
 
 func NewServer(serverConfig ServerConfig) (*Server, error) {
@@ -60,8 +67,13 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         serverConfig.NodeID = "Node"
     }
     
+    upgrader := websocket.Upgrader{
+    	ReadBufferSize:  1024,
+    	WriteBufferSize: 1024,
+    }
+    
     storageDriver := storage.NewLevelDBStorageDriver(serverConfig.DBFile, nil)
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Peer, serverConfig.ServerTLS }
     nodeID := serverConfig.NodeID
     err := server.storageDriver.Open()
     
@@ -77,6 +89,10 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     server.bucketList.AddBucket("default", defaultNode, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ })
     server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ })
+    
+    if server.peer != nil && server.peer.syncController != nil {
+        server.peer.syncController.buckets = server.bucketList
+    }
     
     return server, nil
 }
@@ -295,13 +311,37 @@ func (server *Server) Start() error {
         io.WriteString(w, "\n")
     }).Methods("POST")
     
+    r.HandleFunc("/sync", func(w http.ResponseWriter, r *http.Request) {
+        if server.peer == nil {
+            // log error
+            
+            return
+        }
+        
+        conn, err := server.upgrader.Upgrade(w, r, nil)
+        
+        if err != nil {
+            return
+        }
+        
+        server.peer.Accept(conn)
+    }).Methods("GET")
+    
     server.httpServer = &http.Server{
         Handler: r,
         WriteTimeout: 15 * time.Second,
         ReadTimeout: 15 * time.Second,
     }
     
-    listener, err := net.Listen("tcp", "0.0.0.0:" + strconv.Itoa(server.Port()))
+    var listener net.Listener
+    var err error
+
+    if server.serverTLS == nil {
+        listener, err = net.Listen("tcp", "0.0.0.0:" + strconv.Itoa(server.Port()))
+    } else {
+        server.serverTLS.ClientAuth = tls.VerifyClientCertIfGiven
+        listener, err = tls.Listen("tcp", "0.0.0.0:" + strconv.Itoa(server.Port()), server.serverTLS)
+    }
     
     if err != nil {
         server.Stop()
