@@ -25,17 +25,13 @@ func randomID() string {
 
 type Peer struct {
     syncController *SyncController
-    dialer *websocket.Dialer
+    tlsConfig *tls.Config
 }
 
-func NewPeer(syncController *SyncController, tlsConfig *tls.Config) *Peer {
-    dialer := &websocket.Dialer{
-        TLSClientConfig: tlsConfig,
-    }
-    
+func NewPeer(syncController *SyncController, tlsConfig *tls.Config) *Peer {    
     peer := &Peer{
         syncController: syncController,
-        dialer: dialer,
+        tlsConfig: tlsConfig,
     }
     
     return peer
@@ -93,9 +89,20 @@ func (peer *Peer) extractPeerID(conn *tls.Conn) (string, error) {
     return peerID, nil
 }
 
-func (peer *Peer) Connect(host string, port int) error {
-    //url := host:" + strconv.Itoa(server.Port()))
-    conn, _, err := peer.dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
+func (peer *Peer) Connect(peerID, host string, port int) error {
+    if peer.tlsConfig == nil {
+        return errors.New("No tls config provided")
+    }
+    
+    tlsConfig := *peer.tlsConfig
+    tlsConfig.InsecureSkipVerify = false
+    tlsConfig.ServerName = peerID
+    
+    dialer := &websocket.Dialer{
+        TLSClientConfig: &tlsConfig,
+    }
+    
+    conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
     
     if err != nil {
         log.Errorf("Unable to connect to %s on port %d: %v", host, port, err)
@@ -103,7 +110,23 @@ func (peer *Peer) Connect(host string, port int) error {
         return err
     }
     
-    log.Infof("Connected to %s on port %d: %v", host, port, conn)
+    _, err = peer.extractPeerID(conn.UnderlyingConn().(*tls.Conn))
+    
+    if err != nil {
+        log.Errorf("Unable to verify peer certificate: %v", err)
+        
+        return err
+    }
+    
+    err = peer.register(peerID, conn)
+        
+    if err != nil {
+        log.Errorf("Unable to register peer connection from %s: %v", peerID, err)
+        
+        return err
+    }
+    
+    log.Infof("Connected to peer %s at %s on port %d", peerID, host, port)
     
     return nil
 }

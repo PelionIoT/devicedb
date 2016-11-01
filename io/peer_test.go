@@ -45,7 +45,6 @@ func loadCerts(id string) (*tls.Config, *tls.Config, error) {
     var clientTLSConfig = &tls.Config{
         Certificates: []tls.Certificate{ clientCertificate },
         RootCAs: rootCAs,
-        InsecureSkipVerify: true,
     }
     
     return serverTLSConfig, clientTLSConfig, nil
@@ -111,7 +110,7 @@ var _ = Describe("Peer", func() {
     
     Describe("sync", func() {
         It("makes sure that the id is extracted correctly from the client certificate and server certificates", func() {
-            initiatorPeer.Connect("127.0.0.1", 8080)
+            initiatorPeer.Connect("WWRL000000", "127.0.0.1", 8080)
             
             Expect(true).Should(BeTrue())
         })
