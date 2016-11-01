@@ -2,6 +2,7 @@ package io
 
 import (
     "devicedb/dbobject"
+    "encoding/json"
 )
 
 const (
@@ -488,6 +489,26 @@ const (
     REQUEST = iota
     RESPONSE = iota
 )
+
+func MessageTypeName(m int) string {
+    names := map[int]string{
+        SYNC_START: "SYNC_START",
+        SYNC_ABORT: "SYNC_ABORT",
+        SYNC_NODE_HASH: "SYNC_NODE_HASH",
+        SYNC_OBJECT_NEXT: "SYNC_OBJECT_NEXT",
+        SYNC_PUSH_MESSAGE: "SYNC_PUSH_MESSAGE",
+    }
+    
+    return names[m]
+}
+
+type rawSyncMessageWrapper struct {
+    SessionID uint `json:"sessionID"`
+    MessageType int `json:"type"`
+    MessageBody json.RawMessage `json:"body"`
+    Direction uint `json:"dir"`
+    nodeID string
+}
 
 type SyncMessageWrapper struct {
     SessionID uint `json:"sessionID"`

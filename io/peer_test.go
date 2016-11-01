@@ -111,6 +111,14 @@ var _ = Describe("Peer", func() {
     Describe("sync", func() {
         It("makes sure that the id is extracted correctly from the client certificate and server certificates", func() {
             initiatorPeer.Connect("WWRL000000", "127.0.0.1", 8080)
+            responderSyncController.StartResponderSessions()
+            initiatorSyncController.StartInitiatorSessions()
+            
+            time.Sleep(time.Second * 10)
+            
+            initiatorPeer.Disconnect("WWRL000000")
+            
+            time.Sleep(time.Second * 10)
             
             Expect(true).Should(BeTrue())
         })
