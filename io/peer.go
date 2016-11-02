@@ -128,7 +128,7 @@ func (peer *Peer) Connect(peerID, host string, port int) error {
             if err != nil {
                 log.Warningf("Unable to connect to %s on port %d: %v. Reconnecting in 1s...", host, port, err)
             
-                time.Sleep(time.Second * 1000)
+                time.Sleep(time.Second * 1)
                 
                 continue
             }
@@ -153,7 +153,7 @@ func (peer *Peer) Connect(peerID, host string, port int) error {
             
             // any non-standard close errors should result in a reconnect attempt
             log.Infof("Disconnected from peer %s. Reconnecting in 1s...", peerID)
-            time.Sleep(time.Second * 1000)
+            time.Sleep(time.Second * 1)
         }
     }()
     

@@ -82,6 +82,10 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.Peer = NewPeer(NewSyncController(uint(jsc.MaxSyncSessions), nil), clientTLSConfig)
     sc.ServerTLS = serverTLSConfig
     
+    for _, jsonPeer := range jsc.Peers {
+        sc.Peer.Connect(jsonPeer.ID, jsonPeer.Host, jsonPeer.Port)
+    }
+    
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
     serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
     clientCN := clientCertX509.Subject.CommonName
@@ -109,6 +113,7 @@ type Server struct {
     upgrader websocket.Upgrader
     peer *Peer
     serverTLS *tls.Config
+    id string
 }
 
 func NewServer(serverConfig ServerConfig) (*Server, error) {
@@ -126,8 +131,8 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     }
     
     storageDriver := storage.NewLevelDBStorageDriver(serverConfig.DBFile, nil)
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Peer, serverConfig.ServerTLS }
     nodeID := serverConfig.NodeID
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Peer, serverConfig.ServerTLS, nodeID }
     err := server.storageDriver.Open()
     
     if err != nil {
@@ -403,6 +408,8 @@ func (server *Server) Start() error {
     }
     
     if err != nil {
+        log.Errorf("Error listening on port: %d", server.port)
+        
         server.Stop()
         
         return err
@@ -417,7 +424,8 @@ func (server *Server) Start() error {
     }
     
     server.listener = listener
-    
+
+    log.Infof("Node %s listening on port %d", server.id, server.port)
     return server.httpServer.Serve(server.listener)
 }
 
