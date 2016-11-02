@@ -4,8 +4,10 @@ import (
     "fmt"
     "io"
     "net"
+    "errors"
     "net/http"
     "crypto/tls"
+    "crypto/x509"
     "encoding/json"
     "time"
     "strconv"
@@ -45,6 +47,57 @@ type ServerConfig struct {
     NodeID string
     Peer *Peer
     ServerTLS *tls.Config
+}
+
+func (sc *ServerConfig) LoadFromFile(file string) error {
+    var jsc JSONServerConfig
+    
+    err := jsc.LoadFromFile(file)
+    
+    if err != nil {
+        return err
+    }
+    
+    sc.DBFile = jsc.DBFile
+    sc.Port = jsc.Port
+    sc.MerkleDepth = jsc.MerkleDepth
+
+    rootCAs := x509.NewCertPool()
+    
+    if !rootCAs.AppendCertsFromPEM([]byte(jsc.TLS.RootCA)) {
+        return errors.New("Could not append root CA to chain")
+    }
+    
+    clientCertificate, _ := tls.X509KeyPair([]byte(jsc.TLS.ClientCertificate), []byte(jsc.TLS.ClientKey))
+    serverCertificate, _ := tls.X509KeyPair([]byte(jsc.TLS.ServerCertificate), []byte(jsc.TLS.ServerKey))
+    clientTLSConfig := &tls.Config{
+        Certificates: []tls.Certificate{ clientCertificate },
+        RootCAs: rootCAs,
+    }
+    serverTLSConfig := &tls.Config{
+        Certificates: []tls.Certificate{ serverCertificate },
+        ClientCAs: rootCAs,
+    }
+    
+    sc.Peer = NewPeer(NewSyncController(uint(jsc.MaxSyncSessions), nil), clientTLSConfig)
+    sc.ServerTLS = serverTLSConfig
+    
+    clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
+    serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
+    clientCN := clientCertX509.Subject.CommonName
+    serverCN := serverCertX509.Subject.CommonName
+    
+    if len(clientCN) == 0 {
+        return errors.New("The common name in the certificate is empty. The node ID must not be empty")
+    }
+     
+    if clientCN != serverCN {
+        return errors.New(fmt.Sprintf("Server and client certificates have differing common names(%s and %s). This is the string used to uniquely identify the node.", serverCN, clientCN))
+    }
+    
+    sc.NodeID = clientCN
+    
+    return nil
 }
 
 type Server struct {

@@ -48,6 +48,16 @@ var _ = Describe("Server", func() {
         <-stop
     })
     
+    Describe("ServerConfig", func() {
+        It("should load the config from a file", func() {
+            var sc ServerConfig
+            
+            err := sc.LoadFromFile("./test_configs/test_config.json")
+            
+            Expect(err).Should(BeNil())
+        })
+    })
+    
     Describe("POST /{bucket}/values", func() {
         Context("The values being queried are empty", func() {
             It("should return nil for every key", func() {
