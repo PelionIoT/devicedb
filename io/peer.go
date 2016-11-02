@@ -12,6 +12,7 @@ import (
     "encoding/binary"
     "encoding/json"
     "strconv"
+    "devicedb/dbobject"
 )
 
 func randomID() string {
@@ -57,6 +58,20 @@ func (peer *Peer) Accept(connection *websocket.Conn) error {
         
         err = peer.register(peerID, connection)
         
+        // This indicates that the other side requested explicitly that this side is disconnected.
+        // It was not an error and we should not try to reconnect
+        if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+            log.Infof("Disconnected from peer %s", peerID)
+        
+            return err
+        }
+        
+        if websocket.IsUnexpectedCloseError(err) {
+            log.Warningf("Disconnected from peer %s: %v", peerID, err)
+            
+            return err
+        }
+        
         if err != nil {
             log.Warningf("Unable to register peer connection from %s: %v", peerID, err)
             
@@ -97,17 +112,17 @@ func (peer *Peer) Connect(peerID, host string, port int) error {
     if peer.tlsConfig == nil {
         return errors.New("No tls config provided")
     }
+    
+    tlsConfig := *peer.tlsConfig
+    tlsConfig.InsecureSkipVerify = false
+    tlsConfig.ServerName = peerID
+    
+    dialer := &websocket.Dialer{
+        TLSClientConfig: &tlsConfig,
+    }
 
     go func() {
         for {
-            tlsConfig := *peer.tlsConfig
-            tlsConfig.InsecureSkipVerify = false
-            tlsConfig.ServerName = peerID
-            
-            dialer := &websocket.Dialer{
-                TLSClientConfig: &tlsConfig,
-            }
-            
             conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
             
             if err != nil {
@@ -121,10 +136,12 @@ func (peer *Peer) Connect(peerID, host string, port int) error {
             log.Infof("Connected to peer %s at %s on port %d", peerID, host, port)
             
             err = peer.register(peerID, conn)
-        
+            
             // This indicates that the other side requested explicitly that this side is disconnected.
             // It was not an error and we should not try to reconnect
-            if websocket.IsCloseError(err, CloseNormalClosure) {
+            if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+                log.Infof("Disconnected from peer %s", peerID)
+            
                 break
             }
             
@@ -188,11 +205,18 @@ func (peer *Peer) typeCheck(rawMsg *rawSyncMessageWrapper, msg *SyncMessageWrapp
 }
 
 func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
+    var result error = nil
+    wg := sync.WaitGroup{ }
+    
     w := make(chan *SyncMessageWrapper)
     err := peer.syncController.addPeer(peerID, w)
     
+    wg.Add(2)
+    
     if err != nil {
         log.Errorf("Unable to register peer %s: %v", peerID, err)
+        
+        return err
     }
     
     peer.peerMapLock.Lock()
@@ -212,6 +236,8 @@ func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
                 peer.syncController.removePeer(peerID)
                 peer.disconnect(peerID)
                 
+                result = err
+                
                 break
             }
             
@@ -227,6 +253,8 @@ func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
                 peer.syncController.removePeer(peerID)
                 peer.disconnect(peerID)
                 
+                result = err
+                
                 break
             }
             
@@ -234,6 +262,8 @@ func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
             
             peer.syncController.incoming <- &nextMessage
         }
+        
+        wg.Done()
     }()
     
     go func() {
@@ -248,9 +278,17 @@ func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
         }
         
         peer.disconnect(peerID)
+        
+        wg.Done()
     }()
     
-    return nil
+    wg.Wait()
+    
+    return result
+}
+
+func (peer *Peer) SyncController() *SyncController {
+    return peer.syncController
 }
 
 type SyncSession struct {
@@ -524,7 +562,7 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
         }
         
         s.responderSessionsMap[nodeID][sessionID].receiver <- msg
-    } else { // RESPONSE
+    } else if msg.Direction == RESPONSE { // RESPONSE
         s.mapMutex.RLock()
         defer s.mapMutex.RUnlock()
         
@@ -541,6 +579,25 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
         }
         
         s.initiatorSessionsMap[nodeID][sessionID].receiver <- msg
+    } else if msg.MessageType == SYNC_PUSH_MESSAGE {
+        pushMessage := msg.MessageBody.(PushMessage)
+        
+        if !s.buckets.HasBucket(pushMessage.Bucket) {
+            log.Errorf("Ignoring push message from %s because %s is not a valid bucket", nodeID, pushMessage.Bucket)
+            
+            return
+        }
+
+        key := pushMessage.Key
+        value := pushMessage.Value
+        bucket := s.buckets.Get(pushMessage.Bucket)
+        err := bucket.Node.Merge(map[string]*dbobject.SiblingSet{ key: value })
+        
+        if err != nil {
+            log.Errorf("Unable to merge object from peer %s into key %s in bucket %s: %v", nodeID, key, pushMessage.Bucket, err)
+        } else {
+            log.Infof("Merged object from peer %s into key %s in bucket %s", nodeID, key, pushMessage.Bucket)
+        }
     }
 }
 
@@ -610,8 +667,13 @@ func (s *SyncController) StartInitiatorSessions() {
             time.Sleep(time.Millisecond * 1000)
             
             s.mapMutex.RLock()
+    
+            var peerIndex int = 0
+        
+            if len(s.peers) > 0 {
+                peerIndex = rand.Int() % len(s.peers)
+            }
             
-            peerIndex := rand.Int() % len(s.peers)
             peerID := ""
             
             for id, _ := range s.peers {
@@ -627,7 +689,7 @@ func (s *SyncController) StartInitiatorSessions() {
             if len(peerID) == 0 {
                 s.mapMutex.RUnlock()
                 
-                time.Sleep(time.Millisecond * 100000)
+                time.Sleep(time.Millisecond * 1000)
                 
                 continue
             }
@@ -637,7 +699,7 @@ func (s *SyncController) StartInitiatorSessions() {
             if len(incoming) == 0 {
                 s.mapMutex.RUnlock()
                 
-                time.Sleep(time.Millisecond * 100000)
+                time.Sleep(time.Millisecond * 1000)
                 
                 continue
             }
@@ -651,7 +713,7 @@ func (s *SyncController) StartInitiatorSessions() {
             } else {
             }
             
-            time.Sleep(time.Millisecond * 100000)
+            time.Sleep(time.Millisecond * 1000)
         }
     }()
 }
@@ -667,3 +729,32 @@ func (s *SyncController) Start() {
     s.StartResponderSessions()
 }
 
+func (s *SyncController) BroadcastUpdate(key string, value *dbobject.SiblingSet, n int) {
+    // broadcast the specified object to at most n peers, or all peers if n is non-positive
+    s.mapMutex.RLock()
+    defer s.mapMutex.RUnlock()
+    
+    msg := &SyncMessageWrapper{
+        SessionID: 0,
+        MessageType: SYNC_PUSH_MESSAGE,
+        MessageBody: PushMessage{
+            Key: key,
+            Value: value,
+        },
+        Direction: PUSH,
+    }
+    
+    for peerID, w := range s.peers {
+        if n <= 0 {
+            break
+        }
+        
+        select {
+        case w <- msg:
+            log.Debugf("Push object at key %s to peer %s", key, peerID)
+            n -= 1
+        default:
+            log.Warningf("Failed to push object at key %s to peer %s", key, peerID)
+        }
+    }
+}

@@ -294,7 +294,7 @@ func (server *Server) Start() error {
             return
         }
         
-        _, err = server.bucketList.Get(bucket).Node.Batch(&updateBatch)
+        updatedSiblingSets, err := server.bucketList.Get(bucket).Node.Batch(&updateBatch)
         
         if err != nil {
             log.Warningf("POST /{bucket}/batch: Internal server error")
@@ -304,6 +304,12 @@ func (server *Server) Start() error {
             io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
             
             return
+        }
+    
+        if server.peer != nil {
+            for key, siblingSet := range updatedSiblingSets {
+                server.peer.SyncController().BroadcastUpdate(key, siblingSet, 0)
+            }
         }
         
         w.Header().Set("Content-Type", "application/json; charset=utf8")

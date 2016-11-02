@@ -488,6 +488,7 @@ const (
     SYNC_PUSH_MESSAGE = iota
     REQUEST = iota
     RESPONSE = iota
+    PUSH = iota
 )
 
 func MessageTypeName(m int) string {
@@ -538,6 +539,7 @@ type ObjectNext struct {
 }
 
 type PushMessage struct {
+    Bucket string
     Key string
     Value *dbobject.SiblingSet
 }

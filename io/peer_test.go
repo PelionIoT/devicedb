@@ -8,6 +8,7 @@ import (
     "crypto/x509"
     "io/ioutil"
     
+	. "devicedb/dbobject"
 	. "devicedb/io"
 
 	. "github.com/onsi/ginkgo"
@@ -111,14 +112,40 @@ var _ = Describe("Peer", func() {
     Describe("sync", func() {
         It("makes sure that the id is extracted correctly from the client certificate and server certificates", func() {
             initiatorPeer.Connect("WWRL000000", "127.0.0.1", 8080)
-            responderSyncController.StartResponderSessions()
-            initiatorSyncController.StartInitiatorSessions()
+            //responderSyncController.StartResponderSessions()
+            //initiatorSyncController.StartInitiatorSessions()
+            responderSyncController.Start()
+            initiatorSyncController.Start()
+        
+            go func() {
+                for i := 0; i < 10; i += 1 {
+                    time.Sleep(time.Second * 1)
+                    updateBatch := NewUpdateBatch()
+                    updateBatch.Put([]byte(randomString()), []byte(randomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                    responderServer.Buckets().Get("default").Node.Batch(updateBatch)
+                }
+            }()
             
-            time.Sleep(time.Second * 10)
+            Expect(err).Should(BeNil())
+            
+            time.Sleep(time.Second * 60)
             
             initiatorPeer.Disconnect("WWRL000000")
             
-            time.Sleep(time.Second * 10)
+            time.Sleep(time.Second * 5)
+            
+            /*siblingSets, err := responderServer.Buckets().Get("default").Node.Get([][]byte{ []byte("OBJ1") })
+                
+            Expect(err).Should(BeNil())
+            Expect(len(siblingSets)).Should(Equal(1))
+            Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))
+            
+            
+            siblingSets, err = initiatorServer.Buckets().Get("default").Node.Get([][]byte{ []byte("OBJ1") })
+                
+            Expect(err).Should(BeNil())
+            Expect(len(siblingSets)).Should(Equal(1))
+            Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))*/
             
             Expect(true).Should(BeTrue())
         })
