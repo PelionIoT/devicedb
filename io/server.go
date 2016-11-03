@@ -231,7 +231,32 @@ func (server *Server) Start() error {
             return
         }
         
-        siblingSetsJSON, _ := json.Marshal(siblingSets)
+        transportSiblingSets := make([]*TransportSiblingSet, 0, len(siblingSets))
+        
+        for _, siblingSet := range siblingSets {
+            if siblingSet == nil {
+                transportSiblingSets = append(transportSiblingSets, nil)
+                
+                continue
+            }
+            
+            var transportSiblingSet TransportSiblingSet
+            err := transportSiblingSet.FromSiblingSet(siblingSet)
+            
+            if err != nil {
+                log.Warningf("POST /{bucket}/values: Internal server error")
+        
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusInternalServerError)
+                io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+                
+                return
+            }
+            
+            transportSiblingSets = append(transportSiblingSets, &transportSiblingSet)
+        }
+        
+        siblingSetsJSON, _ := json.Marshal(transportSiblingSets)
         
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
@@ -315,7 +340,21 @@ func (server *Server) Start() error {
             key := ssIterator.Key()
             prefix := ssIterator.Prefix()
             nextSiblingSet := ssIterator.Value()
-            siblingSetsJSON, _ := json.Marshal(nextSiblingSet)
+            var nextTransportSiblingSet TransportSiblingSet
+            
+            err := nextTransportSiblingSet.FromSiblingSet(nextSiblingSet)
+            
+            if err != nil {
+                log.Warningf("POST /{bucket}/matches: Internal server error")
+        
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusInternalServerError)
+                io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+                
+                return
+            }
+            
+            siblingSetsJSON, _ := json.Marshal(&nextTransportSiblingSet)
             
             _, err = fmt.Fprintf(w, "%s\n%s\n%s\n", string(prefix), string(key), string(siblingSetsJSON))
             flusher.Flush()
@@ -340,7 +379,21 @@ func (server *Server) Start() error {
         }
         
         var updateBatch UpdateBatch
-        err := updateBatch.FromJSON(r.Body)
+        var transportUpdateBatch TransportUpdateBatch
+        decoder := json.NewDecoder(r.Body)
+        err := decoder.Decode(&transportUpdateBatch)
+        
+        if err != nil {
+            log.Warningf("POST /{bucket}/batch: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EInvalidBatch.JSON()) + "\n")
+            
+            return
+        }
+        
+        err = transportUpdateBatch.ToUpdateBatch(&updateBatch)
         
         if err != nil {
             log.Warningf("POST /{bucket}/batch: %v", err)

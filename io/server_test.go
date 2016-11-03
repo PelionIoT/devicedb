@@ -52,7 +52,7 @@ var _ = Describe("Server", func() {
         It("should load the config from a file", func() {
             var sc ServerConfig
             
-            err := sc.LoadFromFile("./test_configs/test_config.json")
+            err := sc.LoadFromFile("./test_configs/test_config_1.json")
             
             Expect(err).Should(BeNil())
         })
@@ -273,7 +273,10 @@ var _ = Describe("Server", func() {
             updateBatch.Put([]byte("key1"), []byte("value1"), NewDVV(NewDot("", 0), map[string]uint64{ }))
             updateBatch.Put([]byte("key2"), []byte("value2"), NewDVV(NewDot("", 0), map[string]uint64{ }))
             updateBatch.Put([]byte("key3"), []byte("value3"), NewDVV(NewDot("", 0), map[string]uint64{ }))
-            jsonBytes, _ := updateBatch.ToJSON()
+            var transportUpdateBatch TransportUpdateBatch = make([]TransportUpdateOp, len(updateBatch.Batch().Ops()))
+            transportUpdateBatch.FromUpdateBatch(updateBatch)
+            
+            jsonBytes, _ := json.Marshal(transportUpdateBatch)//updateBatch.ToJSON()
         
             resp, err := client.Post(url("/default/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
             
@@ -285,14 +288,14 @@ var _ = Describe("Server", func() {
             
             Expect(err).Should(BeNil())
         
-            siblingSets := make([]*SiblingSet, 0)
+            siblingSets := make([]*TransportSiblingSet, 0)
             decoder := json.NewDecoder(resp.Body)
             err = decoder.Decode(&siblingSets)
             
             Expect(err).Should(BeNil())
-            Expect(siblingSets[0].Value()).Should(Equal([]byte("value1")))
-            Expect(siblingSets[1].Value()).Should(Equal([]byte("value2")))
-            Expect(siblingSets[2].Value()).Should(Equal([]byte("value3")))
+            Expect(siblingSets[0].Siblings[0]).Should(Equal("value1"))
+            Expect(siblingSets[1].Siblings[0]).Should(Equal("value2"))
+            Expect(siblingSets[2].Siblings[0]).Should(Equal("value3"))
             Expect(resp.StatusCode).Should(Equal(http.StatusOK))
         })
     })

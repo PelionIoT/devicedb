@@ -32,6 +32,8 @@ const (
     eINVALID_BUCKET = iota
     eINVALID_BATCH = iota
     eMERKLE_RANGE = iota
+    eINVALID_OP = iota
+    eINVALID_CONTEXT = iota
 )
 
 var (
@@ -43,4 +45,6 @@ var (
     EInvalidBucket         = DBerror{ "An invalid bucket was specified", eINVALID_BUCKET }
     EInvalidBatch          = DBerror{ "An invalid batch was specified", eINVALID_BATCH }
     EMerkleRange           = DBerror{ "An invalid merkle node was requested", eMERKLE_RANGE }
+    EInvalidOp             = DBerror{ "An invalid operation was specified", eINVALID_OP }
+    EInvalidContext        = DBerror{ "An invalid context was provided in an update", eINVALID_CONTEXT }
 )

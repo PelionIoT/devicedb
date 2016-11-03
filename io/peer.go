@@ -15,6 +15,8 @@ import (
     "devicedb/dbobject"
 )
 
+const RECONNECT_WAIT_MAX_SECONDS = 32
+
 func randomID() string {
     randomBytes := make([]byte, 16)
     crand.Read(randomBytes)
@@ -122,18 +124,25 @@ func (peer *Peer) Connect(peerID, host string, port int) error {
     }
 
     go func() {
+        reconnectWaitSeconds := 1
+        
         for {
             conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
             
             if err != nil {
-                log.Warningf("Unable to connect to %s on port %d: %v. Reconnecting in 1s...", host, port, err)
+                log.Warningf("Unable to connect to %s on port %d: %v. Reconnecting in %ds...", host, port, err, reconnectWaitSeconds)
             
-                time.Sleep(time.Second * 1)
+                time.Sleep(time.Second * time.Duration(reconnectWaitSeconds))
+                
+                if reconnectWaitSeconds != RECONNECT_WAIT_MAX_SECONDS {
+                    reconnectWaitSeconds *= 2
+                }
                 
                 continue
             }
             
             log.Infof("Connected to peer %s at %s on port %d", peerID, host, port)
+            reconnectWaitSeconds = 1
             
             err = peer.register(peerID, conn)
             
@@ -152,8 +161,12 @@ func (peer *Peer) Connect(peerID, host string, port int) error {
             }
             
             // any non-standard close errors should result in a reconnect attempt
-            log.Infof("Disconnected from peer %s. Reconnecting in 1s...", peerID)
-            time.Sleep(time.Second * 1)
+            log.Infof("Disconnected from peer %s. Reconnecting in %ds...", peerID, reconnectWaitSeconds)
+            time.Sleep(time.Second * time.Duration(reconnectWaitSeconds))
+            
+            if reconnectWaitSeconds != RECONNECT_WAIT_MAX_SECONDS {
+                reconnectWaitSeconds *= 2
+            }
         }
     }()
     
