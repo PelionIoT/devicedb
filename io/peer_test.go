@@ -134,19 +134,6 @@ var _ = Describe("Peer", func() {
             
             time.Sleep(time.Second * 5)
             
-            /*siblingSets, err := responderServer.Buckets().Get("default").Node.Get([][]byte{ []byte("OBJ1") })
-                
-            Expect(err).Should(BeNil())
-            Expect(len(siblingSets)).Should(Equal(1))
-            Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))
-            
-            
-            siblingSets, err = initiatorServer.Buckets().Get("default").Node.Get([][]byte{ []byte("OBJ1") })
-                
-            Expect(err).Should(BeNil())
-            Expect(len(siblingSets)).Should(Equal(1))
-            Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))*/
-            
             Expect(true).Should(BeTrue())
         })
     })

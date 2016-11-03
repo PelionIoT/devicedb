@@ -150,12 +150,14 @@ var _ = Describe("Server", func() {
     Describe("POST /{bucket}/matches", func() {
         Context("The values being queried are empty", func() {
             It("should return nil for every key", func() {
-                
                 updateBatch := NewUpdateBatch()
                 updateBatch.Put([]byte("key1"), []byte("value1"), NewDVV(NewDot("", 0), map[string]uint64{ }))
                 updateBatch.Put([]byte("key2"), []byte("value2"), NewDVV(NewDot("", 0), map[string]uint64{ }))
                 updateBatch.Put([]byte("key3"), []byte("value3"), NewDVV(NewDot("", 0), map[string]uint64{ }))
-                jsonBytes, _ := updateBatch.ToJSON()
+                var transportUpdateBatch TransportUpdateBatch = make([]TransportUpdateOp, len(updateBatch.Batch().Ops()))
+                transportUpdateBatch.FromUpdateBatch(updateBatch)
+                
+                jsonBytes, _ := json.Marshal(transportUpdateBatch)
             
                 resp, err := client.Post(url("/default/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
                 
@@ -173,7 +175,10 @@ var _ = Describe("Server", func() {
                 
                 scanner := bufio.NewScanner(resp.Body)
                 
+                itemCount := 0
+                
                 for scanner.Scan() {
+                    itemCount += 1
                     l := values[0]
                     values = values[1:]
                     
@@ -182,15 +187,16 @@ var _ = Describe("Server", func() {
                     Expect(scanner.Text()).Should(Equal(l[0]))
                     Expect(scanner.Scan()).Should(BeTrue())
                     
-                    var siblingSet SiblingSet
-                
+                    var siblingSet TransportSiblingSet
+                    
                     fmt.Println(scanner.Text())
                     decoder := json.NewDecoder(bytes.NewBuffer(scanner.Bytes()))
                     err = decoder.Decode(&siblingSet)
                     Expect(err).Should(BeNil())
-                    Expect(siblingSet.Value()).Should(Equal([]byte(l[1])))
+                    Expect(siblingSet.Siblings[0]).Should(Equal(l[1]))
                 }
                 
+                Expect(itemCount).Should(Equal(3))
                 Expect(scanner.Err()).Should(BeNil())
             })
         })
@@ -276,7 +282,7 @@ var _ = Describe("Server", func() {
             var transportUpdateBatch TransportUpdateBatch = make([]TransportUpdateOp, len(updateBatch.Batch().Ops()))
             transportUpdateBatch.FromUpdateBatch(updateBatch)
             
-            jsonBytes, _ := json.Marshal(transportUpdateBatch)//updateBatch.ToJSON()
+            jsonBytes, _ := json.Marshal(transportUpdateBatch)
         
             resp, err := client.Post(url("/default/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
             
