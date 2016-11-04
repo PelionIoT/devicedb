@@ -118,7 +118,7 @@ func (node *Node) initializeMerkleTree() error {
         key := iter.Key()
         value := iter.Value()
         nodeID, err := decodeMerkleLeafKey(key)
-        
+            
         if err != nil {
             return err
         }
@@ -127,11 +127,10 @@ func (node *Node) initializeMerkleTree() error {
             return errors.New("Invalid leaf node in master merkle keys")
         }
         
-        hashLow := value[:8]
-        hashHigh := value[8:]
         hash := Hash{ }
-        hash.SetHigh(binary.BigEndian.Uint64(hashHigh))
-        hash.SetLow(binary.BigEndian.Uint64(hashLow))
+        high := binary.BigEndian.Uint64(value[:8])
+        low := binary.BigEndian.Uint64(value[8:])
+        hash = hash.SetLow(low).SetHigh(high)
     
         node.merkleTree.UpdateLeafHash(nodeID, hash)
     }
@@ -273,7 +272,7 @@ func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     
     if err != nil {
         log.Errorf("Storage driver error in updateInit(%v): %s", keys, err.Error())
-            
+        
         return nil, EStorage
     }
     

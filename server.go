@@ -9,6 +9,7 @@ import (
     "crypto/tls"
     "crypto/x509"
     "encoding/json"
+    "encoding/hex"
     "time"
     "strconv"
     "github.com/gorilla/mux"
@@ -162,6 +163,26 @@ func (server *Server) Buckets() *BucketList {
 
 func (server *Server) Start() error {
     r := mux.NewRouter()
+    
+    r.HandleFunc("/{bucket}/merkleRoot", func(w http.ResponseWriter, r *http.Request) {
+        bucket := mux.Vars(r)["bucket"]
+        
+        if !server.bucketList.HasBucket(bucket) {
+            log.Warningf("POST /{bucket}/values: Invalid bucket")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
+            
+            return
+        }
+        
+        hashBytes := server.bucketList.Get(bucket).Node.MerkleTree().RootHash().Bytes()
+        
+        w.Header().Set("Content-Type", "text/plain; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, hex.EncodeToString(hashBytes[:]))
+    }).Methods("GET")
     
     r.HandleFunc("/{bucket}/values", func(w http.ResponseWriter, r *http.Request) {
         bucket := mux.Vars(r)["bucket"]

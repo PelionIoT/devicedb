@@ -130,10 +130,9 @@ func (tree *MerkleTree) UpdateLeafHash(nodeID uint32, hash Hash) {
     tree.SetNodeHash(nodeID, hash)
     node := nodeID
     
-    for node != (1 << (tree.Depth() - 1)) {
-        shift := CountTrailingZeros(node) - 1
-        left := node - (1 << shift)
-        right := node + (1 << shift)
+    for node != ParentNode(tree.RootNode()) {
+        left := tree.LeftChild(node)
+        right := tree.RightChild(node)
         
         if node & 0x1 != 1 {
             tree.nodes[node] = tree.nodes[left].Xor(tree.nodes[right])
@@ -147,7 +146,6 @@ func (tree *MerkleTree) IsLeaf(nodeID uint32) bool {
     return nodeID & 0x1 == 1 && nodeID < (1 << tree.Depth())
 }
 
-// this
 func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[string]Hash) {
     tree.updateLock.Lock()
     
