@@ -47,26 +47,26 @@ type ServerConfig struct {
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
-    var jsc JSONServerConfig
+    var ysc YAMLServerConfig
     
-    err := jsc.LoadFromFile(file)
+    err := ysc.LoadFromFile(file)
     
     if err != nil {
         return err
     }
     
-    sc.DBFile = jsc.DBFile
-    sc.Port = jsc.Port
-    sc.MerkleDepth = jsc.MerkleDepth
+    sc.DBFile = ysc.DBFile
+    sc.Port = ysc.Port
+    sc.MerkleDepth = ysc.MerkleDepth
 
     rootCAs := x509.NewCertPool()
     
-    if !rootCAs.AppendCertsFromPEM([]byte(jsc.TLS.RootCA)) {
+    if !rootCAs.AppendCertsFromPEM([]byte(ysc.TLS.RootCA)) {
         return errors.New("Could not append root CA to chain")
     }
     
-    clientCertificate, _ := tls.X509KeyPair([]byte(jsc.TLS.ClientCertificate), []byte(jsc.TLS.ClientKey))
-    serverCertificate, _ := tls.X509KeyPair([]byte(jsc.TLS.ServerCertificate), []byte(jsc.TLS.ServerKey))
+    clientCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
+    serverCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
     clientTLSConfig := &tls.Config{
         Certificates: []tls.Certificate{ clientCertificate },
         RootCAs: rootCAs,
@@ -76,11 +76,11 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         ClientCAs: rootCAs,
     }
     
-    sc.Peer = NewPeer(NewSyncController(uint(jsc.MaxSyncSessions), nil), clientTLSConfig)
+    sc.Peer = NewPeer(NewSyncController(uint(ysc.MaxSyncSessions), nil), clientTLSConfig)
     sc.ServerTLS = serverTLSConfig
     
-    for _, jsonPeer := range jsc.Peers {
-        sc.Peer.Connect(jsonPeer.ID, jsonPeer.Host, jsonPeer.Port)
+    for _, yamlPeer := range ysc.Peers {
+        sc.Peer.Connect(yamlPeer.ID, yamlPeer.Host, yamlPeer.Port)
     }
     
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])

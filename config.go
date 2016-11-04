@@ -2,66 +2,63 @@ package devicedb
 
 import (
     "crypto/tls"
-    "encoding/json"
     "io/ioutil"
     "errors"
     "fmt"
+    "gopkg.in/yaml.v2"
+    "path/filepath"
 )
 
-type JSONServerConfig struct {
-    DBFile string `json:"db"`
-    Port int `json:"port"`
-    MaxSyncSessions int `json:"syncSessionLimit"`
-    MerkleDepth uint8 `json:"merkleDepth"`
-    Peers []JSONPeer `json:"peers"`
-    TLS JSONTLSFiles `json:"tls"`
+type YAMLServerConfig struct {
+    DBFile string `yaml:"db"`
+    Port int `yaml:"port"`
+    MaxSyncSessions int `yaml:"syncSessionLimit"`
+    MerkleDepth uint8 `yaml:"merkleDepth"`
+    Peers []YAMLPeer `yaml:"peers"`
+    TLS YAMLTLSFiles `yaml:"tls"`
 }
 
-type JSONPeer struct {
-    ID string `json:"id"`
-    Host string `json:"host"`
-    Port int `json:"port"`
+type YAMLPeer struct {
+    ID string `yaml:"id"`
+    Host string `yaml:"host"`
+    Port int `yaml:"port"`
 }
 
-type JSONTLSFiles struct {
-    ClientCertificate string `json:"clientCertificate"`
-    ClientKey string `json:"clientKey"`
-    ServerCertificate string `json:"serverCertificate"`
-    ServerKey string `json:"serverKey"`
-    RootCA string `json:"rootCA"`
+type YAMLTLSFiles struct {
+    ClientCertificate string `yaml:"clientCertificate"`
+    ClientKey string `yaml:"clientKey"`
+    ServerCertificate string `yaml:"serverCertificate"`
+    ServerKey string `yaml:"serverKey"`
+    RootCA string `yaml:"rootCA"`
 }
 
-func isValidPort(p int) bool {
-    return p >= 0 && p < (1 << 16)
-}
-
-func (jsc *JSONServerConfig) LoadFromFile(file string) error {
+func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     rawConfig, err := ioutil.ReadFile(file)
     
     if err != nil {
         return err
     }
     
-    err = json.Unmarshal(rawConfig, jsc)
+    err = yaml.Unmarshal(rawConfig, ysc)
     
     if err != nil {
         return err
     }
     
-    if !isValidPort(jsc.Port) {
-        return errors.New(fmt.Sprintf("%d is an invalid port for the database server", jsc.Port))
+    if !isValidPort(ysc.Port) {
+        return errors.New(fmt.Sprintf("%d is an invalid port for the database server", ysc.Port))
     }
     
-    if jsc.MerkleDepth < MerkleMinDepth || jsc.MerkleDepth > MerkleMaxDepth {
+    if ysc.MerkleDepth < MerkleMinDepth || ysc.MerkleDepth > MerkleMaxDepth {
         return errors.New(fmt.Sprintf("Invalid merkle depth specified. Valid ranges are from %d to %d inclusive", MerkleMinDepth, MerkleMaxDepth))
     }
     
-    if jsc.MaxSyncSessions <= 0 {
+    if ysc.MaxSyncSessions <= 0 {
         return errors.New("syncSessionLimit must be at least 1")
     }
 
-    if jsc.Peers != nil {
-        for _, peer := range jsc.Peers {
+    if ysc.Peers != nil {
+        for _, peer := range ysc.Peers {
             if len(peer.ID) == 0 {
                 return errors.New(fmt.Sprintf("Peer ID is empty"))
             }
@@ -76,53 +73,65 @@ func (jsc *JSONServerConfig) LoadFromFile(file string) error {
         }
     }
     
-    clientCertificate, err := ioutil.ReadFile(jsc.TLS.ClientCertificate)
+    clientCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientCertificate))
     
     if err != nil {
-        return errors.New(fmt.Sprintf("Could not load client certificate from %s", jsc.TLS.ClientCertificate))
+        return errors.New(fmt.Sprintf("Could not load client certificate from %s", ysc.TLS.ClientCertificate))
     }
     
-    clientKey, err := ioutil.ReadFile(jsc.TLS.ClientKey)
+    clientKey, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientKey))
     
     if err != nil {
-        return errors.New(fmt.Sprintf("Could not load client key from %s", jsc.TLS.ClientKey))
+        return errors.New(fmt.Sprintf("Could not load client key from %s", ysc.TLS.ClientKey))
     }
     
-    serverCertificate, err := ioutil.ReadFile(jsc.TLS.ServerCertificate)
+    serverCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ServerCertificate))
     
     if err != nil {
-        return errors.New(fmt.Sprintf("Could not load server certificate from %s", jsc.TLS.ServerCertificate))
+        return errors.New(fmt.Sprintf("Could not load server certificate from %s", ysc.TLS.ServerCertificate))
     }
     
-    serverKey, err := ioutil.ReadFile(jsc.TLS.ServerKey)
+    serverKey, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ServerKey))
     
     if err != nil {
-        return errors.New(fmt.Sprintf("Could not load server key from %s", jsc.TLS.ServerKey))
+        return errors.New(fmt.Sprintf("Could not load server key from %s", ysc.TLS.ServerKey))
     }
     
-    rootCA, err := ioutil.ReadFile(jsc.TLS.RootCA)
+    rootCA, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.RootCA))
     
     if err != nil {
-        return errors.New(fmt.Sprintf("Could not load root CA chain from %s", jsc.TLS.RootCA))
+        return errors.New(fmt.Sprintf("Could not load root CA chain from %s", ysc.TLS.RootCA))
     }
     
-    jsc.TLS.ClientCertificate = string(clientCertificate)
-    jsc.TLS.ClientKey = string(clientKey)
-    jsc.TLS.ServerCertificate = string(serverCertificate)
-    jsc.TLS.ServerKey = string(serverKey)
-    jsc.TLS.RootCA = string(rootCA)
+    ysc.TLS.ClientCertificate = string(clientCertificate)
+    ysc.TLS.ClientKey = string(clientKey)
+    ysc.TLS.ServerCertificate = string(serverCertificate)
+    ysc.TLS.ServerKey = string(serverKey)
+    ysc.TLS.RootCA = string(rootCA)
     
-    _, err = tls.X509KeyPair([]byte(jsc.TLS.ClientCertificate), []byte(jsc.TLS.ClientKey))
+    _, err = tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
     
     if err != nil {
         return errors.New("The specified client certificate and key represent an invalid public/private key pair")
     }
     
-    _, err = tls.X509KeyPair([]byte(jsc.TLS.ServerCertificate), []byte(jsc.TLS.ServerKey))
+    _, err = tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
     
     if err != nil {
         return errors.New("The specified server certificate and key represent an invalid public/private key pair")
     }
     
     return nil
+}
+
+func isValidPort(p int) bool {
+    return p >= 0 && p < (1 << 16)
+}
+
+func resolveFilePath(configFileLocation, file string) string {
+    if filepath.IsAbs(file) {
+        return file
+    }
+    
+    return filepath.Join(filepath.Dir(configFileLocation), file)
 }
