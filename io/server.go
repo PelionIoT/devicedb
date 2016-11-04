@@ -340,6 +340,11 @@ func (server *Server) Start() error {
             key := ssIterator.Key()
             prefix := ssIterator.Prefix()
             nextSiblingSet := ssIterator.Value()
+            
+            if nextSiblingSet.IsTombstoneSet() {
+                continue
+            }
+            
             var nextTransportSiblingSet TransportSiblingSet
             
             err := nextTransportSiblingSet.FromSiblingSet(nextSiblingSet)
