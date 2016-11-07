@@ -18,6 +18,7 @@ type YAMLServerConfig struct {
     MerkleDepth uint8 `yaml:"merkleDepth"`
     Peers []YAMLPeer `yaml:"peers"`
     TLS YAMLTLSFiles `yaml:"tls"`
+    LogLevel string `yaml:"logLevel"`
 }
 
 type YAMLPeer struct {
@@ -143,7 +144,9 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     
     if err != nil {
         return errors.New("The specified server certificate and key represent an invalid public/private key pair")
-    }
+    }    
+    
+    SetLoggingLevel(ysc.LogLevel)
     
     return nil
 }

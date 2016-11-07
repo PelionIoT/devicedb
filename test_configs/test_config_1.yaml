@@ -4,6 +4,7 @@ syncSessionLimit: 2
 syncSessionPeriod: 10000
 syncPushBroadcastLimit: 0
 merkleDepth: 19
+logLevel: debug
 peers:
 tls:
     clientCertificate: ../test_certs/WWRL000001.client.cert.pem

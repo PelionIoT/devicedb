@@ -10,9 +10,10 @@ var usage string =
 `Usage: devicedb command [arguments]
 
 Commands:
-    start     Start a devicedb server
-    conf      Generate a template config file
-    upgrade   Upgrade an old database to the latest format
+    start      Start a devicedb server
+    conf       Generate a template config file
+    upgrade    Upgrade an old database to the latest format
+    benchmark  Benchmark devicedb performance
     
 Use devicedb help [command] for more usage information about a command.
 `

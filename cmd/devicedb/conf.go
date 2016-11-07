@@ -80,6 +80,19 @@ peers:
 #      host: 127.0.0.1
 #      port: 9292
 
+# These are the possible log levels in order from lowest to highest level.
+# Specifying a particular log level means you will see all messages at that
+# level and below. For example, if debug is specified, all log messages will
+# be seen. If no level is specified or if the log level specified is not valid
+# then the level defaults to the error level
+# critical
+# error
+# warning
+# notice
+# info
+# debug
+logLevel: info
+
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate
 # each other. A single certificate and key can be used if that certificate has

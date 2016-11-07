@@ -3,6 +3,7 @@ port: 9191
 syncSessionLimit: 2
 syncSessionPeriod: 1000
 merkleDepth: 19
+logLevel: debug
 peers:
 tls:
     certificate: ../test_certs/WWTL000001.cert.pem

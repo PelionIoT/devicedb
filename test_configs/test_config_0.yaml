@@ -4,6 +4,7 @@ syncSessionLimit: 2
 syncSessionPeriod: 10000
 syncPushBroadcastLimit: 0
 merkleDepth: 19
+logLevel: debug
 peers:
     - id: WWRL000001
       host: 127.0.0.1
