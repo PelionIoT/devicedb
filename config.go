@@ -31,6 +31,8 @@ type YAMLTLSFiles struct {
     ClientKey string `yaml:"clientKey"`
     ServerCertificate string `yaml:"serverCertificate"`
     ServerKey string `yaml:"serverKey"`
+    Certificate string `yaml:"certificate"`
+    Key string `yaml:"key"`
     RootCA string `yaml:"rootCA"`
 }
 
@@ -77,6 +79,22 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
                 return errors.New(fmt.Sprintf("%d is an invalid port to connect to peer %s at %s", peer.Port, peer.ID, peer.Host))
             }
         }
+    }
+    
+    if len(ysc.TLS.ClientCertificate) == 0 {
+        ysc.TLS.ClientCertificate = ysc.TLS.Certificate
+    }
+    
+    if len(ysc.TLS.ServerCertificate) == 0 {
+        ysc.TLS.ServerCertificate = ysc.TLS.Certificate
+    }
+    
+    if len(ysc.TLS.ClientKey) == 0 {
+        ysc.TLS.ClientKey = ysc.TLS.Key
+    }
+    
+    if len(ysc.TLS.ServerKey) == 0 {
+        ysc.TLS.ServerKey = ysc.TLS.Key
     }
     
     clientCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientCertificate))

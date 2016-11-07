@@ -82,35 +82,45 @@ peers:
 
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate
-# each other. The common name on the clint and server certificate must match
-# and is used as the identity of this database node. The rootCA file is the 
-# root certificate chain that was used to generate these certificates and is
-# shared between nodes in a cluster. A database client does not need to 
-# provide a client certificate when sending a request to a database node but
-# does need to verify the database node's server certificate against the same
-# root certificate chain.
+# each other. A single certificate and key can be used if that certificate has
+# the server and client extended key usage options enabled. If seperate
+# certificates are used for the client and server certificates then the common
+# name on the clint and server certificate must match. The common name of the
+# certificate is used to identify this database node with other database nodes
+# The rootCA file is the root certificate chain that was used to generate these 
+# certificates and is shared between nodes in a cluster. A database client does 
+# not need to provide a client certificate when sending a request to a database 
+# node but does need to verify the database node's server certificate against 
+# the same root certificate chain.
 # **REQUIRED**
 tls:
+    # If using a single certificate for both client and server authentication
+    # then it is specified using the certificate and key options as shown below
+    # If using seperate client and server certificates then uncomment the options
+    # below for clientCertificate, clientKey, serverCertificate, and serverKey
+    
+    # A PEM encoded certificate with the 'server' and 'client' extendedKeyUsage 
+    # options set
+    certificate: path/to/cert.pem
+    
+    # A PEM encoded key corresponding to the specified certificate
+    key: path/to/key.pem
+    
     # A PEM encoded 'client' type certificate
-    # **REQUIRED**
-    clientCertificate: ../test_certs/WWRL000000.client.cert.pem
+    # clientCertificate: path/to/clientCert.pem
     
     # A PEM encoded key corresponding to the specified client certificate
-    # **REQUIRED**
-    clientKey: ../test_certs/WWRL000000.client.key.pem
+    # clientKey: path/to/clientKey.pem
     
     # A PEM encoded 'server' type certificate
-    # **REQUIRED**
-    serverCertificate: ../test_certs/WWRL000000.server.cert.pem
+    # serverCertificate: path/to/serverCert.pem
     
     # A PEM encoded key corresponding to the specified server certificate
-    # **REQUIRED**
-    serverKey: ../test_certs/WWRL000000.server.key.pem
+    # serverKey: path/to/serverKey.pem
     
     # A PEM encoded certificate chain that can be used to verify the previous
     # certificates
-    # **REQUIRED**
-    rootCA: ../test_certs/ca-chain.cert.pem
+    rootCA: path/to/ca-chain.pem
 `
 
 func init() {
