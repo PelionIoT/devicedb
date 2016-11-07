@@ -28,6 +28,15 @@ syncSessionLimit: 2
 # **REQUIRED**
 syncSessionPeriod: 1000
 
+# In addition to background syncing, updates can also be forwarded directly
+# to neighbors when a connection is established in order to reduce the time
+# that replicas remain divergent. An update will immediately get forwarded
+# to the number of connected peers indicated by this number. If this value is
+# zero then the update is forwarded to ALL connected peers. In a small network
+# of nodes it may be better to set this to zero.
+# **REQUIRED**
+syncPushBroadcastLimit: 0
+
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
 # as memory constraints allow. Estimated memory overhead for a given depth is
