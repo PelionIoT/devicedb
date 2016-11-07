@@ -24,6 +24,9 @@ type Command struct {
 }
 
 var optConfigFile *string
+var optLegacyDir *string
+var optDatabaseDir *string
+var optMerkleDepth *uint64
 var commands map[string]Command
 
 func registerCommand(name string, execute func(), usage string) {
@@ -39,6 +42,9 @@ func registerCommand(name string, execute func(), usage string) {
 
 func init() {
     optConfigFile = flag.String("conf", "", "Config file to use in the server")
+    optLegacyDir = flag.String("legacy", "", "Legacy database directory")
+    optDatabaseDir = flag.String("db", "", "Datase directory")
+    optMerkleDepth = flag.Uint64("merkle", 0, "Merkle depth")
     
     flag.Usage = func() {
         fmt.Fprintf(os.Stderr, usage)
@@ -60,7 +66,7 @@ func main() {
     if command, ok := commands[commandName]; ok {
         command.Execute()
     } else if commandName == "help" {
-        helpTopic := flag.Arg(1)
+        helpTopic := flag.Arg(0)
         
         if command, ok := commands[helpTopic]; ok {
             fmt.Fprintf(os.Stderr, command.Usage)

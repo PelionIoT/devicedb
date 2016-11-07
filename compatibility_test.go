@@ -47,4 +47,24 @@ var _ = Describe("Compatibility", func() {
             Expect(r3).Should(Equal("0x487124149c7b1aa8accfcd4574f46fcf"))
         })
     })
+    
+    Describe("DecodeLegacySiblingSet", func() {
+        It("should turn a legacy json representation of a sibling set into a SiblingSet object", func() {
+            legacySiblingSetJSON := `[{"value":"{\"groups\":{\"A/B/C\":true},\"type\":\"ResourceType1\",\"interfaces\":[\"InterfaceType1\",\"InterfaceType2\"]}","clock":{"dot":["00000000000000000000000000000000",2],"context":[["00000000000000000000000000000000",1]]},"creationTime":1469218230589}]`
+            sibling1 := NewSibling(NewDVV(NewDot("00000000000000000000000000000000", 2), map[string]uint64{ "00000000000000000000000000000000": 1 }), []byte("{\"groups\":{\"A/B/C\":true},\"type\":\"ResourceType1\",\"interfaces\":[\"InterfaceType1\",\"InterfaceType2\"]}"), 1469218230589)
+            
+            expectedDecodedSet := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+            })
+        
+            ss, err := DecodeLegacySiblingSet([]byte(legacySiblingSetJSON))
+            
+            Expect(err).Should(BeNil())
+            Expect(ss.Size()).Should(Equal(expectedDecodedSet.Size()))
+            
+            for sibling := range ss.Iter() {
+                Expect(sibling).Should(Equal(sibling1))
+            }
+        })
+    })
 })

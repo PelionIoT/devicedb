@@ -1,4 +1,5 @@
-db: /tmp/db0
+#db: /tmp/db0
+db: /home/jrife/Desktop/new-db
 port: 9090
 syncSessionLimit: 2
 merkleDepth: 19
