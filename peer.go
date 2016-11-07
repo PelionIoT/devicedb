@@ -324,9 +324,10 @@ type SyncController struct {
     maxSyncSessions uint
     nextSessionID uint
     mapMutex sync.RWMutex
+    syncSessionPeriod uint64
 }
 
-func NewSyncController(maxSyncSessions uint, bucketList *BucketList) *SyncController {
+func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSessionPeriod uint64) *SyncController {
     syncController := &SyncController{
         buckets: bucketList,
         incoming: make(chan *SyncMessageWrapper),
@@ -338,6 +339,7 @@ func NewSyncController(maxSyncSessions uint, bucketList *BucketList) *SyncContro
         responderSessions: make(chan *SyncSession),
         maxSyncSessions: maxSyncSessions,
         nextSessionID: 1,
+        syncSessionPeriod: syncSessionPeriod,
     }
     
     go func() {
@@ -599,6 +601,12 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
             
             return
         }
+        
+        if !s.buckets.Get(pushMessage.Bucket).ReplicationStrategy.ShouldReplicateIncoming(nodeID) {
+            log.Errorf("Ignoring push message from %s because this node does not accept incoming pushes from bucket %s from that node", nodeID, pushMessage.Bucket)
+            
+            return
+        }
 
         key := pushMessage.Key
         value := pushMessage.Value
@@ -676,7 +684,7 @@ func (s *SyncController) StartInitiatorSessions() {
     
     go func() {
         for {
-            time.Sleep(time.Millisecond * 1000)
+            time.Sleep(time.Millisecond * time.Duration(s.syncSessionPeriod))
             
             s.mapMutex.RLock()
     
@@ -701,8 +709,6 @@ func (s *SyncController) StartInitiatorSessions() {
             if len(peerID) == 0 {
                 s.mapMutex.RUnlock()
                 
-                time.Sleep(time.Millisecond * 1000)
-                
                 continue
             }
             
@@ -710,8 +716,6 @@ func (s *SyncController) StartInitiatorSessions() {
             
             if len(incoming) == 0 {
                 s.mapMutex.RUnlock()
-                
-                time.Sleep(time.Millisecond * 1000)
                 
                 continue
             }
@@ -724,8 +728,6 @@ func (s *SyncController) StartInitiatorSessions() {
                 s.nextSessionID += 1
             } else {
             }
-            
-            time.Sleep(time.Millisecond * 1000)
         }
     }()
 }
@@ -741,8 +743,10 @@ func (s *SyncController) Start() {
     s.StartResponderSessions()
 }
 
-func (s *SyncController) BroadcastUpdate(key string, value *SiblingSet, n int) {
+func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, n uint64) {
     // broadcast the specified object to at most n peers, or all peers if n is non-positive
+    var count uint64 = 0
+    
     s.mapMutex.RLock()
     defer s.mapMutex.RUnlock()
     
@@ -752,19 +756,20 @@ func (s *SyncController) BroadcastUpdate(key string, value *SiblingSet, n int) {
         MessageBody: PushMessage{
             Key: key,
             Value: value,
+            Bucket: bucket,
         },
         Direction: PUSH,
     }
     
     for peerID, w := range s.peers {
-        if n <= 0 {
+        if n != 0 && count == n {
             break
         }
         
         select {
         case w <- msg:
             log.Debugf("Push object at key %s to peer %s", key, peerID)
-            n -= 1
+            count += 1
         default:
             log.Warningf("Failed to push object at key %s to peer %s", key, peerID)
         }

@@ -77,7 +77,7 @@ var _ = Describe("Peer", func() {
     stop := make(chan int)
     
     BeforeEach(func() {
-        responderSyncController = NewSyncController(2, nil)
+        responderSyncController = NewSyncController(2, nil, 1000)
         responderPeer = NewPeer(responderSyncController, responderClientTLS)
         responderServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
@@ -86,7 +86,7 @@ var _ = Describe("Peer", func() {
             Peer: responderPeer,
         })
         
-        initiatorSyncController = NewSyncController(2, nil)
+        initiatorSyncController = NewSyncController(2, nil, 1000)
         initiatorPeer = NewPeer(initiatorSyncController, initiatorClientTLS)
         initiatorServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),

@@ -78,7 +78,8 @@ type ServerConfig struct {
     NodeID string
     Peer *Peer
     ServerTLS *tls.Config
-    peerAddresses map[string]peerAddress
+    PeerAddresses map[string]peerAddress
+    SyncPushBroadcastLimit uint64
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
@@ -93,7 +94,8 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.DBFile = ysc.DBFile
     sc.Port = ysc.Port
     sc.MerkleDepth = ysc.MerkleDepth
-    sc.peerAddresses = make(map[string]peerAddress)
+    sc.SyncPushBroadcastLimit = ysc.SyncPushBroadcastLimit
+    sc.PeerAddresses = make(map[string]peerAddress)
 
     rootCAs := x509.NewCertPool()
     
@@ -112,15 +114,15 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         ClientCAs: rootCAs,
     }
     
-    sc.Peer = NewPeer(NewSyncController(uint(ysc.MaxSyncSessions), nil), clientTLSConfig)
+    sc.Peer = NewPeer(NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod), clientTLSConfig)
     sc.ServerTLS = serverTLSConfig
     
     for _, yamlPeer := range ysc.Peers {
-        if _, ok := sc.peerAddresses[yamlPeer.ID]; ok {
+        if _, ok := sc.PeerAddresses[yamlPeer.ID]; ok {
             return errors.New(fmt.Sprintf("Duplicate entry for peer %s in config file", yamlPeer.ID))
         }
         
-        sc.peerAddresses[yamlPeer.ID] = peerAddress{
+        sc.PeerAddresses[yamlPeer.ID] = peerAddress{
             id: yamlPeer.ID,
             host: yamlPeer.Host,
             port: yamlPeer.Port,
@@ -155,6 +157,7 @@ type Server struct {
     peer *Peer
     serverTLS *tls.Config
     id string
+    syncPushBroadcastLimit uint64
 }
 
 func NewServer(serverConfig ServerConfig) (*Server, error) {
@@ -173,7 +176,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     storageDriver := NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     nodeID := serverConfig.NodeID
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Peer, serverConfig.ServerTLS, nodeID }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Peer, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit }
     err := server.storageDriver.Open()
     
     if err != nil {
@@ -195,8 +198,8 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         server.peer.syncController.buckets = server.bucketList
     }
     
-    if server.peer != nil && serverConfig.peerAddresses != nil {
-        for _, pa := range serverConfig.peerAddresses {
+    if server.peer != nil && serverConfig.PeerAddresses != nil {
+        for _, pa := range serverConfig.PeerAddresses {
             server.peer.Connect(pa.id, pa.host, pa.port)
         }
     }
@@ -503,7 +506,7 @@ func (server *Server) Start() error {
     
         if server.peer != nil {
             for key, siblingSet := range updatedSiblingSets {
-                server.peer.SyncController().BroadcastUpdate(key, siblingSet, 0)
+                server.peer.SyncController().BroadcastUpdate(bucket, key, siblingSet, server.syncPushBroadcastLimit)
             }
         }
         

@@ -13,6 +13,8 @@ type YAMLServerConfig struct {
     DBFile string `yaml:"db"`
     Port int `yaml:"port"`
     MaxSyncSessions int `yaml:"syncSessionLimit"`
+    SyncSessionPeriod uint64 `yaml:"syncSessionPeriod"`
+    SyncPushBroadcastLimit uint64 `yaml:"syncPushBroadcastLimit"`
     MerkleDepth uint8 `yaml:"merkleDepth"`
     Peers []YAMLPeer `yaml:"peers"`
     TLS YAMLTLSFiles `yaml:"tls"`
@@ -55,6 +57,10 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     
     if ysc.MaxSyncSessions <= 0 {
         return errors.New("syncSessionLimit must be at least 1")
+    }
+    
+    if ysc.SyncSessionPeriod == 0 {
+        return errors.New("syncSessionPeriod must be positive")
     }
 
     if ysc.Peers != nil {

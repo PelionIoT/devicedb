@@ -1,6 +1,8 @@
 db: /tmp/db1
 port: 9191
 syncSessionLimit: 2
+syncSessionPeriod: 10000
+syncPushBroadcastLimit: 0
 merkleDepth: 19
 peers:
 tls:

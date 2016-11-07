@@ -20,6 +20,14 @@ port: 9090
 # **REQUIRED**
 syncSessionLimit: 2
 
+# The sync session period is the time in milliseconds that determines the rate
+# at which sync sessions are initiated with neighboring peers. Adjusting this
+# too high will result in unwanted amounts of network traffic and too low may
+# result in slow convergence rates for replicas that have not been in contact
+# for some time. A rate on the order of seconds is reccomended generally
+# **REQUIRED**
+syncSessionPeriod: 1000
+
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
 # as memory constraints allow. Estimated memory overhead for a given depth is
