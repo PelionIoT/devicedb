@@ -51,7 +51,7 @@ var _ = Describe("Server", func() {
         It("should load the config from a file", func() {
             var sc ServerConfig
             
-            err := sc.LoadFromFile("./test_configs/test_config_1.json")
+            err := sc.LoadFromFile("./test_configs/test_config_1.yaml")
             
             Expect(err).Should(BeNil())
         })

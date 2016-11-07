@@ -8,14 +8,14 @@ import (
 )
 
 func init() {
-    registerCommand("port", portLegacyDatabase, portLegacyDatabaseUsage)
+    registerCommand("upgrade", upgradeLegacyDatabase, upgradeLegacyDatabaseUsage)
 }
 
-var portLegacyDatabaseUsage string = 
-`Usage: devicedb port -legacy=[legacy database directory] [-conf=[config file] | -db=[new database directory] -merkle=[new database merkle depth] ]
+var upgradeLegacyDatabaseUsage string = 
+`Usage: devicedb upgrade -legacy=[legacy database directory] [-conf=[config file] | -db=[new database directory] -merkle=[new database merkle depth] ]
 `
 
-func portLegacyDatabase() {
+func upgradeLegacyDatabase() {
     var serverConfig YAMLServerConfig
     
     if len(*optConfigFile) != 0 {

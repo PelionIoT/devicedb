@@ -12,8 +12,7 @@ var usage string =
 Commands:
     start     Start a devicedb server
     conf      Generate a template config file
-    port      Port an old database to the latest format
-    repair    Port an old database to the latest format
+    upgrade   Upgrade an old database to the latest format
     
 Use devicedb help [command] for more usage information about a command.
 `

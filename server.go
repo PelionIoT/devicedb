@@ -27,6 +27,14 @@ func (shared *Shared) ShouldReplicateIncoming(peerID string) bool {
     return true
 }
 
+func (shared *Shared) ShouldAcceptReads(clientID string) bool {
+    return true
+}
+
+func (shared *Shared) ShouldAcceptWrites(clientID string) bool {
+    return true
+}
+
 type Cloud struct {
 }
 
@@ -38,6 +46,31 @@ func (cloud *Cloud) ShouldReplicateIncoming(peerID string) bool {
     return peerID == "cloud"
 }
 
+func (cloud *Cloud) ShouldAcceptReads(clientID string) bool {
+    return true
+}
+
+func (cloud *Cloud) ShouldAcceptWrites(clientID string) bool {
+    return false
+}
+
+type Local struct {
+}
+
+func (local *Local) ShouldReplicateOutgoing(peerID string) bool {
+    return false
+}
+
+func (local *Local) ShouldReplicateIncoming(peerID string) bool {
+    return false
+}
+
+type peerAddress struct {
+    id string
+    host string
+    port int
+}
+
 type ServerConfig struct {
     DBFile string
     Port int
@@ -45,6 +78,7 @@ type ServerConfig struct {
     NodeID string
     Peer *Peer
     ServerTLS *tls.Config
+    peerAddresses map[string]peerAddress
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
@@ -59,6 +93,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.DBFile = ysc.DBFile
     sc.Port = ysc.Port
     sc.MerkleDepth = ysc.MerkleDepth
+    sc.peerAddresses = make(map[string]peerAddress)
 
     rootCAs := x509.NewCertPool()
     
@@ -81,7 +116,15 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.ServerTLS = serverTLSConfig
     
     for _, yamlPeer := range ysc.Peers {
-        sc.Peer.Connect(yamlPeer.ID, yamlPeer.Host, yamlPeer.Port)
+        if _, ok := sc.peerAddresses[yamlPeer.ID]; ok {
+            return errors.New(fmt.Sprintf("Duplicate entry for peer %s in config file", yamlPeer.ID))
+        }
+        
+        sc.peerAddresses[yamlPeer.ID] = peerAddress{
+            id: yamlPeer.ID,
+            host: yamlPeer.Host,
+            port: yamlPeer.Port,
+        }
     }
     
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
@@ -141,13 +184,21 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     defaultNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), serverConfig.MerkleDepth, nil)
     cloudNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), serverConfig.MerkleDepth, nil) 
     lwwNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), serverConfig.MerkleDepth, LastWriterWins)
+    localNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 3 }, storageDriver), MerkleMinDepth, nil)
     
-    server.bucketList.AddBucket("default", defaultNode, &Shared{ })
-    server.bucketList.AddBucket("lww", lwwNode, &Shared{ })
-    server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ })
+    server.bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
+    server.bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
+    server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ }, &Cloud{ })
+    server.bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
     
     if server.peer != nil && server.peer.syncController != nil {
         server.peer.syncController.buckets = server.bucketList
+    }
+    
+    if server.peer != nil && serverConfig.peerAddresses != nil {
+        for _, pa := range serverConfig.peerAddresses {
+            server.peer.Connect(pa.id, pa.host, pa.port)
+        }
     }
     
     return server, nil
@@ -292,7 +343,7 @@ func (server *Server) Start() error {
             io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
             
             return
-        }
+        }    
         
         keys := make([]string, 0)
         decoder := json.NewDecoder(r.Body)
@@ -397,6 +448,16 @@ func (server *Server) Start() error {
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusNotFound)
             io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
+            
+            return
+        }
+        
+        if !server.bucketList.Get(bucket).PermissionStrategy.ShouldAcceptWrites("") {
+            log.Warningf("POST /{bucket}/batch: Attempted to read from %s bucket", bucket)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusUnauthorized)
+            io.WriteString(w, string(EUnauthorized.JSON()) + "\n")
             
             return
         }

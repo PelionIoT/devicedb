@@ -104,10 +104,12 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
     defaultNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 0 }, newDBStorageDriver), serverConfig.MerkleDepth, nil)
     cloudNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 1 }, newDBStorageDriver), serverConfig.MerkleDepth, nil) 
     lwwNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 2 }, newDBStorageDriver), serverConfig.MerkleDepth, LastWriterWins)
+    localNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 3 }, newDBStorageDriver), MerkleMinDepth, nil)
     
-    bucketList.AddBucket("default", defaultNode, &Shared{ })
-    bucketList.AddBucket("lww", lwwNode, &Shared{ })
-    bucketList.AddBucket("cloud", cloudNode, &Cloud{ })
+    bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
+    bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
+    bucketList.AddBucket("cloud", cloudNode, &Cloud{ }, &Cloud{ })
+    bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
     
     iter, err := legacyDatabaseDriver.GetMatches([][]byte{ []byte(bucketDataPrefix) })
     
@@ -158,7 +160,7 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
         if err != nil {
             log.Warningf("Unable to migrate object at %s (%s): %v", key, string(value), err)
         } else {
-            log.Debugf("Migrated object in legacy bucket %s at key %s", legacyBucketName, nonPrefixedKey)
+            //log.Debugf("Migrated object in legacy bucket %s at key %s", legacyBucketName, nonPrefixedKey)
         }
     }
     

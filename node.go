@@ -14,6 +14,7 @@ const MAX_SORTING_KEY_LENGTH = 255
 var MASTER_MERKLE_TREE_PREFIX = []byte{ 0 }
 var PARTITION_MERKLE_LEAF_PREFIX = []byte{ 1 }
 var PARTITION_DATA_PREFIX = []byte{ 2 }
+var NODE_METADATA_PREFIX = []byte{ 3 }
 
 func nodeBytes(node uint32) []byte {
     bytes := make([]byte, 4)
@@ -77,6 +78,14 @@ func decodePartitionMerkleLeafKey(k []byte) (uint32, []byte, error) {
     return binary.BigEndian.Uint32(k[:4]), k[4:], nil
 }
 
+func encodeMetadataKey(k []byte) []byte {
+    result := make([]byte, 0, len(NODE_METADATA_PREFIX) + len(k))
+    result = append(result, PARTITION_MERKLE_LEAF_PREFIX...)
+    result = append(result, k...)
+    
+    return result
+}
+
 type Node struct {
     id string
     storageDriver StorageDriver
@@ -94,7 +103,36 @@ func NewNode(id string, storageDriver StorageDriver, merkleDepth uint8, resolveC
     node := Node{ id, storageDriver, nil, NewMultiLock(), NewMultiLock(), resolveConflicts }
     node.merkleTree, _ = NewMerkleTree(merkleDepth)
     
-    err := node.initializeMerkleTree()
+    var err error
+    dbMerkleDepth, err := node.getNodeMetadata()
+    
+    if err != nil {
+        log.Errorf("Error retrieving database metadata for node %s: %v", id, err)
+        
+        return nil, err
+    }
+    
+    if dbMerkleDepth != merkleDepth {
+        log.Debugf("Initializing node %s rebuilding merkle leafs with depth %d", id, merkleDepth)
+        
+        err = node.RebuildMerkleLeafs()
+        
+        if err != nil {
+            log.Errorf("Error rebuilding merkle leafs for node %s: %v", id, err)
+            
+            return nil, err
+        }
+        
+        err = node.recordNodeMetadata()
+        
+        if err != nil {
+            log.Errorf("Error recording merkle depth metadata for node %s: %v", id, err)
+            
+            return nil, err
+        }
+    }
+    
+    err = node.initializeMerkleTree()
     
     if err != nil {
         log.Errorf("Error initializing node %s: %v", id, err)
@@ -140,6 +178,111 @@ func (node *Node) initializeMerkleTree() error {
     }
     
     return nil
+}
+
+func (node *Node) getNodeMetadata() (uint8, error) {
+    values, err := node.storageDriver.Get([][]byte{ encodeMetadataKey([]byte("merkleDepth")) })
+    
+    if err != nil {
+        return 0, err
+    }
+    
+    if values[0] == nil || len(values[0]) == 0 {
+        return 0, nil
+    }
+    
+    return uint8(values[0][0]), nil
+}
+
+func (node *Node) recordNodeMetadata() error {
+    batch := NewBatch()
+    
+    batch.Put(encodeMetadataKey([]byte("merkleDepth")), []byte{ byte(node.merkleTree.Depth()) })
+    
+    err := node.storageDriver.Batch(batch)
+    
+    if err != nil {
+        return err
+    }
+    
+    return nil
+}
+
+func (node *Node) RebuildMerkleLeafs() error {
+    // Delete all keys starting with MASTER_MERKLE_TREE_PREFIX or PARTITION_MERKLE_LEAF_PREFIX
+    iter, err := node.storageDriver.GetMatches([][]byte{ MASTER_MERKLE_TREE_PREFIX, PARTITION_MERKLE_LEAF_PREFIX })
+    
+    if err != nil {
+        return err
+    }
+    
+    defer iter.Release()
+    
+    for iter.Next() {
+        batch := NewBatch()
+        batch.Delete(iter.Key())
+        err := node.storageDriver.Batch(batch)
+        
+        if err != nil {
+            return err
+        }
+    }
+    
+    if iter.Error() != nil {
+        return iter.Error()
+    }
+    
+    iter.Release()
+
+    // Scan through all the keys in this node and rebuild the merkle tree
+    merkleTree, _ := NewMerkleTree(node.merkleTree.Depth())
+    iter, err = node.storageDriver.GetMatches([][]byte{ PARTITION_DATA_PREFIX })
+    
+    if err != nil {
+        return err
+    }
+    
+    siblingSetIterator := NewSiblingSetIterator(iter)
+    
+    defer siblingSetIterator.Release()
+    
+    for siblingSetIterator.Next() {
+        key := siblingSetIterator.Key()
+        siblingSet := siblingSetIterator.Value()
+        update := NewUpdate().AddDiff(string(key), nil, siblingSet)
+        
+        _, leafNodes := merkleTree.Update(update)
+        batch := NewBatch()
+        
+        for leafID, _ := range leafNodes {
+            for key, _:= range leafNodes[leafID] {
+                batch.Put(encodePartitionMerkleLeafKey(leafID, []byte(key)), []byte{ })
+            }
+        }
+        
+        err := node.storageDriver.Batch(batch)
+        
+        if err != nil {
+            return err
+        }
+    }
+    
+    for leafID := uint32(1); leafID < merkleTree.NodeLimit(); leafID += 2 {
+        batch := NewBatch()
+        
+        if merkleTree.NodeHash(leafID).High() != 0 || merkleTree.NodeHash(leafID).Low() != 0 {
+            leafHash := merkleTree.NodeHash(leafID).Bytes()
+            batch.Put(encodeMerkleLeafKey(leafID), leafHash[:])
+            
+            err := node.storageDriver.Batch(batch)
+            
+            if err != nil {
+                return err
+            }
+        }
+    }
+    
+    return siblingSetIterator.Error()
 }
 
 func (node *Node) MerkleTree() *MerkleTree {
@@ -745,9 +888,6 @@ func (ssIterator *SiblingSetIterator) Next() bool {
     var siblingSet SiblingSet
     
     ssIterator.parseError = siblingSet.Decode(ssIterator.dbIterator.Value())
-    
-    log.Infof("Key = %s\n", string(decodePartitionDataKey(ssIterator.dbIterator.Key())))
-    log.Infof("Value = %s\n", string(ssIterator.dbIterator.Value()))
     
     if ssIterator.parseError != nil {
         log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", ssIterator.dbIterator.Key(), ssIterator.dbIterator.Value(), ssIterator.parseError.Error())

@@ -34,6 +34,7 @@ const (
     eMERKLE_RANGE = iota
     eINVALID_OP = iota
     eINVALID_CONTEXT = iota
+    eUNAUTHORIZED = iota
 )
 
 var (
@@ -47,4 +48,5 @@ var (
     EMerkleRange           = DBerror{ "An invalid merkle node was requested", eMERKLE_RANGE }
     EInvalidOp             = DBerror{ "An invalid operation was specified", eINVALID_OP }
     EInvalidContext        = DBerror{ "An invalid context was provided in an update", eINVALID_CONTEXT }
+    EUnauthorized          = DBerror{ "Operation not permitted", eUNAUTHORIZED }
 )

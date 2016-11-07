@@ -14,10 +14,16 @@ type ReplicationStrategy interface {
     ShouldReplicateIncoming(peerID string) bool
 }
 
+type PermissionStrategy interface {
+    ShouldAcceptWrites(clientID string) bool
+    ShouldAcceptReads(clientID string) bool
+}
+
 type Bucket struct {
     Name string
     Node *Node
     ReplicationStrategy ReplicationStrategy
+    PermissionStrategy PermissionStrategy
 }
 
 type BucketList struct {
@@ -28,8 +34,8 @@ func NewBucketList() *BucketList {
     return &BucketList{ make(map[string]Bucket) }
 }
 
-func (bucketList *BucketList) AddBucket(name string, node *Node, replicationStrategy ReplicationStrategy) *BucketList {
-    bucketList.buckets[name] = Bucket{ name, node, replicationStrategy }
+func (bucketList *BucketList) AddBucket(name string, node *Node, replicationStrategy ReplicationStrategy, permissionStrategy PermissionStrategy) *BucketList {
+    bucketList.buckets[name] = Bucket{ name, node, replicationStrategy, permissionStrategy }
     
     return bucketList
 }
