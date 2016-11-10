@@ -266,11 +266,11 @@ func (server *Server) Start() error {
             return
         }
         
-        keys := make([]string, 0)
+        var keysArray *[]string
         decoder := json.NewDecoder(r.Body)
-        err := decoder.Decode(&keys)
+        err := decoder.Decode(&keysArray)
         
-        if err != nil {
+        if err != nil || keysArray == nil {
             log.Warningf("POST /{bucket}/values: %v", err)
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
@@ -280,12 +280,14 @@ func (server *Server) Start() error {
             return
         }
         
+        keys := *keysArray
+        
         if len(keys) == 0 {
-            log.Warningf("POST /{bucket}/values: Empty keys array")
-            
+            siblingSetsJSON, _ := json.Marshal([]*TransportSiblingSet{ })
+        
             w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusBadRequest)
-            io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+            w.WriteHeader(http.StatusOK)
+            io.WriteString(w, string(siblingSetsJSON))
             
             return
         }
@@ -362,12 +364,12 @@ func (server *Server) Start() error {
             
             return
         }    
-        
-        keys := make([]string, 0)
+    
+        var keysArray *[]string
         decoder := json.NewDecoder(r.Body)
-        err := decoder.Decode(&keys)
+        err := decoder.Decode(&keysArray)
         
-        if err != nil {
+        if err != nil || keysArray == nil {
             log.Warningf("POST /{bucket}/matches: %v", err)
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
@@ -377,12 +379,12 @@ func (server *Server) Start() error {
             return
         }
         
+        keys := *keysArray
+        
         if len(keys) == 0 {
-            log.Warningf("POST /{bucket}/matches: Empty keys array")
-            
             w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusBadRequest)
-            io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+            w.WriteHeader(http.StatusOK)
+            io.WriteString(w, "\n")
             
             return
         }
