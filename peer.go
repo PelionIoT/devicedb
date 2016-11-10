@@ -14,6 +14,11 @@ import (
     "strconv"
 )
 
+const (
+    INCOMING = iota
+    OUTGOING = iota
+)
+
 const RECONNECT_WAIT_MAX_SECONDS = 32
 
 func randomID() string {
@@ -26,165 +31,147 @@ func randomID() string {
     return fmt.Sprintf("%016x%016x", high, low)
 }
 
+type PeerJSON struct {
+    Direction string `json:"direction"`
+    ID string `json:"id"`
+    Status string `json:"status"`
+}
+
 type Peer struct {
-    syncController *SyncController
-    tlsConfig *tls.Config
-    peerMapLock sync.RWMutex
-    peerMap map[string]*websocket.Conn
+    id string
+    connection *websocket.Conn
+    direction int
+    closed bool
+    closeChan chan bool
+    doneChan chan bool
+    csLock sync.Mutex
+    result error
 }
 
-func NewPeer(syncController *SyncController, tlsConfig *tls.Config) *Peer {    
-    peer := &Peer{
-        syncController: syncController,
-        tlsConfig: tlsConfig,
-        peerMap: make(map[string]*websocket.Conn),
+func NewPeer(id string, direction int) *Peer {
+    return &Peer{
+        id: id,
+        direction: direction,
+        closeChan: make(chan bool, 1),
     }
-    
-    return peer
 }
 
-func (peer *Peer) Accept(connection *websocket.Conn) error {
-    conn := connection.UnderlyingConn()
-    
-    if _, ok := conn.(*tls.Conn); ok {
-        // https connection
-        // extract peer id from common name
-        peerID, err := peer.extractPeerID(conn.(*tls.Conn))
-        
-        if err != nil {
-            log.Warningf("Unable to accept peer connection: %v", err)
-            
-            return err
-        }
-        
-        err = peer.register(peerID, connection)
-        
-        // This indicates that the other side requested explicitly that this side is disconnected.
-        // It was not an error and we should not try to reconnect
-        if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-            log.Infof("Disconnected from peer %s", peerID)
-        
-            return err
-        }
-        
-        if websocket.IsUnexpectedCloseError(err) {
-            log.Warningf("Disconnected from peer %s: %v", peerID, err)
-            
-            return err
-        }
-        
-        if err != nil {
-            log.Warningf("Unable to register peer connection from %s: %v", peerID, err)
-            
-            return err
-        }
-        
-        log.Infof("Accepted peer connection from %s", peerID)
-    } else {
-        // http connection
-        err := peer.register(randomID(), connection)
-        
-        if err != nil {
-            log.Warningf("Unable to register peer connection: %v", err)
-            
-            return err
-        }
-        
-        log.Infof("Accepted peer connection")
-    }
-        
-    return nil
+func (peer *Peer) errors() error {
+    return peer.result
 }
 
-func (peer *Peer) extractPeerID(conn *tls.Conn) (string, error) {
-    // VerifyClientCertIfGiven
-    verifiedChains := conn.ConnectionState().VerifiedChains
+func (peer *Peer) accept(connection *websocket.Conn) (chan *SyncMessageWrapper, chan *SyncMessageWrapper, error) {
+    peer.csLock.Lock()
+    defer peer.csLock.Unlock()
     
-    if len(verifiedChains) != 1 {
-        return "", errors.New("Invalid client certificate")
+    if peer.closed {
+        return nil, nil, errors.New("Peer closed")
     }
     
-    peerID := verifiedChains[0][0].Subject.CommonName
+    peer.connection = connection
     
-    return peerID, nil
+    incoming, outgoing := peer.establishChannels()
+    
+    return incoming, outgoing, nil
 }
 
-func (peer *Peer) Connect(peerID, host string, port int) error {
-    if peer.tlsConfig == nil {
-        return errors.New("No tls config provided")
-    }
+func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan *SyncMessageWrapper, chan *SyncMessageWrapper, error) {
+    reconnectWaitSeconds := 1
     
-    tlsConfig := *peer.tlsConfig
-    tlsConfig.InsecureSkipVerify = false
-    tlsConfig.ServerName = peerID
-    
-    dialer := &websocket.Dialer{
-        TLSClientConfig: &tlsConfig,
-    }
-
-    go func() {
-        reconnectWaitSeconds := 1
-        
-        for {
-            conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
-            
-            if err != nil {
-                log.Warningf("Unable to connect to %s on port %d: %v. Reconnecting in %ds...", host, port, err, reconnectWaitSeconds)
-            
-                time.Sleep(time.Second * time.Duration(reconnectWaitSeconds))
+    for {
+        peer.connection = nil
+        conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
                 
-                if reconnectWaitSeconds != RECONNECT_WAIT_MAX_SECONDS {
-                    reconnectWaitSeconds *= 2
-                }
+        if err != nil {
+            log.Warningf("Unable to connect to peer %s at %s on port %d: %v. Reconnecting in %ds...", peer.id, host, port, err, reconnectWaitSeconds)
+            
+            select {
+            case <-time.After(time.Second * time.Duration(reconnectWaitSeconds)):
+            case <-peer.closeChan:
+                log.Debugf("Cancelled connection retry sequence for %s", peer.id)
                 
-                continue
+                return nil, nil, errors.New("Peer closed")
             }
-            
-            log.Infof("Connected to peer %s at %s on port %d", peerID, host, port)
-            reconnectWaitSeconds = 1
-            
-            err = peer.register(peerID, conn)
-            
-            // This indicates that the other side requested explicitly that this side is disconnected.
-            // It was not an error and we should not try to reconnect
-            if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-                log.Infof("Disconnected from peer %s", peerID)
-            
-                break
-            }
-            
-            if err != nil && !websocket.IsUnexpectedCloseError(err) {
-                log.Warningf("Unable to register peer connection from %s: %v", peerID, err)
-                
-                break
-            }
-            
-            // any non-standard close errors should result in a reconnect attempt
-            log.Infof("Disconnected from peer %s. Reconnecting in %ds...", peerID, reconnectWaitSeconds)
-            time.Sleep(time.Second * time.Duration(reconnectWaitSeconds))
             
             if reconnectWaitSeconds != RECONNECT_WAIT_MAX_SECONDS {
                 reconnectWaitSeconds *= 2
             }
+        } else {
+            peer.csLock.Lock()
+            defer peer.csLock.Unlock()
+            
+            if !peer.closed {
+                peer.connection = conn
+                
+                incoming, outgoing := peer.establishChannels()
+                
+                return incoming, outgoing, nil
+            }
+            
+            log.Debugf("Cancelled connection retry sequence for %s", peer.id)
+            
+            closeWSConnection(conn)
+            
+            return nil, nil, errors.New("Peer closed")
+        }
+    }
+}
+
+func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessageWrapper) {
+    peer.doneChan = make(chan bool, 1)
+    
+    incoming := make(chan *SyncMessageWrapper)
+    outgoing := make(chan *SyncMessageWrapper)
+    
+    go func() {
+        for msg := range outgoing {
+            err := peer.connection.WriteJSON(msg)
+                
+            if err != nil {
+                return
+            }
         }
     }()
     
-    return nil
-}
-
-func (peer *Peer) Disconnect(peerID string) {
-    peer.disconnect(peerID)
-}
-
-func (peer *Peer) disconnect(peerID string) {
-    peer.peerMapLock.Lock()
+    // incoming, outgoing, err
+    go func() {
+        defer close(peer.doneChan)
+        
+        for {
+            var nextRawMessage rawSyncMessageWrapper
+            var nextMessage SyncMessageWrapper
+            
+            err := peer.connection.ReadJSON(&nextRawMessage)
+            
+            if err != nil {
+                peer.result = err
+                
+                close(incoming)
+            
+                return
+            }
+            
+            nextMessage.SessionID = nextRawMessage.SessionID
+            nextMessage.MessageType = nextRawMessage.MessageType
+            nextMessage.Direction = nextRawMessage.Direction
+            
+            err = peer.typeCheck(&nextRawMessage, &nextMessage)
+            
+            if err != nil {
+                peer.result = err
+                
+                close(incoming)
+                
+                return
+            }
+            
+            nextMessage.nodeID = peer.id
+            
+            incoming <- &nextMessage
+        }    
+    }()
     
-    if _, ok := peer.peerMap[peerID]; ok {
-        peer.peerMap[peerID].WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-    }
-    
-    delete(peer.peerMap, peerID)
-    peer.peerMapLock.Unlock()
+    return incoming, outgoing
 }
 
 func (peer *Peer) typeCheck(rawMsg *rawSyncMessageWrapper, msg *SyncMessageWrapper) error {
@@ -216,91 +203,285 @@ func (peer *Peer) typeCheck(rawMsg *rawSyncMessageWrapper, msg *SyncMessageWrapp
     return err
 }
 
-func (peer *Peer) register(peerID string, connection *websocket.Conn) error {
-    var result error = nil
-    wg := sync.WaitGroup{ }
+func (peer *Peer) close() {
+    peer.csLock.Lock()
+    defer peer.csLock.Unlock()
     
-    w := make(chan *SyncMessageWrapper)
-    err := peer.syncController.addPeer(peerID, w)
-    
-    wg.Add(2)
-    
-    if err != nil {
-        log.Errorf("Unable to register peer %s: %v", peerID, err)
-        
-        return err
+    if !peer.closed {
+        peer.closeChan <- true
+        peer.closed = true
     }
-    
-    peer.peerMapLock.Lock()
-    peer.peerMap[peerID] = connection
-    peer.peerMapLock.Unlock()
-    
-    go func() {
-        for {
-            var nextRawMessage rawSyncMessageWrapper
-            var nextMessage SyncMessageWrapper
+        
+    if peer.connection != nil {
+        err := peer.connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+        
+        if err != nil {
+            return
+        }
             
-            err := connection.ReadJSON(&nextRawMessage)
-            
-            if err != nil {
-                log.Warningf("Unable to read from peer %s, unregistering peer: %v", peerID, err)
-                
-                peer.syncController.removePeer(peerID)
-                peer.disconnect(peerID)
-                
-                result = err
-                
-                break
-            }
-            
-            nextMessage.SessionID = nextRawMessage.SessionID
-            nextMessage.MessageType = nextRawMessage.MessageType
-            nextMessage.Direction = nextRawMessage.Direction
-            
-            err = peer.typeCheck(&nextRawMessage, &nextMessage)
-            
-            if err != nil {
-                log.Warningf("Unable to read from peer %s, unregistering peer: %v", peerID, err)
-                
-                peer.syncController.removePeer(peerID)
-                peer.disconnect(peerID)
-                
-                result = err
-                
-                break
-            }
-            
-            nextMessage.nodeID = peerID
-            
-            peer.syncController.incoming <- &nextMessage
+        select {
+        case <-peer.doneChan:
+        case <-time.After(time.Second):
         }
         
-        wg.Done()
-    }()
-    
-    go func() {
-        for msg := range w {
-            err := connection.WriteJSON(msg)
-            
-            if err != nil {
-                log.Warningf("Unable to write to peer %s: %v", peerID, err)
-                    
-                break
-            }
-        }
-        
-        peer.disconnect(peerID)
-        
-        wg.Done()
-    }()
-    
-    wg.Wait()
-    
-    return result
+        peer.connection.Close()
+    }
 }
 
-func (peer *Peer) SyncController() *SyncController {
-    return peer.syncController
+func (peer *Peer) isClosed() bool {
+    return peer.closed
+}
+
+func (peer *Peer) toJSON(peerID string) *PeerJSON {
+    var direction string
+    var status string
+    
+    if peer.direction == INCOMING {
+        direction = "incoming"
+    } else {
+        direction = "outgoing"
+    }
+    
+    if peer.connection == nil {
+        status = "down"
+    } else {
+        status = "up"
+    }
+    
+    return &PeerJSON{
+        Direction: direction,
+        Status: status,
+        ID: peerID,
+    }
+}
+
+func closeWSConnection(conn *websocket.Conn) {
+    done := make(chan bool)
+    
+    go func() {
+        defer close(done)
+        
+        for {
+            _, _, err := conn.ReadMessage()
+            
+            if err != nil {
+                return
+            }
+        }
+    }()
+            
+    err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+        
+    if err != nil {
+        return
+    }
+    
+    select {
+    case <-done:
+    case <-time.After(time.Second):
+    }
+    
+    conn.Close()
+}
+
+type Hub struct {
+    tlsConfig *tls.Config
+    peerMapLock sync.Mutex
+    peerMap map[string]*Peer
+    syncController *SyncController
+}
+
+func NewHub(syncController *SyncController, tlsConfig *tls.Config) *Hub {    
+    hub := &Hub{
+        syncController: syncController,
+        tlsConfig: tlsConfig,
+        peerMap: make(map[string]*Peer),
+    }
+    
+    return hub
+}
+
+func (hub *Hub) Accept(connection *websocket.Conn) error {
+    conn := connection.UnderlyingConn()
+    
+    if _, ok := conn.(*tls.Conn); ok {
+        peerID, err := hub.extractPeerID(conn.(*tls.Conn))
+        
+        if err != nil {
+            log.Warningf("Unable to accept peer connection: %v", err)
+            
+            closeWSConnection(connection)
+            
+            return err
+        }
+
+        go func() {
+            peer := NewPeer(peerID, INCOMING)
+            
+            if !hub.register(peer) {
+                log.Warningf("Rejected peer connection from %s because that peer is already connected", peerID)
+                
+                closeWSConnection(connection)
+                
+                return
+            }
+            
+            incoming, outgoing, err := peer.accept(connection)
+            
+            if err != nil {
+                closeWSConnection(connection)
+                
+                return
+            }
+            
+            log.Infof("Accepted peer connection from %s", peerID)
+            
+            hub.syncController.addPeer(peer.id, outgoing)
+                
+            for msg := range incoming {
+                hub.syncController.incoming <- msg
+            }
+            
+            hub.syncController.removePeer(peer.id)
+            hub.unregister(peer)
+            
+            log.Infof("Disconnected from peer %s", peerID)
+        }()
+    } else {
+        return errors.New("Cannot accept non-secure connections")
+    }
+        
+    return nil
+}
+
+func (hub *Hub) Connect(peerID, host string, port int) error {
+    dialer, err := hub.dialer(peerID)
+    
+    if err != nil {
+        return err
+    }    
+    
+    go func() {
+        peer := NewPeer(peerID, OUTGOING)
+    
+        // simply try to reserve a spot in the peer map
+        if !hub.register(peer) {
+            return
+        }
+    
+        for {
+            // connect will return an error once the peer is disconnected for good
+            incoming, outgoing, err := peer.connect(dialer, host, port)
+            
+            if err != nil {
+                break
+            }
+            
+            log.Infof("Connected to peer %s", peer.id)
+            
+            hub.syncController.addPeer(peer.id, outgoing)
+        
+            // incoming is closed when the peer is disconnected from either end
+            for msg := range incoming {
+                hub.syncController.incoming <- msg
+            }
+        
+            hub.syncController.removePeer(peer.id)
+            
+            if websocket.IsCloseError(peer.errors(), websocket.CloseNormalClosure) {
+                log.Infof("Disconnected from peer %s", peer.id)
+            
+                break
+            }
+            
+            log.Infof("Disconnected from peer %s. Reconnecting...", peer.id)
+        }
+        
+        hub.unregister(peer)
+    }()
+    
+    return nil
+}
+
+func (hub *Hub) Disconnect(peerID string) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+    
+    peer, ok := hub.peerMap[peerID]
+    
+    if ok {
+        peer.close()
+    }
+}
+
+func (hub *Hub) dialer(peerID string) (*websocket.Dialer, error) {
+    if hub.tlsConfig == nil {
+        return nil, errors.New("No tls config provided")
+    }
+    
+    tlsConfig := *hub.tlsConfig
+    tlsConfig.InsecureSkipVerify = false
+    tlsConfig.ServerName = peerID
+    
+    dialer := &websocket.Dialer{
+        TLSClientConfig: &tlsConfig,
+    }
+    
+    return dialer, nil
+}
+
+func (hub *Hub) register(peer *Peer) bool {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+    
+    if _, ok := hub.peerMap[peer.id]; ok {
+        return false
+    }
+    
+    log.Debugf("Register peer %s", peer.id)
+    hub.peerMap[peer.id] = peer
+    
+    return true
+}
+
+func (hub *Hub) unregister(peer *Peer) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+
+    if _, ok := hub.peerMap[peer.id]; ok {
+        log.Debugf("Unregister peer %s", peer.id)
+    }
+    
+    delete(hub.peerMap, peer.id)
+}
+
+func (hub *Hub) Peers() []*PeerJSON {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+    peers := make([]*PeerJSON, 0, len(hub.peerMap))
+    
+    for peerID, ps := range hub.peerMap {
+        peers = append(peers, ps.toJSON(peerID))
+    }
+    
+    return peers
+}
+
+func (hub *Hub) extractPeerID(conn *tls.Conn) (string, error) {
+    // VerifyClientCertIfGiven
+    verifiedChains := conn.ConnectionState().VerifiedChains
+    
+    if len(verifiedChains) != 1 {
+        return "", errors.New("Invalid client certificate")
+    }
+    
+    peerID := verifiedChains[0][0].Subject.CommonName
+    
+    return peerID, nil
+}
+
+func (hub *Hub) SyncController() *SyncController {
+    return hub.syncController
 }
 
 type SyncSession struct {

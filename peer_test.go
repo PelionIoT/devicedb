@@ -50,13 +50,16 @@ func loadCerts(id string) (*tls.Config, *tls.Config, error) {
     return serverTLSConfig, clientTLSConfig, nil
 }
 
-var _ = Describe("Peer", func() {
-    var initiatorPeer *Peer
-    var responderPeer *Peer
+var _ = Describe("Hub", func() {
+    var initiatorHub *Hub
+    var responderHub *Hub
+    var neutralHub *Hub
     var initiatorSyncController *SyncController
     var responderSyncController *SyncController
+    var neutralSyncController *SyncController
     var initiatorServer *Server
     var responderServer *Server
+    var neutralServer *Server
     
     responderServerTLS, responderClientTLS, err := loadCerts("WWRL000000")
 
@@ -78,21 +81,30 @@ var _ = Describe("Peer", func() {
     
     BeforeEach(func() {
         responderSyncController = NewSyncController(2, nil, 1000)
-        responderPeer = NewPeer(responderSyncController, responderClientTLS)
+        responderHub = NewHub(responderSyncController, responderClientTLS)
         responderServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
             Port: 8080,
             ServerTLS: responderServerTLS,
-            Peer: responderPeer,
+            Hub: responderHub,
         })
         
         initiatorSyncController = NewSyncController(2, nil, 1000)
-        initiatorPeer = NewPeer(initiatorSyncController, initiatorClientTLS)
+        initiatorHub = NewHub(initiatorSyncController, initiatorClientTLS)
         initiatorServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
             Port: 8181,
             ServerTLS: initiatorServerTLS,
-            Peer: initiatorPeer,
+            Hub: initiatorHub,
+        })
+        
+        neutralSyncController = NewSyncController(2, nil, 1000)
+        neutralHub = NewHub(neutralSyncController, initiatorClientTLS) // WWRL000001
+        neutralServer, _ = NewServer(ServerConfig{
+            DBFile: "/tmp/testdb-" + randomString(),
+            Port: 8282,
+            ServerTLS: initiatorServerTLS,
+            Hub: neutralHub,
         })
         
         go func() {
@@ -110,12 +122,12 @@ var _ = Describe("Peer", func() {
     
     Describe("sync", func() {
         It("makes sure that the id is extracted correctly from the client certificate and server certificates", func() {
-            initiatorPeer.Connect("WWRL000000", "127.0.0.1", 8080)
+            initiatorHub.Connect("WWRL000000", "127.0.0.1", 8080)
             //responderSyncController.StartResponderSessions()
             //initiatorSyncController.StartInitiatorSessions()
             responderSyncController.Start()
             initiatorSyncController.Start()
-        
+            
             go func() {
                 for i := 0; i < 10; i += 1 {
                     time.Sleep(time.Second * 1)
@@ -129,11 +141,24 @@ var _ = Describe("Peer", func() {
             
             time.Sleep(time.Second * 60)
             
-            initiatorPeer.Disconnect("WWRL000000")
+            initiatorHub.Disconnect("WWRL000000")
             
             time.Sleep(time.Second * 5)
             
             Expect(true).Should(BeTrue())
         })
+        
+        It("connect the same client twice.", func() {
+            initiatorHub.Connect("WWRL000000", "127.0.0.1", 8080)
+            neutralHub.Connect("WWRL000000", "127.0.0.1", 8080)
+            
+            time.Sleep(time.Second * 1)
+            
+            initiatorHub.Disconnect("WWRL000000")
+            
+            time.Sleep(time.Second * 1)
+            
+            Expect(true).Should(BeTrue())
+        })    
     })
 })

@@ -33,7 +33,7 @@ func startServer() {
         return
     }
 
-    sc.Peer.SyncController().Start()
+    sc.Hub.SyncController().Start()
 
     server.Start()
 }

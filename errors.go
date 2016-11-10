@@ -35,6 +35,7 @@ const (
     eINVALID_OP = iota
     eINVALID_CONTEXT = iota
     eUNAUTHORIZED = iota
+    eINVALID_PEER = iota
 )
 
 var (
@@ -49,4 +50,5 @@ var (
     EInvalidOp             = DBerror{ "An invalid operation was specified", eINVALID_OP }
     EInvalidContext        = DBerror{ "An invalid context was provided in an update", eINVALID_CONTEXT }
     EUnauthorized          = DBerror{ "Operation not permitted", eUNAUTHORIZED }
+    EInvalidPeer           = DBerror{ "The specified peer is invalid", eINVALID_PEER }
 )

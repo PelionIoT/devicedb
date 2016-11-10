@@ -66,9 +66,9 @@ func (local *Local) ShouldReplicateIncoming(peerID string) bool {
 }
 
 type peerAddress struct {
-    id string
-    host string
-    port int
+    ID string `json:"id"`
+    Host string `json:"host"`
+    Port int `json:"port"`
 }
 
 type ServerConfig struct {
@@ -76,7 +76,7 @@ type ServerConfig struct {
     Port int
     MerkleDepth uint8
     NodeID string
-    Peer *Peer
+    Hub *Hub
     ServerTLS *tls.Config
     PeerAddresses map[string]peerAddress
     SyncPushBroadcastLimit uint64
@@ -114,7 +114,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         ClientCAs: rootCAs,
     }
     
-    sc.Peer = NewPeer(NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod), clientTLSConfig)
+    sc.Hub = NewHub(NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod), clientTLSConfig)
     sc.ServerTLS = serverTLSConfig
     
     for _, yamlPeer := range ysc.Peers {
@@ -123,9 +123,9 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         }
         
         sc.PeerAddresses[yamlPeer.ID] = peerAddress{
-            id: yamlPeer.ID,
-            host: yamlPeer.Host,
-            port: yamlPeer.Port,
+            ID: yamlPeer.ID,
+            Host: yamlPeer.Host,
+            Port: yamlPeer.Port,
         }
     }
     
@@ -154,7 +154,7 @@ type Server struct {
     storageDriver StorageDriver
     port int
     upgrader websocket.Upgrader
-    peer *Peer
+    hub *Hub
     serverTLS *tls.Config
     id string
     syncPushBroadcastLimit uint64
@@ -176,7 +176,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     storageDriver := NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     nodeID := serverConfig.NodeID
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Peer, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit }
     err := server.storageDriver.Open()
     
     if err != nil {
@@ -194,13 +194,13 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ }, &Cloud{ })
     server.bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
     
-    if server.peer != nil && server.peer.syncController != nil {
-        server.peer.syncController.buckets = server.bucketList
+    if server.hub != nil && server.hub.syncController != nil {
+        server.hub.syncController.buckets = server.bucketList
     }
     
-    if server.peer != nil && serverConfig.PeerAddresses != nil {
+    if server.hub != nil && serverConfig.PeerAddresses != nil {
         for _, pa := range serverConfig.PeerAddresses {
-            server.peer.Connect(pa.id, pa.host, pa.port)
+            server.hub.Connect(pa.ID, pa.Host, pa.Port)
         }
     }
     
@@ -504,9 +504,9 @@ func (server *Server) Start() error {
             return
         }
     
-        if server.peer != nil {
+        if server.hub != nil {
             for key, siblingSet := range updatedSiblingSets {
-                server.peer.SyncController().BroadcastUpdate(bucket, key, siblingSet, server.syncPushBroadcastLimit)
+                server.hub.SyncController().BroadcastUpdate(bucket, key, siblingSet, server.syncPushBroadcastLimit)
             }
         }
         
@@ -515,8 +515,63 @@ func (server *Server) Start() error {
         io.WriteString(w, "\n")
     }).Methods("POST")
     
+    r.HandleFunc("/peers", func(w http.ResponseWriter, r *http.Request) {
+        // { id: peerID, direction: direction, status: status }
+        var peers []*PeerJSON
+        
+        if server.hub != nil {
+            peers = server.hub.Peers()
+        } else {
+            peers = make([]*PeerJSON, 0)
+        }
+        
+        peersJSON, _ := json.Marshal(peers)
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, string(peersJSON) + "\n")
+    }).Methods("GET")
+    
+    r.HandleFunc("/peers/{peerID}", func(w http.ResponseWriter, r *http.Request) {
+        peerID := mux.Vars(r)["peerID"]
+        
+        var pa peerAddress
+        decoder := json.NewDecoder(r.Body)
+        err := decoder.Decode(&pa)
+        
+        if err != nil {
+            log.Warningf("PUT /peer/{peerID}: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EInvalidPeer.JSON()) + "\n")
+            
+            return
+        }
+        
+        if server.hub != nil {
+            server.hub.Connect(peerID, pa.Host, pa.Port)
+        }
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, "\n")
+    }).Methods("PUT")
+    
+    r.HandleFunc("/peers/{peerID}", func(w http.ResponseWriter, r *http.Request) {
+        peerID := mux.Vars(r)["peerID"]
+        
+        if server.hub != nil {
+            server.hub.Disconnect(peerID)
+        }
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, "\n")
+    }).Methods("DELETE")
+    
     r.HandleFunc("/sync", func(w http.ResponseWriter, r *http.Request) {
-        if server.peer == nil {
+        if server.hub == nil {
             // log error
             
             return
@@ -528,7 +583,7 @@ func (server *Server) Start() error {
             return
         }
         
-        server.peer.Accept(conn)
+        server.hub.Accept(conn)
     }).Methods("GET")
     
     server.httpServer = &http.Server{

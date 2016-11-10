@@ -9,6 +9,6 @@ peers:
       host: 127.0.0.1
       port: 9191
 tls:
-    certificate: ../test_certs/WWTL000000.cert.pem
-    key: ../test_certs/WWTL000000.key.pem
+    certificate: ../test_certs/WWTL000002.cert.pem
+    key: ../test_certs/WWTL000002.key.pem
     rootCA: ../test_certs/ca-chain-WWTL.cert.pem
