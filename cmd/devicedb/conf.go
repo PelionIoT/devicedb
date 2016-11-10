@@ -37,6 +37,27 @@ syncSessionPeriod: 1000
 # **REQUIRED**
 syncPushBroadcastLimit: 0
 
+# Garbage collection settings determine how often and to what degree tombstones,
+# that is markers of deletion, are removed permananetly from the database 
+# replica. The default values are the minimum allowed settings for these
+# properties.
+
+# The garbage collection interval is the amount of time between garbage collection
+# sweeps in milliseconds. The lowest it can be set is every ten mintues as shown
+# below but could very well be set for once a day, or once a week without much
+# ill effect depending on the use case or how aggresively disk space needs to be
+# preserved
+gcInterval: 300000
+
+# The purge age defines the age past which tombstone will be purged from storage
+# Tombstones are markers of key deletion and need to be around long enough to
+# propogate through the network of database replicas and ensure a deletion happens
+# Setting this value too low may cause deletions that don't propogate to all replicas
+# if nodes are often disconnected for a long time. Setting it too high may mean
+# that more disk space is used than is needed keeping around old tombstones for 
+# keys that will no longer be used. This field is also in milliseconds
+gcPurgeAge: 600000
+
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
 # as memory constraints allow. Estimated memory overhead for a given depth is

@@ -34,6 +34,7 @@ func startServer() {
     }
 
     sc.Hub.SyncController().Start()
+    server.StartGC()
 
     server.Start()
 }

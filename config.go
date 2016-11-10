@@ -15,6 +15,8 @@ type YAMLServerConfig struct {
     MaxSyncSessions int `yaml:"syncSessionLimit"`
     SyncSessionPeriod uint64 `yaml:"syncSessionPeriod"`
     SyncPushBroadcastLimit uint64 `yaml:"syncPushBroadcastLimit"`
+    GCInterval uint64 `yaml:"gcInterval"`
+    GCPurgeAge uint64 `yaml:"gcPurgeAge"`
     MerkleDepth uint8 `yaml:"merkleDepth"`
     Peers []YAMLPeer `yaml:"peers"`
     TLS YAMLTLSFiles `yaml:"tls"`
@@ -144,7 +146,18 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     
     if err != nil {
         return errors.New("The specified server certificate and key represent an invalid public/private key pair")
-    }    
+    }
+    
+    log.Info(ysc.GCPurgeAge)
+
+    // purge age must be at least ten minutes
+    if ysc.GCPurgeAge < 600000 {
+        return errors.New("The gc purge age must be at least ten minutes (i.e. gcPurgeAge: 600000)")
+    }
+    
+    if ysc.GCInterval < 300000 {
+        return errors.New("The gc interval must be at least five minutes (i.e. gcInterval: 300000)")
+    }
     
     SetLoggingLevel(ysc.LogLevel)
     

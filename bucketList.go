@@ -64,6 +64,16 @@ func (bucketList *BucketList) Incoming(peerID string) []Bucket {
     return buckets
 }
 
+func (bucketList *BucketList) All() []Bucket {
+    buckets := make([]Bucket, 0, len(bucketList.buckets))
+    
+    for _, bucket := range bucketList.buckets {
+        buckets = append(buckets, bucket)
+    }
+    
+    return buckets
+}
+
 func (bucketList *BucketList) HasBucket(bucketName string) bool {
     _, ok := bucketList.buckets[bucketName]
     

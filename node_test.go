@@ -5,7 +5,8 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega" 
-    
+
+    "time"
     "crypto/rand"
     "encoding/binary"
     "fmt"
@@ -277,6 +278,91 @@ var _ = Describe("Node", func() {
             err := node.Merge(nil)
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
+        })
+    })
+    
+    Describe("#GarbageCollect", func() {
+        Context("key A is a tombstone set that is older than 5 seconds", func() {    
+            It("garbage collecting anything with a purge age of 5 seconds should result in key A being deleted from the data store and merkle leaf store", func() {
+                storageEngine := makeNewStorageDriver()
+                storageEngine.Open()
+                defer storageEngine.Close()
+                
+                node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+                updateBatch := NewUpdateBatch()
+                updateBatch.Put([]byte("keyA"), []byte("value123"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                updateBatch.Put([]byte("keyB"), []byte("value456"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                
+                ss, err := node.Batch(updateBatch)
+                
+                Expect(err).Should(BeNil())
+                
+                values, err := node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+        
+                Expect(err).Should(BeNil())
+                Expect(values[0].Value()).Should(Equal([]byte("value123")))
+                Expect(values[0].IsTombstoneSet()).Should(BeFalse())
+                Expect(values[1].Value()).Should(Equal([]byte("value456")))
+                Expect(values[1].IsTombstoneSet()).Should(BeFalse())
+                
+                updateBatch = NewUpdateBatch()
+                updateBatch.Delete([]byte("keyA"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                
+                ss, err = node.Batch(updateBatch)
+                
+                Expect(err).Should(BeNil())
+                Expect(ss["keyA"].Value()).Should(BeNil())
+                
+                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+        
+                Expect(err).Should(BeNil())
+                Expect(values[0].Value()).Should(BeNil())
+                Expect(values[0].IsTombstoneSet()).Should(BeTrue())
+                Expect(values[1].Value()).Should(Equal([]byte("value456")))
+                Expect(values[1].IsTombstoneSet()).Should(BeFalse())
+                
+                time.Sleep(time.Second * time.Duration(2))
+                err = node.GarbageCollect(1000)
+                
+                Expect(err).Should(BeNil())
+                
+                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+        
+                Expect(err).Should(BeNil())
+                Expect(values[0]).Should(BeNil())
+                Expect(values[1].Value()).Should(Equal([]byte("value456")))
+                Expect(values[1].IsTombstoneSet()).Should(BeFalse())
+                
+                updateBatch.Delete([]byte("keyA"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                updateBatch.Delete([]byte("keyB"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            
+                _, err = node.Batch(updateBatch)
+                
+                Expect(err).Should(BeNil())
+                
+                err = node.GarbageCollect(1000)
+                
+                Expect(err).Should(BeNil())
+                
+                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+        
+                Expect(err).Should(BeNil())
+                Expect(values[0]).Should(BeNil())
+                Expect(values[1].Value()).Should(BeNil())
+                Expect(values[1].IsTombstoneSet()).Should(BeTrue())
+                
+                time.Sleep(time.Second * time.Duration(2))
+                
+                err = node.GarbageCollect(1000)
+                
+                Expect(err).Should(BeNil())
+                
+                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+        
+                Expect(err).Should(BeNil())
+                Expect(values[0]).Should(BeNil())
+                Expect(values[1]).Should(BeNil())
+            })
         })
     })
     

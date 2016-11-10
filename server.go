@@ -80,6 +80,8 @@ type ServerConfig struct {
     ServerTLS *tls.Config
     PeerAddresses map[string]peerAddress
     SyncPushBroadcastLimit uint64
+    GCInterval uint64
+    GCPurgeAge uint64
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
@@ -91,6 +93,8 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         return err
     }
     
+    sc.GCInterval = ysc.GCInterval
+    sc.GCPurgeAge = ysc.GCPurgeAge
     sc.DBFile = ysc.DBFile
     sc.Port = ysc.Port
     sc.MerkleDepth = ysc.MerkleDepth
@@ -158,6 +162,7 @@ type Server struct {
     serverTLS *tls.Config
     id string
     syncPushBroadcastLimit uint64
+    garbageCollector *GarbageCollector
 }
 
 func NewServer(serverConfig ServerConfig) (*Server, error) {
@@ -176,7 +181,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     storageDriver := NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     nodeID := serverConfig.NodeID
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil }
     err := server.storageDriver.Open()
     
     if err != nil {
@@ -193,6 +198,8 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
     server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ }, &Cloud{ })
     server.bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
+    
+    server.garbageCollector = NewGarbageCollector(server.bucketList, serverConfig.GCInterval, serverConfig.GCPurgeAge)
     
     if server.hub != nil && server.hub.syncController != nil {
         server.hub.syncController.buckets = server.bucketList
@@ -213,6 +220,14 @@ func (server *Server) Port() int {
 
 func (server *Server) Buckets() *BucketList {
     return server.bucketList
+}
+
+func (server *Server) StartGC() {
+    server.garbageCollector.Start()
+}
+
+func (server *Server) StopGC() {
+    server.garbageCollector.Stop()
 }
 
 func (server *Server) Start() error {

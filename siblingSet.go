@@ -128,6 +128,16 @@ func (siblingSet *SiblingSet) IsTombstoneSet() bool {
     return true
 }
 
+func (siblingSet *SiblingSet) CanPurge(timestampCutoff uint64) bool {
+    for sibling := range siblingSet.Iter() {
+        if !sibling.IsTombstone() || sibling.Timestamp() >= timestampCutoff {
+            return false
+        }
+    }
+    
+    return true
+}
+
 func (siblingSet *SiblingSet) GetOldestTombstone() *Sibling {
     var oldestTombstone *Sibling
     

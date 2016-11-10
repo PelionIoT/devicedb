@@ -16,6 +16,10 @@ var PARTITION_MERKLE_LEAF_PREFIX = []byte{ 1 }
 var PARTITION_DATA_PREFIX = []byte{ 2 }
 var NODE_METADATA_PREFIX = []byte{ 3 }
 
+func nanoToMilli(v uint64) uint64 {
+    return v / 1000000
+}
+
 func nodeBytes(node uint32) []byte {
     bytes := make([]byte, 4)
     
@@ -293,6 +297,81 @@ func (node *Node) ID() string {
     return node.id
 }
 
+func (node *Node) GarbageCollect(tombstonePurgeAge uint64) error {
+    iter, err := node.storageDriver.GetMatches([][]byte{ PARTITION_DATA_PREFIX })
+    
+    if err != nil {
+        log.Errorf("Garbage collection error: %s", err.Error())
+            
+        return EStorage
+    }
+    
+    now := nanoToMilli(uint64(time.Now().UnixNano()))
+    siblingSetIterator := NewSiblingSetIterator(iter)
+    defer siblingSetIterator.Release()
+    
+    if tombstonePurgeAge > now {
+        tombstonePurgeAge = now
+    }
+    
+    for siblingSetIterator.Next() {
+        var err error
+        key := siblingSetIterator.Key()
+        ssInitial := siblingSetIterator.Value()
+        
+        if !ssInitial.CanPurge(now - tombstonePurgeAge) {
+            continue
+        }
+        
+        node.lock([][]byte{ key })
+        
+        func() {
+            // the key must be re-queried because at the time of iteration we did not have a lock
+            // on the key in order to update it
+            siblingSets, err := node.Get([][]byte{ key })
+            
+            if err != nil {
+                return
+            }
+            
+            siblingSet := siblingSets[0]
+            
+            if siblingSet == nil {
+                return
+            }
+        
+            if !siblingSet.CanPurge(now - tombstonePurgeAge) {
+                return
+            }
+        
+            log.Debugf("GC: Purge tombstone at key %s. It is older than %d milliseconds", string(key), tombstonePurgeAge)
+            leafID := node.merkleTree.LeafNode(key)
+            
+            batch := NewBatch()
+            batch.Delete(encodePartitionMerkleLeafKey(leafID, key))
+            batch.Delete(encodePartitionDataKey(key))
+        
+            err = node.storageDriver.Batch(batch)
+        }()
+        
+        node.unlock([][]byte{ key }, false)
+        
+        if err != nil {
+            log.Errorf("Garbage collection error: %s", err.Error())
+            
+            return EStorage
+        }
+    }
+    
+    if iter.Error() != nil {
+        log.Errorf("Garbage collection error: %s", iter.Error().Error())
+        
+        return EStorage
+    }
+    
+    return nil
+}
+
 func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
     if len(keys) == 0 {
         log.Warningf("Passed empty keys parameter in Get(%v)", keys)
@@ -472,12 +551,12 @@ func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
 func (node *Node) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibling {
     if o.IsDelete() {
         if oldestTombstone == nil {
-            return NewSibling(c, nil, uint64(time.Now().Unix()))
+            return NewSibling(c, nil, nanoToMilli(uint64(time.Now().UnixNano())))
         } else {
             return NewSibling(c, nil, oldestTombstone.Timestamp())
         }
     } else {
-        return NewSibling(c, o.Value(), uint64(time.Now().Unix()))
+        return NewSibling(c, o.Value(), nanoToMilli(uint64(time.Now().UnixNano())))
     }
 }
 
@@ -498,7 +577,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     }
     
     node.lock(keys)
-    defer node.unlock(keys)
+    defer node.unlock(keys, true)
 
     merkleTree := node.merkleTree
     siblingSets, err := node.updateInit(keys)
@@ -567,7 +646,7 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
     }
     
     node.lock(keys)
-    defer node.unlock(keys)
+    defer node.unlock(keys, true)
     
     merkleTree := node.merkleTree
     mySiblingSets, err := node.updateInit(keys)
@@ -641,11 +720,15 @@ func (node *Node) lock(keys [][]byte) {
     }
 }
 
-func (node *Node) unlock(keys [][]byte) {
+func (node *Node) unlock(keys [][]byte, keysArePrefixed bool) {
     tKeys := make([][]byte, 0, len(keys))
     
     for _, key := range keys {
-        tKeys = append(tKeys, key[1:])
+        if keysArePrefixed {
+            tKeys = append(tKeys, key[1:])
+        } else {
+            tKeys = append(tKeys, key)
+        }
     }
     
     keyStrings, nodeStrings := node.sortedLockKeys(tKeys)

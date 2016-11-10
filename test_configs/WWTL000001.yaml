@@ -2,6 +2,8 @@ db: /tmp/devicedb1
 port: 9191
 syncSessionLimit: 2
 syncSessionPeriod: 1000
+gcInterval: 300000
+gcPurgeAge: 600000
 merkleDepth: 19
 logLevel: debug
 peers:
