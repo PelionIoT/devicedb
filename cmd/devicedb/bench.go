@@ -46,6 +46,7 @@ func benchmark() {
         return
     }
     
+    SetLoggingLevel("error")
     serverConfig.DBFile = *optDatabaseDir
     server, err = NewServer(serverConfig)
     
