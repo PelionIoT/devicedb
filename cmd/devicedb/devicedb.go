@@ -3,11 +3,12 @@ package main
 import (
     "fmt"
     "flag"
-    "os"    
+    "os"
+    "devicedb"
 )
 
 var usage string = 
-`Usage: devicedb command [arguments]
+`Usage: devicedb [ command [arguments] ] | -version
 
 Commands:
     start      Start a devicedb server
@@ -73,6 +74,8 @@ func main() {
         } else {
             flag.Usage()
         }
+    } else if commandName == "-version" {
+        fmt.Fprintf(os.Stdout, "%s\n", devicedb.DEVICEDB_VERSION)
     } else {
         flag.Usage()
     }
