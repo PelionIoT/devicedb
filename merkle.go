@@ -181,8 +181,7 @@ func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[
         
         modifiedNodes[node] = true
         
-        // if this it the merkle root node
-        if node != (1 << (tree.depth - 1)) {
+        if node != tree.RootNode() {
             nodeQueue.Enqueue(ParentNode(node))
         }
         
@@ -295,7 +294,7 @@ func (q *queue) Dequeue() uint32 {
     q.head += 1
     q.size -= 1
 
-    if q.head >= q.size {
+    if q.head >= uint32(len(q.q)) {
         q.head = 0
     }
     
