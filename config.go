@@ -21,12 +21,18 @@ type YAMLServerConfig struct {
     Peers []YAMLPeer `yaml:"peers"`
     TLS YAMLTLSFiles `yaml:"tls"`
     LogLevel string `yaml:"logLevel"`
+    Cloud *YAMLCloud `yaml:"cloud"`
 }
 
 type YAMLPeer struct {
     ID string `yaml:"id"`
     Host string `yaml:"host"`
     Port int `yaml:"port"`
+}
+
+type YAMLCloud struct {
+    YAMLPeer
+    NoValidate bool `yaml:"noValidate"`
 }
 
 type YAMLTLSFiles struct {
@@ -81,6 +87,16 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
             if !isValidPort(peer.Port) {
                 return errors.New(fmt.Sprintf("%d is an invalid port to connect to peer %s at %s", peer.Port, peer.ID, peer.Host))
             }
+        }
+    }
+    
+    if ysc.Cloud != nil {
+        if len(ysc.Cloud.Host) == 0 {
+            return errors.New(fmt.Sprintf("The host name is empty for the cloud"))
+        }
+        
+        if !isValidPort(ysc.Cloud.Port) {
+            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud at %s", ysc.Cloud.Port, ysc.Cloud.Host))
         }
     }
     
@@ -148,8 +164,6 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
         return errors.New("The specified server certificate and key represent an invalid public/private key pair")
     }
     
-    log.Info(ysc.GCPurgeAge)
-
     // purge age must be at least ten minutes
     if ysc.GCPurgeAge < 600000 {
         return errors.New("The gc purge age must be at least ten minutes (i.e. gcPurgeAge: 600000)")

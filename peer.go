@@ -20,6 +20,7 @@ const (
 )
 
 const RECONNECT_WAIT_MAX_SECONDS = 32
+const CLOUD_PEER_ID = "cloud"
 
 func randomID() string {
     randomBytes := make([]byte, 16)
@@ -354,8 +355,63 @@ func (hub *Hub) Accept(connection *websocket.Conn) error {
     return nil
 }
 
+func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool) error {
+    dialer, err := hub.dialer(serverName, noValidate)
+    
+    if err != nil {
+        return err
+    }
+    
+    go func() {
+        peer := NewPeer(CLOUD_PEER_ID, OUTGOING)
+    
+        // simply try to reserve a spot in the peer map
+        if !hub.register(peer) {
+            return
+        }
+    
+        for {
+            // connect will return an error once the peer is disconnected for good
+            incoming, outgoing, err := peer.connect(dialer, host, port)
+            
+            if err != nil {
+                break
+            }
+            
+            log.Infof("Connected to devicedb cloud")
+            
+            hub.syncController.addPeer(peer.id, outgoing)
+        
+            // incoming is closed when the peer is disconnected from either end
+            for msg := range incoming {
+                hub.syncController.incoming <- msg
+            }
+        
+            hub.syncController.removePeer(peer.id)
+            
+            if websocket.IsCloseError(peer.errors(), websocket.CloseNormalClosure) {
+                log.Infof("Disconnected from devicedb cloud")
+            
+                break
+            }
+            
+            log.Infof("Disconnected from devicedb cloud. Reconnecting...")
+        }
+        
+        hub.unregister(peer)
+    }()
+    
+    return nil
+}
+
 func (hub *Hub) Connect(peerID, host string, port int) error {
-    dialer, err := hub.dialer(peerID)
+    dialer, err := hub.dialer(peerID, false)
+    
+    if peerID == CLOUD_PEER_ID {
+        log.Warningf("Peer ID is not allowed to be %s since it is reserved for the cloud connection. This node will not connect to this peer", CLOUD_PEER_ID)
+        
+        return errors.New("Peer ID is not allowed to be " + CLOUD_PEER_ID)
+    }
     
     if err != nil {
         return err
@@ -414,13 +470,13 @@ func (hub *Hub) Disconnect(peerID string) {
     }
 }
 
-func (hub *Hub) dialer(peerID string) (*websocket.Dialer, error) {
+func (hub *Hub) dialer(peerID string, noValidate bool) (*websocket.Dialer, error) {
     if hub.tlsConfig == nil {
         return nil, errors.New("No tls config provided")
     }
     
     tlsConfig := *hub.tlsConfig
-    tlsConfig.InsecureSkipVerify = false
+    tlsConfig.InsecureSkipVerify = noValidate
     tlsConfig.ServerName = peerID
     
     dialer := &websocket.Dialer{
