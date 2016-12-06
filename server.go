@@ -43,7 +43,7 @@ func (cloud *Cloud) ShouldReplicateOutgoing(peerID string) bool {
 }
 
 func (cloud *Cloud) ShouldReplicateIncoming(peerID string) bool {
-    return peerID == "cloud"
+    return peerID == CLOUD_PEER_ID
 }
 
 func (cloud *Cloud) ShouldAcceptReads(clientID string) bool {
@@ -71,6 +71,13 @@ type peerAddress struct {
     Port int `json:"port"`
 }
 
+type cloudAddress struct {
+    ID string `json:"id"`
+    Host string `json:"host"`
+    Port int `json:"port"`
+    NoValidate bool
+}
+
 type ServerConfig struct {
     DBFile string
     Port int
@@ -82,6 +89,7 @@ type ServerConfig struct {
     SyncPushBroadcastLimit uint64
     GCInterval uint64
     GCPurgeAge uint64
+    Cloud *cloudAddress
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
@@ -100,7 +108,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.MerkleDepth = ysc.MerkleDepth
     sc.SyncPushBroadcastLimit = ysc.SyncPushBroadcastLimit
     sc.PeerAddresses = make(map[string]peerAddress)
-
+    
     rootCAs := x509.NewCertPool()
     
     if !rootCAs.AppendCertsFromPEM([]byte(ysc.TLS.RootCA)) {
@@ -130,6 +138,15 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
             ID: yamlPeer.ID,
             Host: yamlPeer.Host,
             Port: yamlPeer.Port,
+        }
+    }
+    
+    if ysc.Cloud != nil {
+        sc.Cloud = &cloudAddress{
+            ID: ysc.Cloud.ID,
+            Host: ysc.Cloud.Host,
+            Port: ysc.Cloud.Port,
+            NoValidate: ysc.Cloud.NoValidate,
         }
     }
     
@@ -209,6 +226,10 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         for _, pa := range serverConfig.PeerAddresses {
             server.hub.Connect(pa.ID, pa.Host, pa.Port)
         }
+    }
+    
+    if server.hub != nil && serverConfig.Cloud != nil {
+        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.Cloud.NoValidate)
     }
     
     return server, nil

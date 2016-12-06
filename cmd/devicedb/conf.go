@@ -114,6 +114,26 @@ peers:
 # debug
 logLevel: info
 
+# This field can be used to specify a devicedb cloud node to which to connect
+# If omitted then no cloud connection is established.
+# cloud:
+#     # noValidate is a flag specifying whether or not to validate the cloud
+#     # node's TLS certificate chain. If omitted this field defaults to false
+#     # Setting this field to true is not reccomended in production. It can
+#     # be useful, however, when running against a test cloud where self-signed
+#     # certificates are used.
+#     noValidate: true
+#     # The id field is used to verify the host name that the cloud server provides
+#     # in its TLS certificate chain. If this field is omitted then the host field
+#     # will be used as the expected host name in the cloud's certificate. If
+#     # noValidate is true then no verification is performed either way so this
+#     # effectively ignored. In this example, the TLS certificate uses a wildcard
+#     # certificate so the server name provided in the certificate will not 
+#     # match the domain name of the host to which this node is connecting.
+#     id: *.wigwag.com
+#     host: devicedb.wigwag.com
+#     port: 443
+
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate
 # each other. A single certificate and key can be used if that certificate has
