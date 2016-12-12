@@ -19,6 +19,7 @@ const (
     OUTGOING = iota
 )
 
+const SYNC_SESSION_WAIT_TIMEOUT_SECONDS = 5
 const RECONNECT_WAIT_MAX_SECONDS = 32
 const CLOUD_PEER_ID = "cloud"
 
@@ -145,6 +146,8 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
             err := peer.connection.ReadJSON(&nextRawMessage)
             
             if err != nil {
+                log.Errorf("Peer %s sent a misformatted message. Unable to parse: %v", peer.id, err)
+                
                 peer.result = err
                 
                 close(incoming)
@@ -356,6 +359,10 @@ func (hub *Hub) Accept(connection *websocket.Conn) error {
 }
 
 func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool) error {
+    if noValidate {
+        log.Warningf("The cloud.noValidate option is set to true. The cloud server's certificate chain and identity will not be verified. !!! THIS OPTION SHOULD NOT BE SET TO TRUE IN PRODUCTION !!!")
+    }
+    
     dialer, err := hub.dialer(serverName, noValidate)
     
     if err != nil {
@@ -862,7 +869,15 @@ func (s *SyncController) runInitiatorSession() {
     for initiatorSession := range s.initiatorSessions {
         state := initiatorSession.sessionState.(*InitiatorSyncSession)
         
-        for receivedMessage := range initiatorSession.receiver {
+        for {
+            var receivedMessage *SyncMessageWrapper
+            
+            select {
+            case receivedMessage = <-initiatorSession.receiver:
+            case <-time.After(time.Second * SYNC_SESSION_WAIT_TIMEOUT_SECONDS):
+                log.Warningf("[%s-%d] timeout", initiatorSession.peerID, initiatorSession.sessionID)
+            }
+            
             initialState := state.State()
             
             var m *SyncMessageWrapper = state.NextState(receivedMessage)
@@ -883,7 +898,7 @@ func (s *SyncController) runInitiatorSession() {
                 break
             }
         }
-    
+        
         s.removeInitiatorSession(initiatorSession)
     }
 }
@@ -892,11 +907,19 @@ func (s *SyncController) runResponderSession() {
     for responderSession := range s.responderSessions {
         state := responderSession.sessionState.(*ResponderSyncSession)
         
-        for receivedMessage := range responderSession.receiver {
+        for {
+            var receivedMessage *SyncMessageWrapper
+            
+            select {
+            case receivedMessage = <-responderSession.receiver:
+            case <-time.After(time.Second * SYNC_SESSION_WAIT_TIMEOUT_SECONDS):
+                log.Warningf("[%s-%d] timeout", responderSession.peerID, responderSession.sessionID)
+            }
+            
             initialState := state.State()
             
             var m *SyncMessageWrapper = state.NextState(receivedMessage)
-        
+            
             log.Debugf("[%s-%d] %s : (%s -> %s) : %s", responderSession.peerID, responderSession.sessionID, MessageTypeName(receivedMessage.MessageType), StateName(initialState), StateName(state.State()), MessageTypeName(m.MessageType))
             
             m.Direction = RESPONSE

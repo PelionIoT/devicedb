@@ -31,7 +31,9 @@ type YAMLPeer struct {
 }
 
 type YAMLCloud struct {
-    YAMLPeer
+    ID string `yaml:"id"`
+    Host string `yaml:"host"`
+    Port int `yaml:"port"`
     NoValidate bool `yaml:"noValidate"`
 }
 
