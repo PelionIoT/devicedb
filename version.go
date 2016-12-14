@@ -5,4 +5,4 @@ package devicedb
 // Increment x when you make incompatible API changes
 // Increment y when you add functionality in a backwards-compatible manner
 // Increment z when you make backwards-compatible bug fixes
-var DEVICEDB_VERSION = "0.2.0"
+var DEVICEDB_VERSION = "0.2.1"
