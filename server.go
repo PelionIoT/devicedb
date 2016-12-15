@@ -3,6 +3,7 @@ package devicedb
 import (
     "fmt"
     "io"
+    "io/ioutil"
     "net"
     "errors"
     "net/http"
@@ -479,6 +480,47 @@ func (server *Server) Start() error {
             }
         }
     }).Methods("POST")
+    
+    r.HandleFunc("/events/{type}/{sourceID}", func(w http.ResponseWriter, r *http.Request) {
+        eventType := mux.Vars(r)["type"]
+        sourceID := mux.Vars(r)["sourceID"]
+        body, err := ioutil.ReadAll(r.Body)
+        
+        if err != nil {
+            log.Warningf("PUT /events/{type}/{sourceID}: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EReadBody.JSON()) + "\n")
+            
+            return
+        }
+        
+        if len(eventType) == 0 {
+            log.Warningf("PUT /events/{type}/{sourceID}: Empty event type")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EEmpty.JSON()) + "\n")
+            
+            return
+        }
+        
+        if len(sourceID) == 0 {
+            log.Warningf("PUT /events/{type}/{sourceID}: Source id empty")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EEmpty.JSON()) + "\n")
+            
+            return
+        }
+        
+        log.Info(body)
+    }).Methods("PUT")
+    
+    r.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+    }).Methods("GET")
     
     r.HandleFunc("/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
         bucket := mux.Vars(r)["bucket"]

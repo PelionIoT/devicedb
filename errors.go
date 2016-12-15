@@ -36,6 +36,7 @@ const (
     eINVALID_CONTEXT = iota
     eUNAUTHORIZED = iota
     eINVALID_PEER = iota
+    eREAD_BODY = iota
 )
 
 var (
@@ -51,4 +52,5 @@ var (
     EInvalidContext        = DBerror{ "An invalid context was provided in an update", eINVALID_CONTEXT }
     EUnauthorized          = DBerror{ "Operation not permitted", eUNAUTHORIZED }
     EInvalidPeer           = DBerror{ "The specified peer is invalid", eINVALID_PEER }
+    EReadBody              = DBerror{ "Unable to read request body", eREAD_BODY }
 )
