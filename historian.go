@@ -6,6 +6,8 @@ import (
     "encoding/base64"
     "crypto/rand"
     "fmt"
+    "math"
+    "sort"
 )
 
 var (
@@ -34,12 +36,12 @@ func timestampBytes(ts uint64) []byte {
 }
 
 type HistoryQuery struct {
-    sources []string
-    data *string
-    order string
-    before uint64
-    after uint64
-    limit int
+    Sources []string
+    Data *string
+    Order string
+    Before uint64
+    After uint64
+    Limit int
 }
 
 type Event struct {
@@ -177,45 +179,134 @@ func (historian *Historian) LogEvent(event *Event) error {
     return nil
 }
 
-func (historian *Historian) Query(query *HistoryQuery) {// (*EventIterator, error) {
+func (historian *Historian) Query(query *HistoryQuery) (*EventIterator, error) {
     var ranges [][2][]byte
     var direction int
     
-    if query.order == "asc" {
-        direction = FORWARD
-    } else {
+    if query.Order == "desc" {
         direction = BACKWARD
+    } else {
+        direction = FORWARD
     }
     
-    if len(query.sources) == 0 {
+    // query.Before is unspecified so default to max range
+    if query.Before == 0 {
+        query.Before = math.MaxUint64
+    }
+    
+    // ensure consistent ordering from multiple sources
+    sort.Strings(query.Sources)
+    
+    if len(query.Sources) == 0 {
         // time -> indexByTime
         ranges = make([][2][]byte, 1)
         
         ranges[0] = [2][]byte{
-            (&Event{ Timestamp: query.after }).prefixByTime(),
-            (&Event{ Timestamp: query.before + 1 }).prefixByTime(),
+            (&Event{ Timestamp: query.After }).prefixByTime(),
+            (&Event{ Timestamp: query.Before }).prefixByTime(),
         }
-    } else if query.data == nil {
+    } else if query.Data == nil {
         // sources + time -> indexBySourceAndTime
-        ranges = make([][2][]byte, 0, len(query.sources))
+        ranges = make([][2][]byte, 0, len(query.Sources))
         
-        for _, source := range query.sources {
+        for _, source := range query.Sources {
             ranges = append(ranges, [2][]byte{
-                (&Event{ SourceID: source, Timestamp: query.after }).prefixBySourceAndTime(),
-                (&Event{ SourceID: source, Timestamp: query.before + 1 }).prefixBySourceAndTime(),
+                (&Event{ SourceID: source, Timestamp: query.After }).prefixBySourceAndTime(),
+                (&Event{ SourceID: source, Timestamp: query.Before }).prefixBySourceAndTime(),
             })
         }
     } else {
         // data + sources + time -> indexByDataSourceAndTime
-        ranges = make([][2][]byte, 0, len(query.sources))
+        ranges = make([][2][]byte, 0, len(query.Sources))
         
-        for _, source := range query.sources {
+        for _, source := range query.Sources {
             ranges = append(ranges, [2][]byte{
-                (&Event{ Data: *query.data, SourceID: source, Timestamp: query.after }).prefixByDataSourceAndTime(),
-                (&Event{ Data: *query.data, SourceID: source, Timestamp: query.before + 1 }).prefixByDataSourceAndTime(),
+                (&Event{ Data: *query.Data, SourceID: source, Timestamp: query.After }).prefixByDataSourceAndTime(),
+                (&Event{ Data: *query.Data, SourceID: source, Timestamp: query.Before }).prefixByDataSourceAndTime(),
             })
         }
     }
     
-    log.Info(direction)
+    iter, err := historian.storageDriver.GetRanges(ranges, direction)
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return NewEventIterator(iter, query.Limit), nil
+}
+
+type EventIterator struct {
+    dbIterator StorageIterator
+    parseError error
+    currentEvent *Event
+    limit uint64
+    eventsSeen uint64
+}
+
+func NewEventIterator(iterator StorageIterator, limit int) *EventIterator {
+    if limit <= 0 {
+        limit = 0
+    }
+    
+    return &EventIterator{
+        dbIterator: iterator,
+        parseError: nil,
+        currentEvent: nil,
+        limit: uint64(limit),
+        eventsSeen: 0,
+    }
+}
+
+func (ei *EventIterator) Next() bool {
+    ei.currentEvent = nil
+    
+    if !ei.dbIterator.Next() {
+        if ei.dbIterator.Error() != nil {
+            log.Errorf("Storage driver error in Next(): %s", ei.dbIterator.Error())
+        }
+        
+        return false
+    }
+
+    var event Event
+    
+    ei.parseError = json.Unmarshal(ei.dbIterator.Value(), &event)
+    
+    if ei.parseError != nil {
+        log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", ei.dbIterator.Key(), ei.dbIterator.Value(), ei.parseError.Error())
+        
+        ei.Release()
+        
+        return false
+    }
+    
+    ei.currentEvent = &event
+    ei.eventsSeen += 1
+    
+    if ei.limit != 0 && ei.eventsSeen == ei.limit {
+        ei.Release()
+    }
+    
+    return true
+}
+
+func (ei *EventIterator) Event() *Event {
+    return ei.currentEvent
+}
+
+func (ei *EventIterator) Release() {
+    ei.dbIterator.Release()
+}
+
+func (ei *EventIterator) Error() error {
+    if ei.parseError != nil {
+        return EStorage
+    }
+        
+    if ei.dbIterator.Error() != nil {
+        return EStorage
+    }
+    
+    return nil
 }
