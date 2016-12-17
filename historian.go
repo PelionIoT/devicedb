@@ -8,12 +8,16 @@ import (
     "fmt"
     "math"
     "sort"
+    "sync"
 )
 
 var (
     BY_TIME_PREFIX = []byte{ 0 }
     BY_SOURCE_AND_TIME_PREFIX = []byte{ 1 }
     BY_DATA_SOURCE_AND_TIME_PREFIX = []byte{ 2 }
+    BY_SERIAL_NUMBER_PREFIX = []byte{ 3 }
+    SEQUENTIAL_COUNTER_PREFIX = []byte{ 4 }
+    CURRENT_SIZE_COUNTER_PREFIX = []byte{ 5 }
     DELIMETER = []byte(".")
 )
 
@@ -36,6 +40,8 @@ func timestampBytes(ts uint64) []byte {
 }
 
 type HistoryQuery struct {
+    MinSerial *uint64
+    MaxSerial *uint64
     Sources []string
     Data *string
     Order string
@@ -46,14 +52,30 @@ type HistoryQuery struct {
 
 type Event struct {
     Timestamp uint64 `json:"timestamp"`
-    SourceID string `json:"sourceID"`
+    SourceID string `json:"source"`
     Type string `json:"type"`
     Data string `json:"data"`
+    UUID string `json:"uuid"`
+    Serial uint64 `json:"serial"`
+}
+
+func (event *Event) indexBySerial() []byte {
+    sEncoding := timestampBytes(event.Serial)
+    result := make([]byte, 0, len(BY_SERIAL_NUMBER_PREFIX) + len(sEncoding))
+    
+    result = append(result, BY_SERIAL_NUMBER_PREFIX...)
+    result = append(result, sEncoding...)
+    
+    return result
+}
+
+func (event *Event) prefixBySerial() []byte {
+    return event.indexBySerial()
 }
 
 func (event *Event) indexByTime() []byte {
     timestampEncoding := timestampBytes(event.Timestamp)
-    uuid := []byte(randomString())
+    uuid := []byte(event.UUID)
     result := make([]byte, 0, len(BY_TIME_PREFIX) + len(timestampEncoding) + len(DELIMETER) + len(uuid))
     
     result = append(result, BY_TIME_PREFIX...)
@@ -78,7 +100,7 @@ func (event *Event) prefixByTime() []byte {
 func (event *Event) indexBySourceAndTime() []byte {
     sourceEncoding := []byte(base64.StdEncoding.EncodeToString([]byte(event.SourceID)))
     timestampEncoding := timestampBytes(event.Timestamp)
-    uuid := []byte(randomString())
+    uuid := []byte(event.UUID)
     result := make([]byte, 0, len(BY_SOURCE_AND_TIME_PREFIX) + len(sourceEncoding) + len(DELIMETER) + len(timestampEncoding) + len(DELIMETER) + len(uuid))
     
     result = append(result, BY_SOURCE_AND_TIME_PREFIX...)
@@ -109,7 +131,7 @@ func (event *Event) indexByDataSourceAndTime() []byte {
     sourceEncoding := []byte(base64.StdEncoding.EncodeToString([]byte(event.SourceID)))
     dataEncoding := []byte(base64.StdEncoding.EncodeToString([]byte(event.Data)))
     timestampEncoding := timestampBytes(event.Timestamp)
-    uuid := []byte(randomString())
+    uuid := []byte(event.UUID)
     result := make([]byte, 0, len(BY_SOURCE_AND_TIME_PREFIX) + len(dataEncoding) + len(DELIMETER) + len(sourceEncoding) + len(DELIMETER) + len(timestampEncoding) + len(DELIMETER) + len(uuid))
     
     result = append(result, BY_DATA_SOURCE_AND_TIME_PREFIX...)
@@ -143,18 +165,82 @@ func (event *Event) prefixByDataSourceAndTime() []byte {
 
 type Historian struct {
     storageDriver StorageDriver
+    nextID uint64
+    currentSize uint64
+    logLock sync.Mutex
+    eventLimit uint64
 }
 
-func NewHistorian(storageDriver StorageDriver) *Historian {
-    return &Historian{
-        storageDriver: storageDriver,
+func NewHistorian(storageDriver StorageDriver, eventLimit uint64) *Historian {
+    var nextID uint64
+    var currentSize uint64
+    
+    values, err := storageDriver.Get([][]byte{ SEQUENTIAL_COUNTER_PREFIX, CURRENT_SIZE_COUNTER_PREFIX })
+    
+    if err == nil && len(values[0]) == 8 {
+        nextID = binary.BigEndian.Uint64(values[0])
     }
+    
+    if err == nil && len(values[1]) == 8 {
+        currentSize = binary.BigEndian.Uint64(values[1])
+    }
+    
+    historian := &Historian{
+        storageDriver: storageDriver,
+        nextID: nextID + 1,
+        currentSize: currentSize,
+        eventLimit: eventLimit,
+    }
+    
+    historian.RotateLog()
+    
+    return historian
+}
+
+func (historian *Historian) LogSize() uint64 {
+    return historian.currentSize
+}
+
+func (historian *Historian) LogSerial() uint64 {
+    return historian.nextID
+}
+
+func (historian *Historian) SetLogSerial(s uint64) error {
+    historian.logLock.Lock()
+    defer historian.logLock.Unlock()
+    
+    if s < historian.nextID - 1 {
+        return nil
+    }
+    
+    batch := NewBatch()
+    batch.Put(SEQUENTIAL_COUNTER_PREFIX, timestampBytes(s))
+    
+    err := historian.storageDriver.Batch(batch)
+    
+    if err != nil {
+        log.Errorf("Storage driver error in SetLogSerial(%v): %s", s, err.Error())
+        
+        return EStorage
+    }
+    
+    historian.nextID = s + 1
+    
+    return nil
 }
 
 func (historian *Historian) LogEvent(event *Event) error {
+    // events must be logged sequentially to preserve the invariant that when a batch is written to
+    // disk no other batch that has been written before it has a serial number greater than itself
+    historian.logLock.Lock()
+    defer historian.logLock.Unlock()
+    
     // indexed by time
     // indexed by resourceid + time
     // indexed by eventdata + resourceID + time
+    event.UUID = randomString()
+    event.Serial = historian.nextID
+    
     batch := NewBatch()
     marshaledEvent, err := json.Marshal(event)
     
@@ -167,12 +253,24 @@ func (historian *Historian) LogEvent(event *Event) error {
     batch.Put(event.indexByTime(), []byte(marshaledEvent))
     batch.Put(event.indexBySourceAndTime(), []byte(marshaledEvent))
     batch.Put(event.indexByDataSourceAndTime(), []byte(marshaledEvent))
+    batch.Put(event.indexBySerial(), []byte(marshaledEvent))
+    batch.Put(SEQUENTIAL_COUNTER_PREFIX, timestampBytes(event.Serial))
+    batch.Put(CURRENT_SIZE_COUNTER_PREFIX, timestampBytes(historian.currentSize + 1))
     
     err = historian.storageDriver.Batch(batch)
     
     if err != nil {
         log.Errorf("Storage driver error in LogEvent(%v): %s", event, err.Error())
         
+        return EStorage
+    }
+    
+    historian.nextID += 1
+    historian.currentSize += 1
+    
+    err = historian.RotateLog()
+    
+    if err != nil {
         return EStorage
     }
     
@@ -196,8 +294,22 @@ func (historian *Historian) Query(query *HistoryQuery) (*EventIterator, error) {
     
     // ensure consistent ordering from multiple sources
     sort.Strings(query.Sources)
-    
-    if len(query.Sources) == 0 {
+
+    if query.MinSerial != nil {
+        ranges = make([][2][]byte, 1)
+        
+        ranges[0] = [2][]byte{
+            (&Event{ Serial: *query.MinSerial }).prefixBySerial(),
+            (&Event{ Serial: math.MaxUint64 }).prefixBySerial(),
+        }
+    } else if query.MaxSerial != nil {
+        ranges = make([][2][]byte, 1)
+        
+        ranges[0] = [2][]byte{
+            (&Event{ Serial: 0 }).prefixBySerial(),
+            (&Event{ Serial: *query.MaxSerial }).prefixBySerial(),
+        }
+    } else if len(query.Sources) == 0 {
         // time -> indexByTime
         ranges = make([][2][]byte, 1)
         
@@ -230,10 +342,79 @@ func (historian *Historian) Query(query *HistoryQuery) (*EventIterator, error) {
     iter, err := historian.storageDriver.GetRanges(ranges, direction)
     
     if err != nil {
+        log.Errorf("Storage driver error in Query(%v): %s", query, err.Error())
+        
         return nil, err
     }
     
     return NewEventIterator(iter, query.Limit), nil
+}
+
+func (historian *Historian) Purge(query *HistoryQuery) error {
+    historian.logLock.Lock()
+    defer historian.logLock.Unlock()
+    
+    return historian.purge(query)
+}
+
+func (historian *Historian) purge(query *HistoryQuery) error {
+    eventIterator, err := historian.Query(query)
+    
+    if err != nil {
+        return err
+    }
+    
+    for eventIterator.Next() {
+        event := eventIterator.Event()
+        err := historian.purgeEvent(event)
+        
+        if err != nil {
+            return err
+        }
+    }
+    
+    if eventIterator.Error() != nil {
+        log.Errorf("Storage driver error in Purge(%v): %s", query, err.Error())
+        
+        return eventIterator.Error()
+    }
+    
+    return nil
+}
+
+func (historian *Historian) purgeEvent(event *Event) error {
+    batch := NewBatch()
+    
+    batch.Delete(event.indexByTime())
+    batch.Delete(event.indexBySourceAndTime())
+    batch.Delete(event.indexByDataSourceAndTime())
+    batch.Delete(event.indexBySerial())
+    batch.Put(CURRENT_SIZE_COUNTER_PREFIX, timestampBytes(historian.currentSize - 1))
+    
+    err := historian.storageDriver.Batch(batch)
+    
+    if err != nil {
+        log.Errorf("Storage driver error in DeleteEvent(%v): %s", event, err.Error())
+        
+        return EStorage
+    }
+    
+    historian.currentSize -= 1
+    
+    return nil
+}
+
+func (historian *Historian) RotateLog() error {
+    if historian.eventLimit != 0 && historian.currentSize > historian.eventLimit {
+        var minSerial uint64 = 0
+        err := historian.purge(&HistoryQuery{ MinSerial: &minSerial, Limit: int(historian.currentSize - historian.eventLimit) })
+        
+        if err != nil {
+            return err
+        }
+    }
+    
+    return nil
 }
 
 type EventIterator struct {

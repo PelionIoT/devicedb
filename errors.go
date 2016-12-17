@@ -37,6 +37,7 @@ const (
     eUNAUTHORIZED = iota
     eINVALID_PEER = iota
     eREAD_BODY = iota
+    eREQUEST_QUERY = iota
 )
 
 var (
@@ -53,4 +54,5 @@ var (
     EUnauthorized          = DBerror{ "Operation not permitted", eUNAUTHORIZED }
     EInvalidPeer           = DBerror{ "The specified peer is invalid", eINVALID_PEER }
     EReadBody              = DBerror{ "Unable to read request body", eREAD_BODY }
+    ERequestQuery          = DBerror{ "Invalid query parameter format", eREQUEST_QUERY }
 )

@@ -81,7 +81,7 @@ var _ = Describe("Hub", func() {
     
     BeforeEach(func() {
         responderSyncController = NewSyncController(2, nil, 1000)
-        responderHub = NewHub(responderSyncController, responderClientTLS)
+        responderHub = NewHub("", responderSyncController, responderClientTLS)
         responderServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
             Port: 8080,
@@ -90,7 +90,7 @@ var _ = Describe("Hub", func() {
         })
         
         initiatorSyncController = NewSyncController(2, nil, 1000)
-        initiatorHub = NewHub(initiatorSyncController, initiatorClientTLS)
+        initiatorHub = NewHub("", initiatorSyncController, initiatorClientTLS)
         initiatorServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
             Port: 8181,
@@ -99,7 +99,7 @@ var _ = Describe("Hub", func() {
         })
         
         neutralSyncController = NewSyncController(2, nil, 1000)
-        neutralHub = NewHub(neutralSyncController, initiatorClientTLS) // WWRL000001
+        neutralHub = NewHub("", neutralSyncController, initiatorClientTLS) // WWRL000001
         neutralServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
             Port: 8282,
