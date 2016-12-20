@@ -159,6 +159,6 @@ var _ = Describe("Hub", func() {
             time.Sleep(time.Second * 1)
             
             Expect(true).Should(BeTrue())
-        })    
+        })
     })
 })

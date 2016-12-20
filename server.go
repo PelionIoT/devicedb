@@ -258,6 +258,10 @@ func (server *Server) Buckets() *BucketList {
     return server.bucketList
 }
 
+func (server *Server) History() *Historian {
+    return server.historian
+}
+
 func (server *Server) StartGC() {
     server.garbageCollector.Start()
 }
@@ -537,6 +541,8 @@ func (server *Server) Start() error {
             Type: eventType,
             Data: string(body),
         })
+        
+        server.hub.ForwardEvents()
         
         if err != nil {
             log.Warningf("POST /events/{type}/{sourceID}: Internal server error")

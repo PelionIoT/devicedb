@@ -12,6 +12,9 @@ import (
     "encoding/binary"
     "encoding/json"
     "strconv"
+    "net/http"
+    "io/ioutil"
+    "bytes"
 )
 
 const (
@@ -48,6 +51,9 @@ type Peer struct {
     doneChan chan bool
     csLock sync.Mutex
     result error
+    host string
+    port int
+    httpClient *http.Client
 }
 
 func NewPeer(id string, direction int) *Peer {
@@ -79,6 +85,10 @@ func (peer *Peer) accept(connection *websocket.Conn) (chan *SyncMessageWrapper, 
 
 func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan *SyncMessageWrapper, chan *SyncMessageWrapper, error) {
     reconnectWaitSeconds := 1
+    
+    peer.host = host
+    peer.port = port
+    peer.httpClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: dialer.TLSClientConfig } }
     
     for {
         peer.connection = nil
@@ -264,11 +274,61 @@ func (peer *Peer) getLatestEventSerial(hubID string) (uint64, error) {
         return 0, errors.New("This peer is not the cloud peer")
     }
     
-    return 0, nil
+    resp, err := peer.httpClient.Get(fmt.Sprintf("https://%s:%d/abc/events/%s/latestSerial", peer.host, peer.port, hubID))
+    
+    if err != nil {
+        return 0, err
+    }
+    
+    defer resp.Body.Close()
+    responseBody, err := ioutil.ReadAll(resp.Body)
+        
+    if err != nil {
+        return 0, err
+    }
+    
+    if resp.StatusCode != http.StatusOK {
+        return 0, errors.New(fmt.Sprintf("Received error code from server: (%d) %s", resp.StatusCode, string(responseBody)))
+    }
+    
+    latestSerial, err := strconv.ParseUint(string(responseBody), 10, 64)
+    
+    if err != nil {
+        return 0, err
+    }
+    
+    return latestSerial, nil
 }
 
-func (peer *Peer) pushEvent(event *Event) error {
+func (peer *Peer) pushEvent(hubID string, event *Event) error {
     // try to forward event to the cloud if failed or error response then return
+    eventJSON, _ := json.Marshal(event)
+    request, err := http.NewRequest("PUT", fmt.Sprintf("https://%s:%d/abc/events/%s/%s/%s", peer.host, peer.port, hubID, event.SourceID, event.Type), bytes.NewReader(eventJSON))
+    
+    if err != nil {
+        return err
+    }
+    
+    request.Header.Add("Content-Type", "application/json")
+    
+    resp, err := peer.httpClient.Do(request)
+    
+    if err != nil {
+        return err
+    }
+    
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        errorMessage, err := ioutil.ReadAll(resp.Body)
+        
+        if err != nil {
+            return err
+        }
+        
+        return errors.New(fmt.Sprintf("Received error code from server: (%d) %s", resp.StatusCode, string(errorMessage)))
+    }
+    
     return nil
 }
 
@@ -318,7 +378,7 @@ func NewHub(id string, syncController *SyncController, tlsConfig *tls.Config) *H
         tlsConfig: tlsConfig,
         peerMap: make(map[string]*Peer),
         id: id,
-        forward: make(chan int),
+        forward: make(chan int, 1),
     }
     
     return hub
@@ -574,86 +634,90 @@ func (hub *Hub) ForwardEvents() {
 }
 
 func (hub *Hub) StartForwardingEvents() {
-    for {
-        <-hub.forward
-        log.Info("Begin event forwarding to the cloud")
-        
-        var cloudPeer *Peer
-        
-        hub.peerMapLock.Lock()
-        cloudPeer, ok := hub.peerMap[CLOUD_PEER_ID]
-        hub.peerMapLock.Unlock()
-        
-        if !ok {
-            log.Info("No cloud present. Nothing to forward to")
+    go func() {
+        for {
+            <-hub.forward
+            log.Info("Begin event forwarding to the cloud")
             
-            continue
-        }
-        
-        cloudSerial, err := cloudPeer.getLatestEventSerial(hub.id)
-        
-        if err != nil {
-            log.Warningf("Unable to get the latest event serial from the cloud. Event forwarding will resume later: %v", err)
+            var cloudPeer *Peer
             
-            continue
-        }
-    
-        if cloudSerial > hub.historian.LogSerial() - 1 {
-            log.Warningf("The last event that the cloud received from this peer had a serial number greater than any event this node has stored in its history. This may indicate that the data store at this node was wiped since last connecting to the cloud. Skipping event serial number to %d", cloudSerial)
+            hub.peerMapLock.Lock()
+            cloudPeer, ok := hub.peerMap[CLOUD_PEER_ID]
+            hub.peerMapLock.Unlock()
             
-            err := hub.historian.SetLogSerial(cloudSerial)
-            
-            if err != nil {
-                log.Errorf("Unable to skip event log serial number ahead from %d to %d: %v. No new events will be forwarded to the cloud.", hub.historian.LogSerial() - 1, cloudSerial, err)
+            if !ok {
+                log.Info("No cloud present. Nothing to forward to")
                 
-                return
-            }
-        }
-        
-        for cloudSerial < hub.historian.LogSerial() - 1 {
-            minSerial := cloudSerial + 1
-            eventIterator, err := hub.historian.Query(&HistoryQuery{ MinSerial: &minSerial, Limit: 1 })
-            
-            if err != nil {
-                log.Errorf("Unable to query event history: %v. No more events will be forwarded to the cloud", err)
-                
-                return
+                continue
             }
             
-            if eventIterator.Next() {
-                err := cloudPeer.pushEvent(eventIterator.Event())
-                
-                if err != nil {
-                    log.Warningf("Unable to push event %d to the cloud: %v. Event forwarding process will resume later.", eventIterator.Event().Serial, err)
-                    
-                    break
-                }
-                
-                if hub.purgeOnForward {
-                    maxSerial := eventIterator.Event().Serial + 1
-                    err = hub.historian.Purge(&HistoryQuery{ MaxSerial: &maxSerial })
-                    
-                    if err != nil {
-                        log.Warningf("Unable to purge events after push: %v")
-                    }
-                }
-            }
-            
-            if eventIterator.Error() != nil {
-                log.Errorf("Unable to query event history. Event iterator error: %v. No more events will be forwarded to the cloud.", eventIterator.Error())
-                
-                return
-            }
-            
-            cloudSerial, err = cloudPeer.getLatestEventSerial(hub.id)
+            cloudSerial, err := cloudPeer.getLatestEventSerial(hub.id)
             
             if err != nil {
                 log.Warningf("Unable to get the latest event serial from the cloud. Event forwarding will resume later: %v", err)
                 
-                break
+                continue
             }
+        
+            if cloudSerial > hub.historian.LogSerial() - 1 {
+                log.Warningf("The last event that the cloud received from this peer had a serial number greater than any event this node has stored in its history. This may indicate that the data store at this node was wiped since last connecting to the cloud. Skipping event serial number to %d", cloudSerial)
+                
+                err := hub.historian.SetLogSerial(cloudSerial)
+                
+                if err != nil {
+                    log.Errorf("Unable to skip event log serial number ahead from %d to %d: %v. No new events will be forwarded to the cloud.", hub.historian.LogSerial() - 1, cloudSerial, err)
+                    
+                    return
+                }
+            }
+            
+            for cloudSerial < hub.historian.LogSerial() - 1 {
+                minSerial := cloudSerial + 1
+                eventIterator, err := hub.historian.Query(&HistoryQuery{ MinSerial: &minSerial, Limit: 1 })
+                
+                if err != nil {
+                    log.Errorf("Unable to query event history: %v. No more events will be forwarded to the cloud", err)
+                    
+                    return
+                }
+                
+                if eventIterator.Next() {
+                    err := cloudPeer.pushEvent(hub.id, eventIterator.Event())
+                    
+                    if err != nil {
+                        log.Warningf("Unable to push event %d to the cloud: %v. Event forwarding process will resume later.", eventIterator.Event().Serial, err)
+                        
+                        break
+                    }
+                    
+                    if hub.purgeOnForward {
+                        maxSerial := eventIterator.Event().Serial + 1
+                        err = hub.historian.Purge(&HistoryQuery{ MaxSerial: &maxSerial })
+                        
+                        if err != nil {
+                            log.Warningf("Unable to purge events after push: %v")
+                        }
+                    }
+                }
+                
+                if eventIterator.Error() != nil {
+                    log.Errorf("Unable to query event history. Event iterator error: %v. No more events will be forwarded to the cloud.", eventIterator.Error())
+                    
+                    return
+                }
+                
+                cloudSerial, err = cloudPeer.getLatestEventSerial(hub.id)
+                
+                if err != nil {
+                    log.Warningf("Unable to get the latest event serial from the cloud. Event forwarding will resume later: %v", err)
+                    
+                    break
+                }
+            }
+            
+            log.Info("History forwarding complete. Sleeping...")
         }
-    }
+    }()
 }
 
 type SyncSession struct {
