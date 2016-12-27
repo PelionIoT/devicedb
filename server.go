@@ -277,7 +277,7 @@ func (server *Server) Start() error {
         bucket := mux.Vars(r)["bucket"]
         
         if !server.bucketList.HasBucket(bucket) {
-            log.Warningf("POST /{bucket}/values: Invalid bucket")
+            log.Warningf("POST /{bucket}/merkleRoot: Invalid bucket")
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusNotFound)
