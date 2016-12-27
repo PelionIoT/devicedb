@@ -1092,10 +1092,14 @@ func (s *SyncController) runResponderSession() {
             initialState := state.State()
             
             var m *SyncMessageWrapper = state.NextState(receivedMessage)
-            
-            log.Debugf("[%s-%d] %s : (%s -> %s) : %s", responderSession.peerID, responderSession.sessionID, MessageTypeName(receivedMessage.MessageType), StateName(initialState), StateName(state.State()), MessageTypeName(m.MessageType))
-            
+        
             m.Direction = RESPONSE
+            
+            if receivedMessage == nil {
+                log.Debugf("[%s-%d] nil : (%s -> %s) : %s", responderSession.peerID, responderSession.sessionID, StateName(initialState), StateName(state.State()), MessageTypeName(m.MessageType))
+            } else {
+                log.Debugf("[%s-%d] %s : (%s -> %s) : %s", responderSession.peerID, responderSession.sessionID, MessageTypeName(receivedMessage.MessageType), StateName(initialState), StateName(state.State()), MessageTypeName(m.MessageType))
+            }
             
             if m != nil {
                 responderSession.sender <- m
