@@ -3,6 +3,7 @@ package devicedb
 import (
     "fmt"
     "io"
+    "io/ioutil"
     "net"
     "errors"
     "net/http"
@@ -90,6 +91,8 @@ type ServerConfig struct {
     GCInterval uint64
     GCPurgeAge uint64
     Cloud *cloudAddress
+    HistoryPurgeOnForward bool
+    HistoryEventLimit uint64
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
@@ -126,7 +129,6 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         ClientCAs: rootCAs,
     }
     
-    sc.Hub = NewHub(NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod), clientTLSConfig)
     sc.ServerTLS = serverTLSConfig
     
     for _, yamlPeer := range ysc.Peers {
@@ -150,6 +152,9 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         }
     }
     
+    sc.HistoryPurgeOnForward = ysc.History.PurgeOnForward
+    sc.HistoryEventLimit = ysc.History.EventLimit
+    
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
     serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
     clientCN := clientCertX509.Subject.CommonName
@@ -164,6 +169,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     }
     
     sc.NodeID = clientCN
+    sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod), clientTLSConfig)
     
     return nil
 }
@@ -180,6 +186,7 @@ type Server struct {
     id string
     syncPushBroadcastLimit uint64
     garbageCollector *GarbageCollector
+    historian *Historian
 }
 
 func NewServer(serverConfig ServerConfig) (*Server, error) {
@@ -198,7 +205,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     storageDriver := NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     nodeID := serverConfig.NodeID
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil, nil }
     err := server.storageDriver.Open()
     
     if err != nil {
@@ -206,10 +213,13 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         return nil, err
     }
     
+    
     defaultNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), serverConfig.MerkleDepth, nil)
     cloudNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), serverConfig.MerkleDepth, nil) 
     lwwNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), serverConfig.MerkleDepth, LastWriterWins)
     localNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 3 }, storageDriver), MerkleMinDepth, nil)
+    
+    server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ 4 }, storageDriver), serverConfig.HistoryEventLimit)
     
     server.bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
@@ -217,6 +227,11 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     server.bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
     
     server.garbageCollector = NewGarbageCollector(server.bucketList, serverConfig.GCInterval, serverConfig.GCPurgeAge)
+    
+    if server.hub != nil && server.hub.syncController != nil {
+        server.hub.historian = server.historian
+        server.hub.purgeOnForward = serverConfig.HistoryPurgeOnForward
+    }
     
     if server.hub != nil && server.hub.syncController != nil {
         server.hub.syncController.buckets = server.bucketList
@@ -241,6 +256,10 @@ func (server *Server) Port() int {
 
 func (server *Server) Buckets() *BucketList {
     return server.bucketList
+}
+
+func (server *Server) History() *Historian {
+    return server.historian
 }
 
 func (server *Server) StartGC() {
@@ -479,6 +498,333 @@ func (server *Server) Start() error {
             }
         }
     }).Methods("POST")
+    
+    r.HandleFunc("/events/{sourceID}/{type}", func(w http.ResponseWriter, r *http.Request) {
+        eventType := mux.Vars(r)["type"]
+        sourceID := mux.Vars(r)["sourceID"]
+        body, err := ioutil.ReadAll(r.Body)
+        
+        if err != nil {
+            log.Warningf("PUT /events/{type}/{sourceID}: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EReadBody.JSON()) + "\n")
+            
+            return
+        }
+        
+        if len(eventType) == 0 {
+            log.Warningf("PUT /events/{type}/{sourceID}: Empty event type")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EEmpty.JSON()) + "\n")
+            
+            return
+        }
+        
+        if len(sourceID) == 0 {
+            log.Warningf("PUT /events/{type}/{sourceID}: Source id empty")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, string(EEmpty.JSON()) + "\n")
+            
+            return
+        }
+        
+        timestamp := nanoToMilli(uint64(time.Now().UnixNano()))
+        err = server.historian.LogEvent(&Event{
+            Timestamp: timestamp,
+            SourceID: sourceID,
+            Type: eventType,
+            Data: string(body),
+        })
+        
+        server.hub.ForwardEvents()
+        
+        if err != nil {
+            log.Warningf("POST /events/{type}/{sourceID}: Internal server error")
+        
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+            
+            return
+        }
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, "\n")
+    }).Methods("PUT")
+    
+    r.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+        query := r.URL.Query()
+        
+        var historyQuery HistoryQuery
+    
+        if sources, ok := query["source"]; ok {
+            historyQuery.Sources = make([]string, 0, len(sources))
+            
+            for _, source := range sources {
+                if len(source) != 0 {
+                    historyQuery.Sources = append(historyQuery.Sources, source)
+                }
+            }
+        } else {
+            historyQuery.Sources = make([]string, 0)
+        }
+        
+        if _, ok := query["limit"]; ok {
+            limitString := query.Get("limit")
+            limit, err := strconv.Atoi(limitString)
+            
+            if err != nil {
+                log.Warningf("GET /events: %v", err)
+            
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                
+                return
+            }
+            
+            historyQuery.Limit = limit
+        }
+        
+        if _, ok := query["sortOrder"]; ok {
+            sortOrder := query.Get("sortOrder")
+            
+            if sortOrder == "desc" || sortOrder == "asc" {
+                historyQuery.Order = sortOrder
+            }
+        }
+        
+        if _, ok := query["data"]; ok {
+            data := query.Get("data")
+            
+            historyQuery.Data = &data
+        }
+        
+        if _, ok := query["maxAge"]; ok {
+            maxAgeString := query.Get("maxAge")
+            maxAge, err := strconv.Atoi(maxAgeString)
+            
+            if err != nil {
+                log.Warningf("GET /events: %v", err)
+            
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                
+                return
+            }
+            
+            if maxAge <= 0 {
+                log.Warningf("GET /events: Non positive age specified")
+            
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                
+                return
+            }
+            
+            nowMS := nanoToMilli(uint64(time.Now().UnixNano()))
+            historyQuery.After = nowMS - uint64(maxAge)
+        } else {
+            if _, ok := query["afterTime"]; ok {
+                afterString := query.Get("afterTime")
+                after, err := strconv.Atoi(afterString)
+            
+                if err != nil {
+                    log.Warningf("GET /events: %v", err)
+                
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                if after < 0 {
+                    log.Warningf("GET /events: Non positive after specified")
+            
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                historyQuery.After = uint64(after)
+            }
+            
+            if _, ok := query["beforeTime"]; ok {
+                beforeString := query.Get("beforeTime")
+                before, err := strconv.Atoi(beforeString)
+            
+                if err != nil {
+                    log.Warningf("GET /events: %v", err)
+                
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                if before < 0 {
+                    log.Warningf("GET /events: Non positive before specified")
+            
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                historyQuery.Before = uint64(before)
+            }
+        }
+        
+        eventIterator, err := server.historian.Query(&historyQuery)
+        
+        if err != nil {
+            log.Warningf("GET /events: Internal server error")
+        
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+            
+            return
+        }
+        
+        defer eventIterator.Release()
+    
+        flusher, _ := w.(http.Flusher)
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.Header().Set("X-Content-Type-Options", "nosniff")
+        w.WriteHeader(http.StatusOK)
+        
+        for eventIterator.Next() {
+            event := eventIterator.Event()
+            eventJSON, _ := json.Marshal(&event)
+            
+            _, err = fmt.Fprintf(w, "%s\n", string(eventJSON))
+            flusher.Flush()
+            
+            if err != nil {
+                return
+            }
+        }
+    }).Methods("GET")
+    
+    r.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+        query := r.URL.Query()
+        
+        var historyQuery HistoryQuery
+    
+        if _, ok := query["maxAge"]; ok {
+            maxAgeString := query.Get("maxAge")
+            maxAge, err := strconv.Atoi(maxAgeString)
+            
+            if err != nil {
+                log.Warningf("GET /events: %v", err)
+            
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                
+                return
+            }
+            
+            if maxAge <= 0 {
+                log.Warningf("GET /events: Non positive age specified")
+            
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                
+                return
+            }
+            
+            nowMS := nanoToMilli(uint64(time.Now().UnixNano()))
+            historyQuery.After = nowMS - uint64(maxAge)
+        } else {
+            if _, ok := query["afterTime"]; ok {
+                afterString := query.Get("afterTime")
+                after, err := strconv.Atoi(afterString)
+            
+                if err != nil {
+                    log.Warningf("GET /events: %v", err)
+                
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                if after < 0 {
+                    log.Warningf("GET /events: Non positive after specified")
+            
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                historyQuery.After = uint64(after)
+            }
+            
+            if _, ok := query["beforeTime"]; ok {
+                beforeString := query.Get("beforeTime")
+                before, err := strconv.Atoi(beforeString)
+            
+                if err != nil {
+                    log.Warningf("GET /events: %v", err)
+                
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                if before < 0 {
+                    log.Warningf("GET /events: Non positive before specified")
+            
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusBadRequest)
+                    io.WriteString(w, string(ERequestQuery.JSON()) + "\n")
+                    
+                    return
+                }
+                
+                historyQuery.Before = uint64(before)
+            }
+        }
+        
+        err := server.historian.Purge(&historyQuery)
+        
+        if err != nil {
+            log.Warningf("GET /events: Internal server error")
+        
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, string(err.(DBerror).JSON()) + "\n")
+            
+            return
+        }
+        
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, "\n")
+    }).Methods("DELETE")
     
     r.HandleFunc("/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
         bucket := mux.Vars(r)["bucket"]

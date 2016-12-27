@@ -22,6 +22,12 @@ type YAMLServerConfig struct {
     TLS YAMLTLSFiles `yaml:"tls"`
     LogLevel string `yaml:"logLevel"`
     Cloud *YAMLCloud `yaml:"cloud"`
+    History *YAMLHistory `yaml:"history"`
+}
+
+type YAMLHistory struct {
+    PurgeOnForward bool `yaml:"purgeOnForward"`
+    EventLimit uint64 `yaml:"eventLimit"`
 }
 
 type YAMLPeer struct {
@@ -100,6 +106,10 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
         if !isValidPort(ysc.Cloud.Port) {
             return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud at %s", ysc.Cloud.Port, ysc.Cloud.Host))
         }
+    }
+    
+    if ysc.History == nil {
+        ysc.History = &YAMLHistory{ }
     }
     
     if len(ysc.TLS.ClientCertificate) == 0 {

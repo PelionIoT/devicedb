@@ -167,10 +167,18 @@ var _ = Describe("StorageEngine", func() {
             
             Expect(err).Should(Succeed())
             
+            reverseIterator, err := storageDriver.GetRanges([][2][]byte{ [2][]byte{ []byte("key055"), []byte("key099") } }, BACKWARD)
+            
             for i := 5500; i <= 9899; i += 1 {
                 Expect(iterator.Next()).Should(BeTrue())
                 Expect(iterator.Key()).Should(Equal([]byte(fmt.Sprintf("key%05d", i))))
                 Expect(iterator.Value()).Should(Equal([]byte(fmt.Sprintf("value%05d", i))))
+            }
+            
+            for i := 9899; i >= 5500; i -= 1 {
+                Expect(reverseIterator.Next()).Should(BeTrue())
+                Expect(reverseIterator.Key()).Should(Equal([]byte(fmt.Sprintf("key%05d", i))))
+                Expect(reverseIterator.Value()).Should(Equal([]byte(fmt.Sprintf("value%05d", i))))
             }
             
             Expect(iterator.Next()).Should(BeFalse())

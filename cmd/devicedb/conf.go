@@ -58,6 +58,19 @@ gcInterval: 300000
 # keys that will no longer be used. This field is also in milliseconds
 gcPurgeAge: 600000
 
+# This field can be used to specify how this node handles time-series data.
+# These settings adjust how and when historical data is purged from the
+# history. If this field is not specified then default values are used.
+# history:
+#    # When this flag is true items in the history are purged from the log
+#    # after they are successfully forwarded to the cloud. When set to false
+#    # items are only purged after. It defaults to false if not specified
+#    purgeOnForward: false
+#    # This setting controls the amount of events that are left in the log
+#    # before purging the oldest logged events. It is set to 0 by default
+#    # which means old events will never be purged from the log
+#    eventLimit: 1000
+
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
 # as memory constraints allow. Estimated memory overhead for a given depth is

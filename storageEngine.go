@@ -14,6 +14,8 @@ import (
 const (
     PUT = iota
     DEL = iota
+    FORWARD = iota
+    BACKWARD = iota
 )
 
 type Op struct {
@@ -168,6 +170,22 @@ func (psd *PrefixedStorageDriver) GetRange(start []byte, end []byte) (StorageIte
     return &PrefixedIterator{ psd.prefix, iter }, nil
 }
 
+func (psd *PrefixedStorageDriver) GetRanges(ranges [][2][]byte, direction int) (StorageIterator, error) {
+    var prefixedRanges = make([][2][]byte, len(ranges))
+    
+    for i := 0; i < len(ranges); i += 1 {
+        prefixedRanges[i] = [2][]byte{ psd.addPrefix(ranges[i][0]), psd.addPrefix(ranges[i][1]) }
+    }
+    
+    iter, err := psd.storageDriver.GetRanges(prefixedRanges, direction)
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return &PrefixedIterator{ psd.prefix, iter }, nil
+}
+
 func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
     newBatch := NewBatch()
     
@@ -218,6 +236,7 @@ type StorageDriver interface {
     Get([][]byte) ([][]byte, error)
     GetMatches([][]byte) (StorageIterator, error)
     GetRange([]byte, []byte) (StorageIterator, error)
+    GetRanges([][2][]byte, int) (StorageIterator, error)
     Batch(*Batch) error
 }
 
@@ -227,6 +246,7 @@ type LevelDBIterator struct {
     ranges []*util.Range
     prefix []byte
     err error
+    direction int
 }
 
 func (it *LevelDBIterator) Next() bool {
@@ -238,10 +258,33 @@ func (it *LevelDBIterator) Next() bool {
         it.prefix = it.ranges[0].Start
         it.it = it.snapshot.NewIterator(it.ranges[0], nil)
         it.ranges = it.ranges[1:]
+        
+        if it.direction == BACKWARD {
+            if it.it.Last() {
+                return true
+            }
+            
+            if it.it.Error() != nil {
+                it.err = it.it.Error()
+                it.ranges = []*util.Range{ }
+            }
+            
+            it.it.Release()
+            it.it = nil
+            it.prefix = nil
+            
+            return false
+        }
     }
-    
-    if it.it.Next() {
-        return true
+
+    if it.direction == BACKWARD {
+        if it.it.Prev() {
+            return true
+        }
+    } else {
+        if it.it.Next() {
+            return true
+        }
     }
     
     if it.it.Error() != nil {
@@ -419,7 +462,7 @@ func (levelDriver *LevelDBStorageDriver) GetMatches(keys [][]byte) (StorageItera
     ranges := make([]*util.Range, 0, len(keys))
     
     if keys == nil {
-        return &LevelDBIterator{ snapshot, nil, ranges, nil, nil }, nil
+        return &LevelDBIterator{ snapshot, nil, ranges, nil, nil, FORWARD }, nil
     }
     
     for _, key := range keys {
@@ -430,7 +473,7 @@ func (levelDriver *LevelDBStorageDriver) GetMatches(keys [][]byte) (StorageItera
         }
     }
 
-    return &LevelDBIterator{ snapshot, nil, ranges, nil, nil }, nil
+    return &LevelDBIterator{ snapshot, nil, ranges, nil, nil, FORWARD }, nil
 }
 
 func (levelDriver *LevelDBStorageDriver) GetRange(min, max []byte) (StorageIterator, error) {
@@ -448,7 +491,29 @@ func (levelDriver *LevelDBStorageDriver) GetRange(min, max []byte) (StorageItera
 
     ranges := []*util.Range{ &util.Range{ min, max } }
     
-    return &LevelDBIterator{ snapshot, nil, ranges, nil, nil }, nil
+    return &LevelDBIterator{ snapshot, nil, ranges, nil, nil, FORWARD }, nil
+}
+
+func (levelDriver *LevelDBStorageDriver) GetRanges(ranges [][2][]byte, direction int) (StorageIterator, error) {
+    if levelDriver.db == nil {
+        return nil, errors.New("Driver is closed")
+    }
+    
+    snapshot, err := levelDriver.db.GetSnapshot()
+    
+    if err != nil {
+        snapshot.Release()
+        
+        return nil, err
+    }
+    
+    var levelRanges = make([]*util.Range, len(ranges))
+    
+    for i := 0; i < len(ranges); i += 1 {
+        levelRanges[i] = &util.Range{ ranges[i][0], ranges[i][1] }
+    }
+
+    return &LevelDBIterator{ snapshot, nil, levelRanges, nil, nil, direction }, nil
 }
 
 func (levelDriver *LevelDBStorageDriver) Batch(batch *Batch) error {
