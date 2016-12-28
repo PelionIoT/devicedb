@@ -19,6 +19,6 @@ export GOPATH=`pwd`/..
 This should set your GOPATH environment variable to the full file path to your my-go-workspace directory
 Now build devicedb like so
 ```
-go build devicedb/cmd/devicedb
+go install devicedb/cmd/devicedb
 ```
 The devicedb binary should now be located at my-go-workspace/bin/devicedb
