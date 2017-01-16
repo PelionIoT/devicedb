@@ -442,7 +442,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool)
         log.Warningf("The cloud.noValidate option is set to true. The cloud server's certificate chain and identity will not be verified. !!! THIS OPTION SHOULD NOT BE SET TO TRUE IN PRODUCTION !!!")
     }
     
-    dialer, err := hub.dialer(serverName, noValidate)
+    dialer, err := hub.dialer(serverName, noValidate, true)
     
     if err != nil {
         return err
@@ -491,7 +491,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool)
 }
 
 func (hub *Hub) Connect(peerID, host string, port int) error {
-    dialer, err := hub.dialer(peerID, false)
+    dialer, err := hub.dialer(peerID, false, false)
     
     if peerID == CLOUD_PEER_ID {
         log.Warningf("Peer ID is not allowed to be %s since it is reserved for the cloud connection. This node will not connect to this peer", CLOUD_PEER_ID)
@@ -556,12 +556,17 @@ func (hub *Hub) Disconnect(peerID string) {
     }
 }
 
-func (hub *Hub) dialer(peerID string, noValidate bool) (*websocket.Dialer, error) {
+func (hub *Hub) dialer(peerID string, noValidate bool, useDefaultRootCAs bool) (*websocket.Dialer, error) {
     if hub.tlsConfig == nil {
         return nil, errors.New("No tls config provided")
     }
     
     tlsConfig := *hub.tlsConfig
+    
+    if useDefaultRootCAs {
+        tlsConfig.RootCAs = nil
+    }
+    
     tlsConfig.InsecureSkipVerify = noValidate
     tlsConfig.ServerName = peerID
     
