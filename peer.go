@@ -1185,7 +1185,7 @@ func (s *SyncController) Start() {
     s.StartResponderSessions()
 }
 
-func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, n uint64) {
+func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, n uint64) {    
     // broadcast the specified object to at most n peers, or all peers if n is non-positive
     var count uint64 = 0
     
@@ -1204,6 +1204,10 @@ func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, 
     }
     
     for peerID, w := range s.peers {
+        if !s.buckets.Get(bucket).ReplicationStrategy.ShouldReplicateOutgoing(peerID) {
+            continue
+        }
+        
         if n != 0 && count == n {
             break
         }
