@@ -20,10 +20,10 @@ func NewSplitLogBackend(outLogBackend, errLogBackend logging.LeveledBackend) Spl
 
 func (slb SplitLogBackend) Log(level logging.Level, calldepth int, rec *logging.Record) error {
     if level <= logging.WARNING {
-        return slb.errLogBackend.Log(level, calldepth, rec)
+        return slb.errLogBackend.Log(level, calldepth + 2, rec)
     }
     
-    return slb.outLogBackend.Log(level, calldepth, rec)
+    return slb.outLogBackend.Log(level, calldepth + 2, rec)
 }
 
 func (slb SplitLogBackend) SetLevel(level logging.Level, module string) {

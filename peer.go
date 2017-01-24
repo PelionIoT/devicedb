@@ -137,10 +137,14 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
     
     go func() {
         for msg := range outgoing {
+            // this lock ensures mutual exclusion with close message sending in peer.close()
+            peer.csLock.Lock()
             err := peer.connection.WriteJSON(msg)
+            peer.csLock.Unlock()
                 
             if err != nil {
-                return
+                log.Errorf("Error writing to websocket for peer %s: %v", peer.id, err)
+                //return
             }
         }
     }()
@@ -156,7 +160,11 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
             err := peer.connection.ReadJSON(&nextRawMessage)
             
             if err != nil {
-                log.Errorf("Peer %s sent a misformatted message. Unable to parse: %v", peer.id, err)
+                if err.Error() == "websocket: close 1000 (normal)" {
+                    log.Infof("Received a normal websocket close message from peer %s", peer.id)
+                } else {
+                    log.Errorf("Peer %s sent a misformatted message. Unable to parse: %v", peer.id, err)
+                }
                 
                 peer.result = err
                 
@@ -804,6 +812,9 @@ func (s *SyncController) removePeer(peerID string) {
     for _, syncSession := range s.responderSessionsMap[peerID] {
         close(syncSession.receiver)
     }
+
+    delete(s.initiatorSessionsMap, peerID)
+    delete(s.responderSessionsMap, peerID)
     
     s.mapMutex.Unlock()
     s.waitGroups[peerID].Wait()
@@ -811,8 +822,6 @@ func (s *SyncController) removePeer(peerID string) {
     close(s.peers[peerID])
     delete(s.peers, peerID)
     delete(s.waitGroups, peerID)
-    delete(s.initiatorSessionsMap, peerID)
-    delete(s.responderSessionsMap, peerID)
 }
 
 func (s *SyncController) addResponderSession(peerID string, sessionID uint, bucketName string) bool {
@@ -844,7 +853,7 @@ func (s *SyncController) addResponderSession(peerID string, sessionID uint, buck
     }
     
     newResponderSession := &SyncSession{
-        receiver: make(chan *SyncMessageWrapper),
+        receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
         sessionState: NewResponderSyncSession(bucket),
         waitGroup: s.waitGroups[peerID],
@@ -892,7 +901,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     }
     
     newInitiatorSession := &SyncSession{
-        receiver: make(chan *SyncMessageWrapper),
+        receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
         sessionState: NewInitiatorSyncSession(sessionID, bucket),
         waitGroup: s.waitGroups[peerID],
@@ -929,14 +938,9 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
 func (s *SyncController) removeResponderSession(responderSession *SyncSession) {
     s.mapMutex.Lock()
     
-    if _, ok := s.responderSessionsMap[responderSession.peerID]; !ok {
-        log.Warningf("Cannot remove responder session %d for peer %d since it does not exist in the map", responderSession.sessionID, responderSession.peerID)
-        
-        s.mapMutex.Unlock()
-        return
+    if _, ok := s.responderSessionsMap[responderSession.peerID]; ok {
+        delete(s.responderSessionsMap[responderSession.peerID], responderSession.sessionID)
     }
-    
-    delete(s.responderSessionsMap[responderSession.peerID], responderSession.sessionID)
     
     s.mapMutex.Unlock()
     responderSession.waitGroup.Done()
@@ -947,14 +951,9 @@ func (s *SyncController) removeResponderSession(responderSession *SyncSession) {
 func (s *SyncController) removeInitiatorSession(initiatorSession *SyncSession) {
     s.mapMutex.Lock()
     
-    if _, ok := s.initiatorSessionsMap[initiatorSession.peerID]; !ok {
-        log.Warningf("Cannot remove initiator session %d for peer %d since it does not exist in the map", initiatorSession.sessionID, initiatorSession.peerID)
-        
-        s.mapMutex.Unlock()
-        return
+    if _, ok := s.initiatorSessionsMap[initiatorSession.peerID]; ok {
+        delete(s.initiatorSessionsMap[initiatorSession.peerID], initiatorSession.sessionID)
     }
-    
-    delete(s.initiatorSessionsMap[initiatorSession.peerID], initiatorSession.sessionID)
     
     s.mapMutex.Unlock()
     initiatorSession.waitGroup.Done()
@@ -997,7 +996,14 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
             return
         }
         
-        s.responderSessionsMap[nodeID][sessionID].receiver <- msg
+        // This select statement means that the function does not block if
+        // the read loop in runInitiatorSession is not running if the session
+        // is being removed currently. This works due to the synchronous nature
+        // of the protocol.
+        select {
+        case s.responderSessionsMap[nodeID][sessionID].receiver <- msg:
+        default:
+        }
     } else if msg.Direction == RESPONSE { // RESPONSE
         s.mapMutex.RLock()
         defer s.mapMutex.RUnlock()
@@ -1014,7 +1020,10 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
             return
         }
         
-        s.initiatorSessionsMap[nodeID][sessionID].receiver <- msg
+        select {
+        case s.initiatorSessionsMap[nodeID][sessionID].receiver <- msg:
+        default:
+        }
     } else if msg.MessageType == SYNC_PUSH_MESSAGE {
         pushMessage := msg.MessageBody.(PushMessage)
         
