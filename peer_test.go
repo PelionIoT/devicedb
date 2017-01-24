@@ -50,6 +50,8 @@ func loadCerts(id string) (*tls.Config, *tls.Config, error) {
     return serverTLSConfig, clientTLSConfig, nil
 }
 
+const SYNC_PERIOD_MS = 10
+
 var _ = Describe("Hub", func() {
     var initiatorHub *Hub
     var responderHub *Hub
@@ -80,7 +82,7 @@ var _ = Describe("Hub", func() {
     stop := make(chan int)
     
     BeforeEach(func() {
-        responderSyncController = NewSyncController(2, nil, 1000)
+        responderSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS)
         responderHub = NewHub("", responderSyncController, responderClientTLS)
         responderServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
@@ -89,7 +91,7 @@ var _ = Describe("Hub", func() {
             Hub: responderHub,
         })
         
-        initiatorSyncController = NewSyncController(2, nil, 1000)
+        initiatorSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS)
         initiatorHub = NewHub("", initiatorSyncController, initiatorClientTLS)
         initiatorServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
@@ -98,7 +100,7 @@ var _ = Describe("Hub", func() {
             Hub: initiatorHub,
         })
         
-        neutralSyncController = NewSyncController(2, nil, 1000)
+        neutralSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS)
         neutralHub = NewHub("", neutralSyncController, initiatorClientTLS) // WWRL000001
         neutralServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
