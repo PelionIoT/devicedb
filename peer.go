@@ -92,6 +92,7 @@ func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan
     
     for {
         peer.connection = nil
+
         conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
                 
         if err != nil {
@@ -130,6 +131,7 @@ func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan
 }
 
 func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessageWrapper) {
+    connection := peer.connection
     peer.doneChan = make(chan bool, 1)
     
     incoming := make(chan *SyncMessageWrapper)
@@ -139,7 +141,7 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
         for msg := range outgoing {
             // this lock ensures mutual exclusion with close message sending in peer.close()
             peer.csLock.Lock()
-            err := peer.connection.WriteJSON(msg)
+            err := connection.WriteJSON(msg)
             peer.csLock.Unlock()
                 
             if err != nil {
@@ -157,7 +159,7 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
             var nextRawMessage rawSyncMessageWrapper
             var nextMessage SyncMessageWrapper
             
-            err := peer.connection.ReadJSON(&nextRawMessage)
+            err := connection.ReadJSON(&nextRawMessage)
             
             if err != nil {
                 if err.Error() == "websocket: close 1000 (normal)" {
@@ -220,6 +222,10 @@ func (peer *Peer) typeCheck(rawMsg *rawSyncMessageWrapper, msg *SyncMessageWrapp
         var pushMessage PushMessage
         err = json.Unmarshal(rawMsg.MessageBody, &pushMessage)
         msg.MessageBody = pushMessage
+    case SYNC_PUSH_DONE:
+        var pushDoneMessage PushDone
+        err = json.Unmarshal(rawMsg.MessageBody, &pushDoneMessage)
+        msg.MessageBody = pushDoneMessage
     }
     
     return err
@@ -903,7 +909,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     newInitiatorSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
-        sessionState: NewInitiatorSyncSession(sessionID, bucket),
+        sessionState: NewInitiatorSyncSession(sessionID, bucket, 1000000),
         waitGroup: s.waitGroups[peerID],
         peerID: peerID,
         sessionID: sessionID,

@@ -30,24 +30,26 @@ func StateName(s int) string {
     return names[s]
 }
 
-const PROTOCOL_VERSION uint = 1
+const PROTOCOL_VERSION uint = 2
 
 // the state machine
 type InitiatorSyncSession struct {
     sessionID uint
     currentState int
-    node uint32
     maxDepth uint8
     theirDepth uint8
+    explorationQueue []uint32
+    explorationPathLimit uint32
     bucket Bucket
 }
 
-func NewInitiatorSyncSession(id uint, bucket Bucket) *InitiatorSyncSession {
+func NewInitiatorSyncSession(id uint, bucket Bucket, explorationPathLimit uint32) *InitiatorSyncSession {
     return &InitiatorSyncSession{
         sessionID: id,
-        currentState: 0,
-        node: bucket.Node.MerkleTree().RootNode(),
+        currentState: START,
         maxDepth: bucket.Node.MerkleTree().Depth(),
+        explorationQueue: make([]uint32, 0),
+        explorationPathLimit: explorationPathLimit,
         bucket: bucket,
     }
 }
@@ -72,12 +74,42 @@ func (syncSession *InitiatorSyncSession) ResponderDepth() uint8 {
     return syncSession.theirDepth
 }
 
-func (syncSession *InitiatorSyncSession) SetCurrentNode(n uint32) {
-    syncSession.node = n
+func (syncSession *InitiatorSyncSession) PushExplorationQueue(n uint32) {
+    syncSession.explorationQueue = append(syncSession.explorationQueue, n)
 }
 
-func (syncSession *InitiatorSyncSession) CurrentNode() uint32 {
-    return syncSession.node
+func (syncSession *InitiatorSyncSession) PopExplorationQueue() uint32 {
+    var n uint32
+
+    if len(syncSession.explorationQueue) != 0 {
+        n = syncSession.explorationQueue[0]
+
+        syncSession.explorationQueue = syncSession.explorationQueue[1:]
+    }
+
+    return n
+}
+
+func (syncSession *InitiatorSyncSession) PeekExplorationQueue() uint32 {
+    var n uint32
+
+    if len(syncSession.explorationQueue) != 0 {
+        n = syncSession.explorationQueue[0]
+    }
+
+    return n
+}
+
+func (syncSession *InitiatorSyncSession) ExplorationQueueSize() uint32 {
+    return uint32(len(syncSession.explorationQueue))
+}
+
+func (syncSession *InitiatorSyncSession) SetExplorationPathLimit(limit uint32) {
+    syncSession.explorationPathLimit = limit
+}
+
+func (syncSession *InitiatorSyncSession) ExplorationPathLimit() uint32 {
+    return syncSession.explorationPathLimit
 }
 
 func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessageWrapper) *SyncMessageWrapper {
@@ -111,18 +143,19 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
         
         syncSession.theirDepth = syncMessageWrapper.MessageBody.(Start).MerkleDepth
         syncSession.currentState = ROOT_HASH_COMPARE
+        syncSession.PushExplorationQueue(syncSession.bucket.Node.MerkleTree().RootNode())
     
         return &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_NODE_HASH,
             MessageBody: MerkleNodeHash{
-                NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.node, syncSession.theirDepth),
-                HashHigh: syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.node).High(),
-                HashLow: syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.node).Low(),
+                NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+                HashHigh: syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.PeekExplorationQueue()).High(),
+                HashLow: syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.PeekExplorationQueue()).Low(),
             },
         }
     case ROOT_HASH_COMPARE:
-        myHash := syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.node)
+        myHash := syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.PeekExplorationQueue())
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH {
             syncSession.currentState = END
@@ -140,14 +173,14 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else if syncSession.bucket.Node.MerkleTree().Level(syncSession.node) != syncSession.maxDepth {
+        } else if syncSession.bucket.Node.MerkleTree().Level(syncSession.PeekExplorationQueue()) != syncSession.maxDepth {
             syncSession.currentState = LEFT_HASH_COMPARE
             
             return &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_NODE_HASH,
                 MessageBody: MerkleNodeHash{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.node), syncSession.theirDepth),
+                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
                     HashHigh: 0,
                     HashLow: 0,
                 },
@@ -159,12 +192,12 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_OBJECT_NEXT,
                 MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.node, syncSession.theirDepth),
+                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
                 },
             }
         }
     case LEFT_HASH_COMPARE:
-        myLeftChildHash := syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.node))
+        myLeftChildHash := syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()))
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH {
             syncSession.currentState = END
@@ -174,44 +207,25 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh == myLeftChildHash.High() && syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow == myLeftChildHash.Low() {
-            syncSession.currentState = RIGHT_HASH_COMPARE
-            
-            return &SyncMessageWrapper{
-                SessionID: syncSession.sessionID,
-                MessageType: SYNC_NODE_HASH,
-                MessageBody: MerkleNodeHash{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().RightChild(syncSession.node), syncSession.theirDepth),
-                    HashHigh: 0,
-                    HashLow: 0,
-                },
-            }
-        } else if syncSession.bucket.Node.MerkleTree().Level(syncSession.node) != syncSession.maxDepth - 1 {
-            syncSession.node = syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.node)
-            
-            return &SyncMessageWrapper{
-                SessionID: syncSession.sessionID,
-                MessageType: SYNC_NODE_HASH,
-                MessageBody: MerkleNodeHash{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.node), syncSession.theirDepth),
-                    HashHigh: 0,
-                    HashLow: 0,
-                },
-            }
-        } else {
-            syncSession.node = syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.node)
-            syncSession.currentState = DB_OBJECT_PUSH
-                
-            return &SyncMessageWrapper{
-                SessionID: syncSession.sessionID,
-                MessageType: SYNC_OBJECT_NEXT,
-                MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.node, syncSession.theirDepth),
-                },
-            }
+        }
+        
+        if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh != myLeftChildHash.High() || syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow != myLeftChildHash.Low() {
+            syncSession.PushExplorationQueue(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()))
+        }
+
+        syncSession.currentState = RIGHT_HASH_COMPARE
+        
+        return &SyncMessageWrapper{
+            SessionID: syncSession.sessionID,
+            MessageType: SYNC_NODE_HASH,
+            MessageBody: MerkleNodeHash{
+                NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().RightChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
+                HashHigh: 0,
+                HashLow: 0,
+            },
         }
     case RIGHT_HASH_COMPARE:
-        myRightChildHash := syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.bucket.Node.MerkleTree().RightChild(syncSession.node))
+        myRightChildHash := syncSession.bucket.Node.MerkleTree().NodeHash(syncSession.bucket.Node.MerkleTree().RightChild(syncSession.PeekExplorationQueue()))
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH {
             syncSession.currentState = END
@@ -221,7 +235,18 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh == myRightChildHash.High() && syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow == myRightChildHash.Low() {
+        }
+
+        if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh != myRightChildHash.High() || syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow != myRightChildHash.Low() {
+            if syncSession.ExplorationQueueSize() <= syncSession.ExplorationPathLimit() {
+                syncSession.PushExplorationQueue(syncSession.bucket.Node.MerkleTree().RightChild(syncSession.PeekExplorationQueue()))
+            }
+        }
+
+        syncSession.PopExplorationQueue()
+
+        if syncSession.ExplorationQueueSize() == 0 {
+            // no more nodes to explore. abort
             syncSession.currentState = END
             
             return &SyncMessageWrapper{
@@ -229,33 +254,32 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else if syncSession.bucket.Node.MerkleTree().Level(syncSession.node) != syncSession.maxDepth - 1 {
-            syncSession.node = syncSession.bucket.Node.MerkleTree().RightChild(syncSession.node)
-            syncSession.currentState = LEFT_HASH_COMPARE
-            
-            return &SyncMessageWrapper{
-                SessionID: syncSession.sessionID,
-                MessageType: SYNC_NODE_HASH,
-                MessageBody: MerkleNodeHash{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.node), syncSession.theirDepth),
-                    HashHigh: 0,
-                    HashLow: 0,
-                },
-            }
-        } else {
-            syncSession.node = syncSession.bucket.Node.MerkleTree().RightChild(syncSession.node)
+        } else if syncSession.bucket.Node.MerkleTree().Level(syncSession.PeekExplorationQueue()) == syncSession.maxDepth {
+            // cannot dig any deeper in any paths. need to move to DB_OBJECT_PUSH
             syncSession.currentState = DB_OBJECT_PUSH
-            
+
             return &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_OBJECT_NEXT,
                 MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.node, syncSession.theirDepth),
+                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
                 },
             }
         }
+
+        syncSession.currentState = LEFT_HASH_COMPARE
+
+        return &SyncMessageWrapper{
+            SessionID: syncSession.sessionID,
+            MessageType: SYNC_NODE_HASH,
+            MessageBody: MerkleNodeHash{
+                NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.bucket.Node.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
+                HashHigh: 0,
+                HashLow: 0,
+            },
+        }
     case DB_OBJECT_PUSH:
-        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_PUSH_MESSAGE {
+        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_PUSH_MESSAGE && syncMessageWrapper.MessageType != SYNC_PUSH_DONE {
             syncSession.currentState = END
             
             return &SyncMessageWrapper{
@@ -263,29 +287,49 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else {
-            var key string = syncMessageWrapper.MessageBody.(PushMessage).Key
-            var siblingSet *SiblingSet = syncMessageWrapper.MessageBody.(PushMessage).Value
-            
-            err := syncSession.bucket.Node.Merge(map[string]*SiblingSet{ key: siblingSet })
-            
-            if err != nil {
-                syncSession.currentState = END
-            
+        }
+
+        if syncMessageWrapper.MessageType == SYNC_PUSH_DONE {
+            syncSession.PopExplorationQueue()
+
+            if syncSession.ExplorationQueueSize() == 0 {
                 return &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
                     MessageBody: Abort{ },
                 }
             }
-            
+
             return &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_OBJECT_NEXT,
                 MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.node, syncSession.theirDepth),
+                    NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
                 },
             }
+        }
+
+        var key string = syncMessageWrapper.MessageBody.(PushMessage).Key
+        var siblingSet *SiblingSet = syncMessageWrapper.MessageBody.(PushMessage).Value
+
+        err := syncSession.bucket.Node.Merge(map[string]*SiblingSet{ key: siblingSet })
+        
+        if err != nil {
+            syncSession.currentState = END
+        
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
+            }
+        }
+        
+        return &SyncMessageWrapper{
+            SessionID: syncSession.sessionID,
+            MessageType: SYNC_OBJECT_NEXT,
+            MessageBody: ObjectNext{
+                NodeID: syncSession.bucket.Node.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+            },
         }
     case END:
         return nil
@@ -303,6 +347,7 @@ type ResponderSyncSession struct {
     theirDepth uint8
     bucket Bucket
     iter *MerkleChildrenIterator
+    currentIterationNode uint32
 }
 
 func NewResponderSyncSession(bucket Bucket) *ResponderSyncSession {
@@ -396,44 +441,56 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                     HashLow: nodeHash.Low(),
                 },
             }
-        } else {
-            // if items to iterate over, send first
-            nodeID := syncMessageWrapper.MessageBody.(ObjectNext).NodeID
-            iter, err := syncSession.bucket.Node.GetSyncChildren(nodeID)
-            
-            if err != nil {
-                syncSession.currentState = END
-                
-                return &SyncMessageWrapper{
-                    SessionID: syncSession.sessionID,
-                    MessageType: SYNC_ABORT,
-                    MessageBody: Abort{ },
-                }
-            }
-            
-            if !iter.Next() {
-                iter.Release()
-                
-                syncSession.currentState = END
-                
-                return &SyncMessageWrapper{
-                    SessionID: syncSession.sessionID,
-                    MessageType: SYNC_ABORT,
-                    MessageBody: Abort{ },
-                }
-            }
+        }
+
+        // if items to iterate over, send first
+        nodeID := syncMessageWrapper.MessageBody.(ObjectNext).NodeID
+        syncSession.currentIterationNode = nodeID
+        iter, err := syncSession.bucket.Node.GetSyncChildren(nodeID)
         
-            syncSession.iter = iter
-            syncSession.currentState = DB_OBJECT_PUSH
+        if err != nil {
+            syncSession.currentState = END
             
             return &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
-                MessageType: SYNC_PUSH_MESSAGE,
-                MessageBody: PushMessage{
-                    Key: string(iter.Key()),
-                    Value: iter.Value(),
-                },
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
             }
+        }
+        
+        if !iter.Next() {
+            err := iter.Error()
+            iter.Release()
+
+            if err == nil {
+                syncSession.currentState = DB_OBJECT_PUSH
+
+                return &SyncMessageWrapper{
+                    SessionID: syncSession.sessionID,
+                    MessageType: SYNC_PUSH_DONE,
+                    MessageBody: PushDone{ },
+                }
+            }
+            
+            syncSession.currentState = END
+            
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
+            }
+        }
+    
+        syncSession.iter = iter
+        syncSession.currentState = DB_OBJECT_PUSH
+        
+        return &SyncMessageWrapper{
+            SessionID: syncSession.sessionID,
+            MessageType: SYNC_PUSH_MESSAGE,
+            MessageBody: PushMessage{
+                Key: string(iter.Key()),
+                Value: iter.Value(),
+            },
         }
     case DB_OBJECT_PUSH:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_OBJECT_NEXT {
@@ -449,10 +506,47 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageBody: Abort{ },
             }
         }
+
+        if syncSession.iter == nil {
+            syncSession.currentState = END
+                
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
+            }
+        }
+
+        if syncSession.currentIterationNode != syncMessageWrapper.MessageBody.(ObjectNext).NodeID {
+            syncSession.currentIterationNode = syncMessageWrapper.MessageBody.(ObjectNext).NodeID
+            iter, err := syncSession.bucket.Node.GetSyncChildren(syncSession.currentIterationNode)
+
+            if err != nil {
+                syncSession.currentState = END
+                
+                return &SyncMessageWrapper{
+                    SessionID: syncSession.sessionID,
+                    MessageType: SYNC_ABORT,
+                    MessageBody: Abort{ },
+                }
+            }
+
+            syncSession.iter = iter
+        }
         
-        if syncSession.iter == nil || !syncSession.iter.Next() {
+        if !syncSession.iter.Next() {
             if syncSession.iter != nil {
+                err := syncSession.iter.Error()
+
                 syncSession.iter.Release()
+
+                if err == nil {
+                    return &SyncMessageWrapper{
+                        SessionID: syncSession.sessionID,
+                        MessageType: SYNC_PUSH_DONE,
+                        MessageBody: PushDone{ },
+                    }
+                }
             }
             
             syncSession.currentState = END
@@ -488,6 +582,7 @@ const (
     REQUEST = iota
     RESPONSE = iota
     PUSH = iota
+    SYNC_PUSH_DONE = iota
 )
 
 func MessageTypeName(m int) string {
@@ -497,6 +592,7 @@ func MessageTypeName(m int) string {
         SYNC_NODE_HASH: "SYNC_NODE_HASH",
         SYNC_OBJECT_NEXT: "SYNC_OBJECT_NEXT",
         SYNC_PUSH_MESSAGE: "SYNC_PUSH_MESSAGE",
+        SYNC_PUSH_DONE: "SYNC_PUSH_DONE",
     }
     
     return names[m]
@@ -541,4 +637,7 @@ type PushMessage struct {
     Bucket string
     Key string
     Value *SiblingSet
+}
+
+type PushDone struct {
 }
