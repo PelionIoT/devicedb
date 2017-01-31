@@ -15,6 +15,7 @@ type YAMLServerConfig struct {
     MaxSyncSessions int `yaml:"syncSessionLimit"`
     SyncSessionPeriod uint64 `yaml:"syncSessionPeriod"`
     SyncPushBroadcastLimit uint64 `yaml:"syncPushBroadcastLimit"`
+    SyncExplorationPathLimit uint32 `yaml:"syncExplorationPathLimit"`
     GCInterval uint64 `yaml:"gcInterval"`
     GCPurgeAge uint64 `yaml:"gcPurgeAge"`
     MerkleDepth uint8 `yaml:"merkleDepth"`
@@ -183,6 +184,10 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     
     if ysc.GCInterval < 300000 {
         return errors.New("The gc interval must be at least five minutes (i.e. gcInterval: 300000)")
+    }
+
+    if ysc.SyncExplorationPathLimit == 0 {
+        ysc.SyncExplorationPathLimit = 1000
     }
     
     SetLoggingLevel(ysc.LogLevel)

@@ -82,7 +82,7 @@ var _ = Describe("Hub", func() {
     stop := make(chan int)
     
     BeforeEach(func() {
-        responderSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS)
+        responderSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS, 1000)
         responderHub = NewHub("", responderSyncController, responderClientTLS)
         responderServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
@@ -91,7 +91,7 @@ var _ = Describe("Hub", func() {
             Hub: responderHub,
         })
         
-        initiatorSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS)
+        initiatorSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS, 1000)
         initiatorHub = NewHub("", initiatorSyncController, initiatorClientTLS)
         initiatorServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),
@@ -100,7 +100,7 @@ var _ = Describe("Hub", func() {
             Hub: initiatorHub,
         })
         
-        neutralSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS)
+        neutralSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS, 1000)
         neutralHub = NewHub("", neutralSyncController, initiatorClientTLS) // WWRL000001
         neutralServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + randomString(),

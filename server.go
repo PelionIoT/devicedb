@@ -93,6 +93,7 @@ type ServerConfig struct {
     Cloud *cloudAddress
     HistoryPurgeOnForward bool
     HistoryEventLimit uint64
+    SyncExplorationPathLimit uint32
 }
 
 func (sc *ServerConfig) LoadFromFile(file string) error {
@@ -110,6 +111,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.Port = ysc.Port
     sc.MerkleDepth = ysc.MerkleDepth
     sc.SyncPushBroadcastLimit = ysc.SyncPushBroadcastLimit
+    sc.SyncExplorationPathLimit = ysc.SyncExplorationPathLimit
     sc.PeerAddresses = make(map[string]peerAddress)
     
     rootCAs := x509.NewCertPool()
@@ -169,7 +171,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     }
     
     sc.NodeID = clientCN
-    sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod), clientTLSConfig)
+    sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod, sc.SyncExplorationPathLimit), clientTLSConfig)
     
     return nil
 }
