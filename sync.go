@@ -127,11 +127,19 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             },
         }
     case HANDSHAKE:
-        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START || syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
-            if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
-                log.Warningf("Initiator Session %d: responder protocol version is at %d which is unsupported by this database peer. Aborting...", syncSession.sessionID, syncMessageWrapper.MessageBody.(Start).ProtocolVersion)
+        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
+            syncSession.currentState = END
+            
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: &Abort{ },
             }
+        }
 
+        if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
+            log.Warningf("Initiator Session %d: responder protocol version is at %d which is unsupported by this database peer. Aborting...", syncSession.sessionID, syncMessageWrapper.MessageBody.(Start).ProtocolVersion)
+            
             syncSession.currentState = END
             
             return &SyncMessageWrapper{
@@ -390,10 +398,18 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             syncSession.sessionID = syncMessageWrapper.SessionID
         }
         
-        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START || syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
-            if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
-                log.Warningf("Responder Session %d: responder protocol version is at %d which is unsupported by this database peer. Aborting...", syncSession.sessionID, syncMessageWrapper.MessageBody.(Start).ProtocolVersion)
+        if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
+            syncSession.currentState = END
+        
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
             }
+        }
+
+        if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
+            log.Warningf("Responder Session %d: responder protocol version is at %d which is unsupported by this database peer. Aborting...", syncSession.sessionID, syncMessageWrapper.MessageBody.(Start).ProtocolVersion)
             
             syncSession.currentState = END
         
@@ -402,6 +418,7 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
         }
     
         syncSession.theirDepth = syncMessageWrapper.MessageBody.(Start).MerkleDepth
