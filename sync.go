@@ -293,6 +293,8 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             syncSession.PopExplorationQueue()
 
             if syncSession.ExplorationQueueSize() == 0 {
+                syncSession.currentState = END
+
                 return &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
@@ -518,6 +520,10 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
         }
 
         if syncSession.currentIterationNode != syncMessageWrapper.MessageBody.(ObjectNext).NodeID {
+            if syncSession.iter != nil {
+                syncSession.iter.Release()
+            }
+
             syncSession.currentIterationNode = syncMessageWrapper.MessageBody.(ObjectNext).NodeID
             iter, err := syncSession.bucket.Node.GetSyncChildren(syncSession.currentIterationNode)
 

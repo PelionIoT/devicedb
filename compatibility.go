@@ -144,7 +144,7 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
         }
         
         node := bucketList.Get(newBucketName).Node
-        siblingSet, err := DecodeLegacySiblingSet(value)
+        siblingSet, err := DecodeLegacySiblingSet(value, legacyBucketName == "lww")
         
         if err != nil {
             log.Warningf("Unable to decode object at %s (%s): %v", key, string(value), err)
@@ -173,7 +173,7 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
     return nil
 }
 
-func DecodeLegacySiblingSet(data []byte) (*SiblingSet, error) {
+func DecodeLegacySiblingSet(data []byte, lww bool) (*SiblingSet, error) {
     var lss legacySiblingSet
     
     err := json.Unmarshal(data, &lss)
@@ -182,16 +182,16 @@ func DecodeLegacySiblingSet(data []byte) (*SiblingSet, error) {
         return nil, err
     }
     
-    return lss.ToSiblingSet(), nil
+    return lss.ToSiblingSet(lww), nil
 }
 
 type legacySiblingSet []legacySibling
 
-func (lss *legacySiblingSet) ToSiblingSet() *SiblingSet {
+func (lss *legacySiblingSet) ToSiblingSet(lww bool) *SiblingSet {
     var siblings map[*Sibling]bool = make(map[*Sibling]bool, len(*lss))
     
     for _, ls := range *lss {
-        siblings[ls.ToSibling()] = true
+        siblings[ls.ToSibling(lww)] = true
     }
     
     return NewSiblingSet(siblings)
@@ -203,11 +203,30 @@ type legacySibling struct {
     CreationTime uint64 `json:"creationTime"`
 }
 
-func (ls *legacySibling) ToSibling() *Sibling {
+type legacyLWWValue struct {
+    Value *string `json:"value"`
+    Timestamp *uint64 `json:"timestamp"`
+}
+
+func (ls *legacySibling) ToSibling(lww bool) *Sibling {
     var value []byte
     
     if ls.Value != nil {
+        var lwwValue legacyLWWValue
+        
         value = []byte(*ls.Value)
+
+        if lww {
+            err := json.Unmarshal(value, &lwwValue)
+            
+            if err == nil && lwwValue.Timestamp != nil {
+                value = nil
+
+                if lwwValue.Value != nil {
+                    value = []byte(*lwwValue.Value)
+                }
+            }
+        }
     }
     
     return NewSibling(ls.Clock.ToDVV(), value, ls.CreationTime)

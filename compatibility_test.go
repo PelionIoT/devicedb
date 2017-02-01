@@ -65,7 +65,7 @@ var _ = Describe("Compatibility", func() {
                 sibling1: true,
             })
         
-            ss, err := DecodeLegacySiblingSet([]byte(legacySiblingSetJSON))
+            ss, err := DecodeLegacySiblingSet([]byte(legacySiblingSetJSON), false)
             
             Expect(err).Should(BeNil())
             Expect(ss.Size()).Should(Equal(expectedDecodedSet.Size()))
@@ -74,5 +74,60 @@ var _ = Describe("Compatibility", func() {
                 Expect(sibling).Should(Equal(sibling1))
             }
         })
+
+        It("should turn a lww legacy json representation of a sibling set into a SiblingSet object whose value is the parsed value of the legacy value", func() {
+            legacySiblingSetJSON := `[{"value":"{\"timestamp\":1485981777112,\"value\":\"hello\"}","clock":{"dot":["00000000000000000000000000000000",2],"context":[["00000000000000000000000000000000",1]]},"creationTime":1469218230589}]`
+            sibling1 := NewSibling(NewDVV(NewDot("00000000000000000000000000000000", 2), map[string]uint64{ "00000000000000000000000000000000": 1 }), []byte("hello"), 1469218230589)
+            
+            expectedDecodedSet := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+            })
+        
+            ss, err := DecodeLegacySiblingSet([]byte(legacySiblingSetJSON), true)
+            
+            Expect(err).Should(BeNil())
+            Expect(ss.Size()).Should(Equal(expectedDecodedSet.Size()))
+            
+            for sibling := range ss.Iter() {
+                Expect(sibling).Should(Equal(sibling1))
+            }
+        })
+
+        It("should turn a lww legacy json representation of a sibling set into a SiblingSet object and not parse the value if the format is not correct", func() {
+            legacySiblingSetJSON := `[{"value":"{\"time\":1485981777112,\"value\":\"hello\"}","clock":{"dot":["00000000000000000000000000000000",2],"context":[["00000000000000000000000000000000",1]]},"creationTime":1469218230589}]`
+            sibling1 := NewSibling(NewDVV(NewDot("00000000000000000000000000000000", 2), map[string]uint64{ "00000000000000000000000000000000": 1 }), []byte("{\"time\":1485981777112,\"value\":\"hello\"}"), 1469218230589)
+            
+            expectedDecodedSet := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+            })
+        
+            ss, err := DecodeLegacySiblingSet([]byte(legacySiblingSetJSON), true)
+            
+            Expect(err).Should(BeNil())
+            Expect(ss.Size()).Should(Equal(expectedDecodedSet.Size()))
+            
+            for sibling := range ss.Iter() {
+                Expect(sibling).Should(Equal(sibling1))
+            }
+        })
+        
+        It("should turn a lww legacy json representation of a sibling set into a SiblingSet object and not parse the value if the format is not correct", func() {
+            legacySiblingSetJSON := `[{"value":"hello","clock":{"dot":["00000000000000000000000000000000",2],"context":[["00000000000000000000000000000000",1]]},"creationTime":1469218230589}]`
+            sibling1 := NewSibling(NewDVV(NewDot("00000000000000000000000000000000", 2), map[string]uint64{ "00000000000000000000000000000000": 1 }), []byte("hello"), 1469218230589)
+            
+            expectedDecodedSet := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+            })
+        
+            ss, err := DecodeLegacySiblingSet([]byte(legacySiblingSetJSON), true)
+            
+            Expect(err).Should(BeNil())
+            Expect(ss.Size()).Should(Equal(expectedDecodedSet.Size()))
+            
+            for sibling := range ss.Iter() {
+                Expect(sibling).Should(Equal(sibling1))
+            }
+        })
+
     })
 })
