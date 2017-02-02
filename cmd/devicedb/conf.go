@@ -28,6 +28,11 @@ syncSessionLimit: 2
 # **REQUIRED**
 syncSessionPeriod: 1000
 
+# This field adjusts the maximum number of objects that can be transferred in
+# one sync session. A higher number will result in faster convergence between
+# database replicas. This field must be positive and defaults to 1000
+syncExplorationPathLimit: 1000
+
 # In addition to background syncing, updates can also be forwarded directly
 # to neighbors when a connection is established in order to reduce the time
 # that replicas remain divergent. An update will immediately get forwarded

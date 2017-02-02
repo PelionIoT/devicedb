@@ -1,7 +1,7 @@
 db: /tmp/db123
 port: 9090
 syncSessionLimit: 2
-syncSessionPeriod: 10000000
+syncSessionPeriod: 1000
 syncPushBroadcastLimit: 0
 gcInterval: 300000
 gcPurgeAge: 600000

@@ -482,6 +482,59 @@ func (node *Node) GetSyncChildren(nodeID uint32) (*MerkleChildrenIterator, error
     return NewMerkleChildrenIterator(iter, node.storageDriver), nil
 }
 
+func (node *Node) Forget(keys [][]byte) error {
+    for _, key := range keys {
+        if key == nil {
+            continue
+        }
+
+        node.lock([][]byte{ key })
+        
+        siblingSets, err := node.Get([][]byte{ key })
+        
+        if err != nil {
+            log.Errorf("Unable to forget key %s due to storage error: %v", string(key), err)
+
+            node.unlock([][]byte{ key }, false)
+
+            return EStorage
+        }
+        
+        siblingSet := siblingSets[0]
+        
+        if siblingSet == nil {
+            node.unlock([][]byte{ key }, false)
+
+            continue
+        }
+
+        // Update merkle tree to reflect deletion
+        leafID := node.merkleTree.LeafNode(key)
+        newLeafHash := node.merkleTree.NodeHash(leafID).Xor(siblingSet.Hash(key))
+        node.merkleTree.UpdateLeafHash(leafID, newLeafHash)
+
+        batch := NewBatch()
+        batch.Delete(encodePartitionMerkleLeafKey(leafID, key))
+        batch.Delete(encodePartitionDataKey(key))
+        leafHashBytes := newLeafHash.Bytes()
+        batch.Put(encodeMerkleLeafKey(leafID), leafHashBytes[:])
+    
+        err = node.storageDriver.Batch(batch)
+        
+        node.unlock([][]byte{ key }, false)
+        
+        if err != nil {
+            log.Errorf("Unable to forget key %s due to storage error: %v", string(key), err.Error())
+            
+            return EStorage
+        }
+
+        log.Debugf("Forgot key %s", string(key))
+    }
+    
+    return nil
+}
+
 func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     siblingSetMap := map[string]*SiblingSet{ }
     
@@ -532,7 +585,7 @@ func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
         leafHash := merkleTree.NodeHash(leafID).Bytes()
         batch.Put(encodeMerkleLeafKey(leafID), leafHash[:])
         
-        for key, _:= range leafNodes[leafID] {
+        for key, _ := range leafNodes[leafID] {
             batch.Put(encodePartitionMerkleLeafKey(leafID, []byte(key)), []byte{ })
         }
     }

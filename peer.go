@@ -761,9 +761,10 @@ type SyncController struct {
     nextSessionID uint
     mapMutex sync.RWMutex
     syncSessionPeriod uint64
+    explorationPathLimit uint32
 }
 
-func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSessionPeriod uint64) *SyncController {
+func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSessionPeriod uint64, explorationPathLimit uint32) *SyncController {
     syncController := &SyncController{
         buckets: bucketList,
         incoming: make(chan *SyncMessageWrapper),
@@ -776,6 +777,7 @@ func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSession
         maxSyncSessions: maxSyncSessions,
         nextSessionID: 1,
         syncSessionPeriod: syncSessionPeriod,
+        explorationPathLimit: explorationPathLimit,
     }
     
     go func() {
@@ -909,7 +911,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     newInitiatorSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
-        sessionState: NewInitiatorSyncSession(sessionID, bucket, 1000000),
+        sessionState: NewInitiatorSyncSession(sessionID, bucket, s.explorationPathLimit, bucket.ReplicationStrategy.ShouldReplicateOutgoing(peerID)),
         waitGroup: s.waitGroups[peerID],
         peerID: peerID,
         sessionID: sessionID,

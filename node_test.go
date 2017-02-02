@@ -280,6 +280,79 @@ var _ = Describe("Node", func() {
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
         })
     })
+
+    Describe("#Forget", func() {
+        It("forget should result in no trace of a key being kept in the database including removing it from the merkle tree", func() {
+            storageEngine := makeNewStorageDriver()
+            storageEngine.Open()
+            defer storageEngine.Close()
+            
+            node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+            updateBatch := NewUpdateBatch()
+            updateBatch.Put([]byte("keyA"), []byte("value123"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            updateBatch.Put([]byte("keyB"), []byte("value456"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+            
+            _, err := node.Batch(updateBatch)
+            
+            Expect(err).Should(BeNil())
+            
+            values, err := node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+    
+            Expect(err).Should(BeNil())
+            Expect(values[0].Value()).Should(Equal([]byte("value123")))
+            Expect(values[0].IsTombstoneSet()).Should(BeFalse())
+            Expect(values[1].Value()).Should(Equal([]byte("value456")))
+            Expect(values[1].IsTombstoneSet()).Should(BeFalse())
+            
+            err = node.Forget([][]byte{ []byte("keyA") })
+
+            Expect(err).Should(BeNil())
+            
+            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+    
+            Expect(err).Should(BeNil())
+            Expect(values[0]).Should(BeNil())
+            Expect(values[1].Value()).Should(Equal([]byte("value456")))
+            Expect(values[1].IsTombstoneSet()).Should(BeFalse())
+            Expect(node.MerkleTree().RootHash()).Should(Equal(values[1].Hash([]byte("keyB"))))
+
+            // test idempotence
+            err = node.Forget([][]byte{ []byte("keyA") })
+
+            Expect(err).Should(BeNil())
+            
+            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+    
+            Expect(err).Should(BeNil())
+            Expect(values[0]).Should(BeNil())
+            Expect(values[1].Value()).Should(Equal([]byte("value456")))
+            Expect(values[1].IsTombstoneSet()).Should(BeFalse())
+            Expect(node.MerkleTree().RootHash()).Should(Equal(values[1].Hash([]byte("keyB"))))
+
+            err = node.Forget([][]byte{ []byte("keyB") })
+
+            Expect(err).Should(BeNil())
+            
+            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+    
+            Expect(err).Should(BeNil())
+            Expect(values[0]).Should(BeNil())
+            Expect(values[1]).Should(BeNil())
+            Expect(node.MerkleTree().RootHash()).Should(Equal(Hash{ }))
+
+            err = node.Forget([][]byte{ []byte("keyB") })
+
+            Expect(err).Should(BeNil())
+            
+            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+    
+            Expect(err).Should(BeNil())
+            Expect(values[0]).Should(BeNil())
+            Expect(values[1]).Should(BeNil())
+            Expect(node.MerkleTree().RootHash()).Should(Equal(Hash{ }))
+
+        })
+    })
     
     Describe("#GarbageCollect", func() {
         Context("key A is a tombstone set that is older than 5 seconds", func() {    

@@ -41,9 +41,11 @@ type InitiatorSyncSession struct {
     explorationQueue []uint32
     explorationPathLimit uint32
     bucket Bucket
+    replicatesOutgoing bool
+    currentNodeKeys map[string]bool
 }
 
-func NewInitiatorSyncSession(id uint, bucket Bucket, explorationPathLimit uint32) *InitiatorSyncSession {
+func NewInitiatorSyncSession(id uint, bucket Bucket, explorationPathLimit uint32, replicatesOutgoing bool) *InitiatorSyncSession {
     return &InitiatorSyncSession{
         sessionID: id,
         currentState: START,
@@ -51,6 +53,7 @@ func NewInitiatorSyncSession(id uint, bucket Bucket, explorationPathLimit uint32
         explorationQueue: make([]uint32, 0),
         explorationPathLimit: explorationPathLimit,
         bucket: bucket,
+        replicatesOutgoing: replicatesOutgoing,
     }
 }
 
@@ -112,6 +115,47 @@ func (syncSession *InitiatorSyncSession) ExplorationPathLimit() uint32 {
     return syncSession.explorationPathLimit
 }
 
+func (syncSession *InitiatorSyncSession) getNodeKeys() error {
+    if syncSession.replicatesOutgoing {
+        return nil
+    }
+    
+    nodeKeys := make(map[string]bool)
+    iter, err := syncSession.bucket.Node.GetSyncChildren(syncSession.PeekExplorationQueue())
+    
+    if err != nil {
+        return err
+    }
+    
+    for iter.Next() {
+        nodeKeys[string(iter.Key())] = true
+    }
+
+    iter.Release()
+
+    if iter.Error() != nil {
+        return iter.Error()
+    }
+
+    syncSession.currentNodeKeys = nodeKeys
+
+    return nil
+}
+
+func (syncSession *InitiatorSyncSession) forgetNonAuthoritativeKeys() error {
+    if syncSession.replicatesOutgoing {
+        return nil
+    }
+
+    nodeKeys := make([][]byte, 0, len(syncSession.currentNodeKeys))
+
+    for key, _ := range syncSession.currentNodeKeys {
+        nodeKeys = append(nodeKeys, []byte(key))
+    }
+
+    return syncSession.bucket.Node.Forget(nodeKeys)
+}
+
 func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessageWrapper) *SyncMessageWrapper {
     switch syncSession.currentState {
     case START:
@@ -128,6 +172,18 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
         }
     case HANDSHAKE:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
+            syncSession.currentState = END
+            
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: &Abort{ },
+            }
+        }
+
+        if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
+            log.Warningf("Initiator Session %d: responder protocol version is at %d which is unsupported by this database peer. Aborting...", syncSession.sessionID, syncMessageWrapper.MessageBody.(Start).ProtocolVersion)
+            
             syncSession.currentState = END
             
             return &SyncMessageWrapper{
@@ -256,6 +312,18 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             }
         } else if syncSession.bucket.Node.MerkleTree().Level(syncSession.PeekExplorationQueue()) == syncSession.maxDepth {
             // cannot dig any deeper in any paths. need to move to DB_OBJECT_PUSH
+            err := syncSession.getNodeKeys()
+
+            if err != nil {
+                syncSession.currentState = END
+                
+                return &SyncMessageWrapper{
+                    SessionID: syncSession.sessionID,
+                    MessageType: SYNC_ABORT,
+                    MessageBody: Abort{ },
+                }
+            }
+
             syncSession.currentState = DB_OBJECT_PUSH
 
             return &SyncMessageWrapper{
@@ -292,7 +360,23 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
         if syncMessageWrapper.MessageType == SYNC_PUSH_DONE {
             syncSession.PopExplorationQueue()
 
-            if syncSession.ExplorationQueueSize() == 0 {
+            err := syncSession.forgetNonAuthoritativeKeys()
+
+            if err != nil || syncSession.ExplorationQueueSize() == 0 {
+                syncSession.currentState = END
+                
+                return &SyncMessageWrapper{
+                    SessionID: syncSession.sessionID,
+                    MessageType: SYNC_ABORT,
+                    MessageBody: Abort{ },
+                }
+            }
+
+            err = syncSession.getNodeKeys()
+
+            if err != nil {
+                syncSession.currentState = END
+                
                 return &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
@@ -311,6 +395,8 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
 
         var key string = syncMessageWrapper.MessageBody.(PushMessage).Key
         var siblingSet *SiblingSet = syncMessageWrapper.MessageBody.(PushMessage).Value
+
+        delete(syncSession.currentNodeKeys, key)
 
         err := syncSession.bucket.Node.Merge(map[string]*SiblingSet{ key: siblingSet })
         
@@ -392,6 +478,19 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+        }
+
+        if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
+            log.Warningf("Responder Session %d: responder protocol version is at %d which is unsupported by this database peer. Aborting...", syncSession.sessionID, syncMessageWrapper.MessageBody.(Start).ProtocolVersion)
+            
+            syncSession.currentState = END
+        
+            return &SyncMessageWrapper{
+                SessionID: syncSession.sessionID,
+                MessageType: SYNC_ABORT,
+                MessageBody: Abort{ },
+            }
+
         }
     
         syncSession.theirDepth = syncMessageWrapper.MessageBody.(Start).MerkleDepth
@@ -518,6 +617,10 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
         }
 
         if syncSession.currentIterationNode != syncMessageWrapper.MessageBody.(ObjectNext).NodeID {
+            if syncSession.iter != nil {
+                syncSession.iter.Release()
+            }
+
             syncSession.currentIterationNode = syncMessageWrapper.MessageBody.(ObjectNext).NodeID
             iter, err := syncSession.bucket.Node.GetSyncChildren(syncSession.currentIterationNode)
 
