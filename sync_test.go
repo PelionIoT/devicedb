@@ -56,7 +56,7 @@ var _ = Describe("Sync", func() {
                     var message *SyncMessageWrapper = nil
                     direction := 0
                     
-                    initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                    initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                     responderSyncSession := NewResponderSyncSession(server2.Buckets().Get("default"))
                     
                     initiatorStateTransitions := []int{ START, HANDSHAKE, ROOT_HASH_COMPARE }
@@ -93,7 +93,7 @@ var _ = Describe("Sync", func() {
                     var message *SyncMessageWrapper = nil
                     direction := 0
                     
-                    initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                    initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                     responderSyncSession := NewResponderSyncSession(server2.Buckets().Get("default"))
                     
                     for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
@@ -142,7 +142,7 @@ var _ = Describe("Sync", func() {
                     var message *SyncMessageWrapper = nil
                     direction := 0
                     
-                    initiatorSyncSession := NewInitiatorSyncSession(123, initiator, MERKLE_EXPLORATION_PATH_LIMIT)
+                    initiatorSyncSession := NewInitiatorSyncSession(123, initiator, MERKLE_EXPLORATION_PATH_LIMIT, true)
                     responderSyncSession := NewResponderSyncSession(responder)
                     
                     for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
@@ -239,7 +239,7 @@ var _ = Describe("Sync", func() {
                 var message *SyncMessageWrapper = nil
                 direction := 0
                 
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 responderSyncSession := NewResponderSyncSession(server2.Buckets().Get("default"))
                 
                 for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
@@ -319,7 +319,7 @@ var _ = Describe("Sync", func() {
                 var message *SyncMessageWrapper = nil
                 direction := 0
                 
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 responderSyncSession := NewResponderSyncSession(server2.Buckets().Get("default"))
                 
                 for initiatorSyncSession.State() != END || responderSyncSession.State() != END {
@@ -375,7 +375,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("START -> HANDSHAKE", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(START)
                 
@@ -390,7 +390,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("HANDSHAKE -> ROOT_HASH_COMPARE", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(HANDSHAKE)
                 
@@ -418,7 +418,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("HANDSHAKE -> END nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(HANDSHAKE)
                 
@@ -431,7 +431,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("HANDSHAKE -> END non nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(HANDSHAKE)
                 
@@ -452,7 +452,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("ROOT_HASH_COMPARE -> END nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(ROOT_HASH_COMPARE)
                 
@@ -464,7 +464,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("ROOT_HASH_COMPARE -> END non nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(ROOT_HASH_COMPARE)
                 
@@ -484,7 +484,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("ROOT_HASH_COMPARE -> END root hashes match", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(ROOT_HASH_COMPARE)
                 
@@ -507,7 +507,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("ROOT_HASH_COMPARE -> LEFT_HASH_COMPARE", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(ROOT_HASH_COMPARE)
                 initiatorSyncSession.PushExplorationQueue(server1.Buckets().Get("default").Node.MerkleTree().RootNode())
@@ -537,7 +537,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("ROOT_HASH_COMPARE -> DB_OBJECT_PUSH", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(ROOT_HASH_COMPARE)
                 initiatorSyncSession.PushExplorationQueue(server1.Buckets().Get("default").Node.MerkleTree().RootNode())
@@ -563,7 +563,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("LEFT_HASH_COMPARE -> END nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(LEFT_HASH_COMPARE)
                 
@@ -575,7 +575,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("LEFT_HASH_COMPARE -> END non nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(LEFT_HASH_COMPARE)
                 
@@ -595,7 +595,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("LEFT_HASH_COMPARE -> RIGHT_HASH_COMPARE add left hash to queue", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -626,7 +626,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("LEFT_HASH_COMPARE -> RIGHT_HASH_COMPARE ignore left hash", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -657,7 +657,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("RIGHT_HASH_COMPARE -> END nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(RIGHT_HASH_COMPARE)
                 
@@ -669,7 +669,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("RIGHT_HASH_COMPARE -> END non nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(RIGHT_HASH_COMPARE)
                 
@@ -689,7 +689,7 @@ var _ = Describe("Sync", func() {
             })
 
             It("RIGHT_HASH_COMPARE -> END empty exploration queue", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeRightChild := server1.Buckets().Get("default").Node.MerkleTree().RightChild(rootNode)
@@ -714,7 +714,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("RIGHT_HASH_COMPARE -> LEFT_HASH_COMPARE add right hash to queue", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -747,7 +747,7 @@ var _ = Describe("Sync", func() {
             })
 
             It("RIGHT_HASH_COMPARE -> LEFT_HASH_COMPARE ignore right hash", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -779,7 +779,7 @@ var _ = Describe("Sync", func() {
             })
 
             It("RIGHT_HASH_COMPARE -> LEFT_HASH_COMPARE ignore right hash because limit hit", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), 1)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), 1, true)
                 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -811,7 +811,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("RIGHT_HASH_COMPARE -> DB_OBJECT_PUSH", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -844,7 +844,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("DB_OBJECT_PUSH -> END nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(DB_OBJECT_PUSH)
                 
@@ -857,7 +857,7 @@ var _ = Describe("Sync", func() {
             })
             
             It("DB_OBJECT_PUSH -> END non nil message", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
                 
                 initiatorSyncSession.SetState(DB_OBJECT_PUSH)
                 
@@ -874,7 +874,7 @@ var _ = Describe("Sync", func() {
             })
 
             It("DB_OBJECT_PUSH -> DB_OBJECT_PUSH with SYNC_PUSH_DONE", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)
@@ -901,7 +901,7 @@ var _ = Describe("Sync", func() {
 
             
             It("DB_OBJECT_PUSH -> DB_OBJECT_PUSH with SYNC_OBJECT_NEXT", func() {
-                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT)
+                initiatorSyncSession := NewInitiatorSyncSession(123, server1.Buckets().Get("default"), MERKLE_EXPLORATION_PATH_LIMIT, true)
 
                 rootNode := server1.Buckets().Get("default").Node.MerkleTree().RootNode()
                 rootNodeLeftChild := server1.Buckets().Get("default").Node.MerkleTree().LeftChild(rootNode)

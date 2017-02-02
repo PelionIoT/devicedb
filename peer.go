@@ -911,7 +911,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     newInitiatorSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
-        sessionState: NewInitiatorSyncSession(sessionID, bucket, s.explorationPathLimit),
+        sessionState: NewInitiatorSyncSession(sessionID, bucket, s.explorationPathLimit, bucket.ReplicationStrategy.ShouldReplicateOutgoing(peerID)),
         waitGroup: s.waitGroups[peerID],
         peerID: peerID,
         sessionID: sessionID,
