@@ -1007,7 +1007,12 @@ func (server *Server) Start() error {
     server.listener = listener
 
     log.Infof("Node %s listening on port %d", server.id, server.port)
-    return server.httpServer.Serve(server.listener)
+
+    err = server.httpServer.Serve(server.listener)
+
+    log.Errorf("Node %s server shutting down. Reason: %v", server.id, err)
+
+    return err
 }
 
 func (server *Server) Stop() error {
