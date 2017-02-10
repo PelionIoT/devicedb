@@ -9,6 +9,7 @@ import (
     "github.com/syndtr/goleveldb/leveldb/opt"
     "github.com/syndtr/goleveldb/leveldb/iterator"
     "github.com/syndtr/goleveldb/leveldb/util"
+    levelErrors "github.com/syndtr/goleveldb/leveldb/errors"
 )
 
 const (
@@ -125,6 +126,10 @@ func (psd *PrefixedStorageDriver) Close() error {
     return psd.storageDriver.Close()
 }
 
+func (psd *PrefixedStorageDriver) Recover() error {
+    return psd.storageDriver.Recover()
+}
+
 func (psd *PrefixedStorageDriver) addPrefix(k []byte) []byte {
     result := make([]byte, 0, len(psd.prefix) + len(k))
         
@@ -233,6 +238,7 @@ func (prefixedIterator *PrefixedIterator) Error() error {
 type StorageDriver interface {
     Open() error
     Close() error
+    Recover() error
     Get([][]byte) ([][]byte, error)
     GetMatches([][]byte) (StorageIterator, error)
     GetRange([]byte, []byte) (StorageIterator, error)
@@ -352,6 +358,12 @@ func (levelDriver *LevelDBStorageDriver) Open() error {
     db, err := leveldb.OpenFile(levelDriver.file, levelDriver.options)
     
     if err != nil {
+        if levelErrors.IsCorrupted(err) {
+            log.Criticalf("LevelDB database is corrupted: %v", err.Error())
+
+            return ECorrupted
+        }
+
         return err
     }
     
@@ -368,8 +380,22 @@ func (levelDriver *LevelDBStorageDriver) Close() error {
     err := levelDriver.db.Close()
 
     levelDriver.db = nil
-    
+
     return err
+}
+
+func (levelDriver *LevelDBStorageDriver) Recover() error {
+    levelDriver.Close()
+
+    db, err := leveldb.RecoverFile(levelDriver.file, levelDriver.options)
+
+    if err != nil {
+        return err
+    }
+
+    levelDriver.db = db
+
+    return nil
 }
 
 func (levelDriver *LevelDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {

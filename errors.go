@@ -28,6 +28,7 @@ const (
     eLENGTH = iota
     eNO_VNODE = iota
     eSTORAGE = iota
+    eCORRUPTED = iota
     eINVALID_KEY = iota
     eINVALID_BUCKET = iota
     eINVALID_BATCH = iota
@@ -45,6 +46,7 @@ var (
     ELength                = DBerror{ "Parameter is too long", eLENGTH }
     ENoVNode               = DBerror{ "This node does not contain keys in this partition", eNO_VNODE }
     EStorage               = DBerror{ "The storage driver experienced an error", eSTORAGE }
+    ECorrupted             = DBerror{ "The storage medium is corrupted", eCORRUPTED }
     EInvalidKey            = DBerror{ "A key was misformatted", eINVALID_KEY }
     EInvalidBucket         = DBerror{ "An invalid bucket was specified", eINVALID_BUCKET }
     EInvalidBatch          = DBerror{ "An invalid batch was specified", eINVALID_BATCH }

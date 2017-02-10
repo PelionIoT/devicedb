@@ -17,6 +17,14 @@ import (
     "github.com/gorilla/websocket"
 )
 
+const (
+    defaultNodePrefix = iota
+    cloudNodePrefix = iota
+    lwwNodePrefix = iota
+    localNodePrefix = iota
+    historianPrefix = iota
+)
+
 type Shared struct {
 }
 
@@ -189,6 +197,7 @@ type Server struct {
     syncPushBroadcastLimit uint64
     garbageCollector *GarbageCollector
     historian *Historian
+    merkleDepth uint8
 }
 
 func NewServer(serverConfig ServerConfig) (*Server, error) {
@@ -207,21 +216,36 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     storageDriver := NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     nodeID := serverConfig.NodeID
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil, nil }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil, nil, serverConfig.MerkleDepth }
     err := server.storageDriver.Open()
     
     if err != nil {
-        log.Errorf("Error creating server: %v", err)
-        return nil, err
+        if err != ECorrupted {
+            log.Errorf("Error creating server: %v", err.Error())
+            
+            return nil, err
+        }
+
+        log.Error("Database is corrupted. Attempting automatic recovery now...")
+
+        recoverError := server.recover()
+
+        if recoverError != nil {
+            log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
+            log.Critical("Database daemon will now exit")
+
+            return nil, EStorage
+        }
+
+        log.Info("Database recovery successful!")
     }
     
+    defaultNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ defaultNodePrefix }, storageDriver), serverConfig.MerkleDepth, nil)
+    cloudNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ cloudNodePrefix }, storageDriver), serverConfig.MerkleDepth, nil) 
+    lwwNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ lwwNodePrefix }, storageDriver), serverConfig.MerkleDepth, LastWriterWins)
+    localNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ localNodePrefix }, storageDriver), MerkleMinDepth, nil)
     
-    defaultNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 0 }, storageDriver), serverConfig.MerkleDepth, nil)
-    cloudNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 1 }, storageDriver), serverConfig.MerkleDepth, nil) 
-    lwwNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 2 }, storageDriver), serverConfig.MerkleDepth, LastWriterWins)
-    localNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ 3 }, storageDriver), MerkleMinDepth, nil)
-    
-    server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ 4 }, storageDriver), serverConfig.HistoryEventLimit)
+    server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ historianPrefix }, storageDriver), serverConfig.HistoryEventLimit)
     
     server.bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
@@ -270,6 +294,39 @@ func (server *Server) StartGC() {
 
 func (server *Server) StopGC() {
     server.garbageCollector.Stop()
+}
+
+func (server *Server) recover() error {
+    recoverError := server.storageDriver.Recover()
+
+    if recoverError != nil {
+        log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
+
+        return EStorage
+    }
+
+    log.Infof("Rebuilding merkle trees...")
+
+    for i := 0; i < localNodePrefix; i += 1 {
+        tempNode, _ := NewNode("temp", NewPrefixedStorageDriver([]byte{ byte(i) }, server.storageDriver), server.merkleDepth, nil)
+        rebuildError := tempNode.RebuildMerkleLeafs()
+
+        if rebuildError != nil {
+            log.Errorf("Unable to rebuild merkle tree for node %d. Reason: %v", i, rebuildError.Error())
+
+            return rebuildError
+        }
+
+        recordError := tempNode.recordNodeMetadata()
+
+        if recordError != nil {
+            log.Errorf("Unable to rebuild node metadata for node %d. Reason: %v", i, recordError.Error())
+
+            return recordError
+        }
+    }
+
+    return nil
 }
 
 func (server *Server) Start() error {
@@ -999,9 +1056,22 @@ func (server *Server) Start() error {
     err = server.storageDriver.Open()
     
     if err != nil {
-        log.Errorf("Error opening storage driver: %v", err)
-        
-        return EStorage
+        if err != ECorrupted {
+            log.Errorf("Error opening storage driver: %v", err.Error())
+            
+            return EStorage
+        }
+
+        log.Error("Database is corrupted. Attempting automatic recovery now...")
+
+        recoverError := server.recover()
+
+        if recoverError != nil {
+            log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
+            log.Critical("Database daemon will now exit")
+
+            return EStorage
+        }
     }
     
     server.listener = listener
