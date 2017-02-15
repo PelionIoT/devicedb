@@ -354,6 +354,7 @@ func (server *Server) Start() error {
     }).Methods("GET")
     
     r.HandleFunc("/{bucket}/values", func(w http.ResponseWriter, r *http.Request) {
+        startTime := time.Now()
         bucket := mux.Vars(r)["bucket"]
         
         if !server.bucketList.HasBucket(bucket) {
@@ -407,7 +408,7 @@ func (server *Server) Start() error {
             
             byteKeys = append(byteKeys, []byte(k))
         }
-        
+
         siblingSets, err := server.bucketList.Get(bucket).Node.Get(byteKeys)
         
         if err != nil {
@@ -450,9 +451,12 @@ func (server *Server) Start() error {
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, string(siblingSetsJSON))
+
+        log.Debugf("Get from bucket %s: %v took %s", bucket, keys, time.Since(startTime))
     }).Methods("POST")
     
     r.HandleFunc("/{bucket}/matches", func(w http.ResponseWriter, r *http.Request) {
+        startTime := time.Now()
         bucket := mux.Vars(r)["bucket"]
         
         if !server.bucketList.HasBucket(bucket) {
@@ -557,6 +561,8 @@ func (server *Server) Start() error {
                 return
             }
         }
+
+        log.Debugf("Get matches from bucket %s: %v took %s", bucket, keys, time.Since(startTime))
     }).Methods("POST")
     
     r.HandleFunc("/events/{sourceID}/{type}", func(w http.ResponseWriter, r *http.Request) {
@@ -887,6 +893,7 @@ func (server *Server) Start() error {
     }).Methods("DELETE")
     
     r.HandleFunc("/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
+        startTime := time.Now()
         bucket := mux.Vars(r)["bucket"]
         
         if !server.bucketList.HasBucket(bucket) {
@@ -957,6 +964,8 @@ func (server *Server) Start() error {
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, "\n")
+
+        log.Debugf("Batch update to bucket %s took %s", bucket, time.Since(startTime))
     }).Methods("POST")
     
     r.HandleFunc("/peers", func(w http.ResponseWriter, r *http.Request) {
