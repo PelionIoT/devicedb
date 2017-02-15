@@ -15,6 +15,7 @@ import (
     "strconv"
     "github.com/gorilla/mux"
     "github.com/gorilla/websocket"
+    "net/http/pprof"
 )
 
 const (
@@ -1028,6 +1029,11 @@ func (server *Server) Start() error {
         
         server.hub.Accept(conn)
     }).Methods("GET")
+
+    r.HandleFunc("/debug/pprof/", pprof.Index)
+    r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+    r.HandleFunc("/debug/pprof/profile", pprof.Profile)
+    r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
     
     server.httpServer = &http.Server{
         Handler: r,
