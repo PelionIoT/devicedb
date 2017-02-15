@@ -1248,13 +1248,9 @@ func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, 
         if n != 0 && count == n {
             break
         }
-        
-        select {
-        case w <- msg:
-            log.Debugf("Push object at key %s to peer %s", key, peerID)
-            count += 1
-        default:
-            log.Warningf("Failed to push object at key %s to peer %s", key, peerID)
-        }
+
+        log.Debugf("Push object at key %s to peer %s", key, peerID)
+        w <- msg
+        count += 1
     }
 }
