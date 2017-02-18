@@ -678,6 +678,8 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     
     if err != nil {
         log.Errorf("Storage driver error in Batch(%v): %s", batch, err.Error())
+
+        node.merkleTree.UndoUpdate(update)
         
         return nil, EStorage
     }
@@ -735,7 +737,15 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
     }
 
     if update.Size() != 0 {
-        return node.storageDriver.Batch(node.batch(update, merkleTree))
+        err := node.storageDriver.Batch(node.batch(update, merkleTree))
+
+        if err != nil {
+            log.Errorf("Storage driver error in Merge(%v): %s", siblingSets, err.Error())
+
+            node.merkleTree.UndoUpdate(update)
+
+            return EStorage
+        }
     }
     
     return nil

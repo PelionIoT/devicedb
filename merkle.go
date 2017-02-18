@@ -193,6 +193,72 @@ func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[
     return modifiedNodes, objectHashes
 }
 
+func (tree *MerkleTree) UndoUpdate(update *Update) {
+    tree.updateLock.Lock()
+    
+    defer tree.updateLock.Unlock()
+    
+    nodeQueue := NewQueue(uint32(update.Size()))
+    
+    // should return a set of changes that should be persisted
+    for diff := range update.Iter() {
+        key := diff.Key()
+        keyHash := NewHash([]byte(key))
+        newObjectHash := diff.NewSiblingSet().Hash([]byte(key))
+        oldObjectHash := diff.OldSiblingSet().Hash([]byte(key))
+        leaf := LeafNode(&keyHash, tree.depth)
+        
+        nodeQueue.Enqueue(leaf)
+        
+        tree.nodes[leaf] = tree.nodes[leaf].Xor(oldObjectHash).Xor(newObjectHash)
+    }
+    
+    for nodeQueue.Size() > 0 {
+        node := nodeQueue.Dequeue()
+        shift := CountTrailingZeros(node) - 1
+        left := node - (1 << shift)
+        right := node + (1 << shift)
+        
+        if node != tree.RootNode() {
+            nodeQueue.Enqueue(ParentNode(node))
+        }
+        
+        if node & 0x1 != 1 {
+            tree.nodes[node] = tree.nodes[left].Xor(tree.nodes[right])
+        }
+    }
+}
+
+func (tree *MerkleTree) PreviewUpdate(update *Update) (map[uint32]Hash, map[uint32]map[string]Hash) {
+    tree.updateLock.Lock()
+    
+    defer tree.updateLock.Unlock()
+
+    leafHashes := make(map[uint32]Hash)
+    objectHashes := make(map[uint32]map[string]Hash)
+    
+    for diff := range update.Iter() {
+        key := diff.Key()
+        keyHash := NewHash([]byte(key))
+        newObjectHash := diff.NewSiblingSet().Hash([]byte(key))
+        oldObjectHash := diff.OldSiblingSet().Hash([]byte(key))
+        leaf := LeafNode(&keyHash, tree.depth)
+        
+        if _, ok := objectHashes[leaf]; !ok {
+            objectHashes[leaf] = make(map[string]Hash)
+        }
+    
+        if _, ok := leafHashes[leaf]; !ok {
+            leafHashes[leaf] = tree.nodes[leaf]
+        }
+
+        objectHashes[leaf][key] = newObjectHash
+        leafHashes[leaf] = leafHashes[leaf].Xor(oldObjectHash).Xor(newObjectHash)
+    }
+    
+    return leafHashes, objectHashes
+}
+
 func LeafNode(keyHash *Hash, depth uint8) uint32 {
     // need to force hash value into depth bytes
     // max: 64 - 1:  63 -> normalizedHash: [0, 1]
