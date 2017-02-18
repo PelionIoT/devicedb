@@ -201,6 +201,83 @@ var _ = Describe("Merkle", func() {
             Expect(cost).Should(BeNumerically("~", 0.0, 0.009))
         })
     })
+
+    Describe("#PreviewUpdate", func() {
+        It("PreviewUpdate should report leaf hashes that are the same as what happens when update is called", func() {
+            const depth uint8 = 19
+            const objectCount int = 100
+            
+            merkleTree, _ := NewMerkleTree(depth)
+            
+            siblingSet := NewSiblingSet(map[*Sibling]bool{
+                NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v3"), 0): true,
+                NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), nil, 0): true,
+                NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v8"), 1): true,
+            })
+
+            update := NewUpdate()
+            
+            for i := 0; i < objectCount; i += 1 {
+                update.AddDiff("key"+strconv.Itoa(i), nil, siblingSet)
+            }
+            
+            leafHashes, previewObjectHashes := merkleTree.PreviewUpdate(update)
+            modifiedNodes, objectHashes := merkleTree.Update(update)
+
+            Expect(previewObjectHashes).Should(Equal(objectHashes))
+
+            for leafID, leafHash := range leafHashes {
+                _, ok := modifiedNodes[leafID]
+
+                Expect(ok).Should(BeTrue())
+                Expect(merkleTree.NodeHash(leafID)).Should(Equal(leafHash))
+            }
+        })
+    })
+    
+    Describe("#UndoUpdate", func() {
+        It("UndoUpdate should restore merkle tree state to what it was before an Update", func() {
+            const depth uint8 = 19
+            const objectCount int = 100
+            
+            merkleTree, _ := NewMerkleTree(depth)
+            
+            siblingSet := NewSiblingSet(map[*Sibling]bool{
+                NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v3"), 0): true,
+                NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), nil, 0): true,
+                NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v8"), 1): true,
+            })
+
+            update1 := NewUpdate()
+            update2 := NewUpdate()
+            update3 := NewUpdate()
+            
+            for i := 0; i < objectCount; i += 1 {
+                update1.AddDiff("key"+strconv.Itoa(i), nil, siblingSet)
+            }
+
+            for i := 0; i < objectCount; i += 1 {
+                update2.AddDiff("key"+strconv.Itoa(i), nil, siblingSet)
+            }
+            
+            for i := 0; i < objectCount; i += 1 {
+                update3.AddDiff("key"+strconv.Itoa(i), nil, siblingSet)
+            }
+
+            merkleTree.Update(update1)
+            merkleTree.Update(update2)
+            merkleTree.Update(update3)
+
+            merkleTree.UndoUpdate(update1)
+            merkleTree.UndoUpdate(update3)
+            merkleTree.UndoUpdate(update2)
+
+            for i := uint32(0); i < merkleTree.NodeLimit(); i += 1 {
+                Expect(merkleTree.NodeHash(i).High()).Should(Equal(uint64(0)))
+                Expect(merkleTree.NodeHash(i).Low()).Should(Equal(uint64(0)))
+            }
+        })
+    })
 })
 
 func BenchmarkMerkleUpdate(b *testing.B) {
