@@ -39,6 +39,7 @@ const (
     eINVALID_PEER = iota
     eREAD_BODY = iota
     eREQUEST_QUERY = iota
+    eALERT_BODY = iota
 )
 
 var (
@@ -57,4 +58,5 @@ var (
     EInvalidPeer           = DBerror{ "The specified peer is invalid", eINVALID_PEER }
     EReadBody              = DBerror{ "Unable to read request body", eREAD_BODY }
     ERequestQuery          = DBerror{ "Invalid query parameter format", eREQUEST_QUERY }
+    EAlertBody             = DBerror{ "Invalid alert body. Body must be true or false", eALERT_BODY }
 )

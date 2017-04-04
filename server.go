@@ -24,6 +24,7 @@ const (
     lwwNodePrefix = iota
     localNodePrefix = iota
     historianPrefix = iota
+    alertsLogPrefix = iota
 )
 
 type Shared struct {
@@ -198,6 +199,7 @@ type Server struct {
     syncPushBroadcastLimit uint64
     garbageCollector *GarbageCollector
     historian *Historian
+    alertsLog *Historian
     merkleDepth uint8
 }
 
@@ -217,7 +219,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     storageDriver := NewLevelDBStorageDriver(serverConfig.DBFile, nil)
     nodeID := serverConfig.NodeID
-    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil, nil, serverConfig.MerkleDepth }
+    server := &Server{ NewBucketList(), nil, nil, storageDriver, serverConfig.Port, upgrader, serverConfig.Hub, serverConfig.ServerTLS, nodeID, serverConfig.SyncPushBroadcastLimit, nil, nil, nil, serverConfig.MerkleDepth }
     err := server.storageDriver.Open()
     
     if err != nil {
@@ -247,6 +249,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     localNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ localNodePrefix }, storageDriver), MerkleMinDepth, nil)
     
     server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ historianPrefix }, storageDriver), serverConfig.HistoryEventLimit)
+    server.alertsLog = NewHistorian(NewPrefixedStorageDriver([]byte{ alertsLogPrefix }, storageDriver), serverConfig.HistoryEventLimit)
     
     server.bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
     server.bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
@@ -257,6 +260,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     if server.hub != nil && server.hub.syncController != nil {
         server.hub.historian = server.historian
+        server.hub.alertsLog = server.alertsLog
         server.hub.purgeOnForward = serverConfig.HistoryPurgeOnForward
     }
     
@@ -287,6 +291,10 @@ func (server *Server) Buckets() *BucketList {
 
 func (server *Server) History() *Historian {
     return server.historian
+}
+
+func (server *Server) AlertsLog() *Historian {
+    return server.alertsLog
 }
 
 func (server *Server) StartGC() {
@@ -566,6 +574,14 @@ func (server *Server) Start() error {
     }).Methods("POST")
     
     r.HandleFunc("/events/{sourceID}/{type}", func(w http.ResponseWriter, r *http.Request) {
+        query := r.URL.Query()
+        
+        var category string
+    
+        if categories, ok := query["category"]; ok {
+            category = categories[0]
+        }
+
         eventType := mux.Vars(r)["type"]
         sourceID := mux.Vars(r)["sourceID"]
         body, err := ioutil.ReadAll(r.Body)
@@ -601,14 +617,52 @@ func (server *Server) Start() error {
         }
         
         timestamp := nanoToMilli(uint64(time.Now().UnixNano()))
-        err = server.historian.LogEvent(&Event{
-            Timestamp: timestamp,
-            SourceID: sourceID,
-            Type: eventType,
-            Data: string(body),
-        })
-        
-        server.hub.ForwardEvents()
+
+        if category == "alerts" {
+            var alertData AlertEventData
+
+            err := json.Unmarshal(body, &alertData)
+            
+            if err != nil {
+                log.Warningf("PUT /events/{type}/{sourceID}: Unable to parse alert body")
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(EAlertBody.JSON()) + "\n")
+                
+                return
+            }
+
+            if eventType != "fatal" && eventType != "error" && eventType != "warning" {
+                log.Warningf("PUT /events/{type}/{sourceID}: Invalid alert level", eventType)
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(EAlertBody.JSON()) + "\n")
+                
+                return
+            }
+
+            alertBody, _ := json.Marshal(&alertData)
+
+            err = server.alertsLog.LogEvent(&Event{
+                Timestamp: timestamp,
+                SourceID: sourceID,
+                Type: eventType,
+                Data: string(alertBody),
+            })
+
+            server.hub.ForwardAlerts()
+        } else {
+            err = server.historian.LogEvent(&Event{
+                Timestamp: timestamp,
+                SourceID: sourceID,
+                Type: eventType,
+                Data: string(body),
+            })
+
+            server.hub.ForwardEvents()
+        }
         
         if err != nil {
             log.Warningf("POST /events/{type}/{sourceID}: Internal server error")

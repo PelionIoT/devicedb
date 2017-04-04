@@ -59,6 +59,11 @@ type Event struct {
     Serial uint64 `json:"serial"`
 }
 
+type AlertEventData struct {
+    Metadata string `json:"metadata"`
+    Status bool `json:"status"`
+}
+
 func (event *Event) indexBySerial() []byte {
     sEncoding := timestampBytes(event.Serial)
     result := make([]byte, 0, len(BY_SERIAL_NUMBER_PREFIX) + len(sEncoding))
