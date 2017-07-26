@@ -97,7 +97,6 @@ type Node struct {
     multiLock *MultiLock
     merkleLock *MultiLock
     resolveConflicts ConflictResolutionStrategy
-    enableLogging bool
 }
 
 func NewNode(id string, storageDriver StorageDriver, merkleDepth uint8, resolveConflicts ConflictResolutionStrategy) (*Node, error) {
@@ -580,12 +579,6 @@ func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
 func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
     _, leafNodes := merkleTree.Update(update)
     batch := NewBatch()
-
-    // WRITE UPDATE TO LOG
-    if node.enableLogging {
-        // need to obtain a monotonically increasing serial number
-        
-    }
 
     // WRITE PARTITION MERKLE LEAFS
     for leafID, _ := range leafNodes {
