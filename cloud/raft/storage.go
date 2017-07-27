@@ -51,6 +51,7 @@ func entryKeys(firstIndex, lastIndex uint64) [][]byte {
 
 type RaftStorage struct {
     isOpen bool
+    isEmpty bool
     storageDriver devicedb.StorageDriver
     lock sync.Mutex
     memoryStorage *raft.MemoryStorage
@@ -58,6 +59,7 @@ type RaftStorage struct {
 
 func NewRaftStorage(storageDriver devicedb.StorageDriver) *RaftStorage {
     return &RaftStorage{
+        isEmpty: true,
         storageDriver: storageDriver,
         memoryStorage: raft.NewMemoryStorage(),
     }
@@ -102,6 +104,8 @@ func (raftStorage *RaftStorage) Open() error {
         if err != nil {
             return err
         }
+
+        raftStorage.isEmpty = false
     }
 
     hardStateGetResults, err := raftStorage.storageDriver.Get([][]byte{ KeyHardState })
@@ -124,6 +128,8 @@ func (raftStorage *RaftStorage) Open() error {
         if err != nil {
             return err
         }
+
+        raftStorage.isEmpty = false
     }
 
     entriesIterator, err := raftStorage.storageDriver.GetMatches([][]byte{ KeyPrefixEntry })
@@ -163,6 +169,7 @@ func (raftStorage *RaftStorage) Open() error {
         }
 
         entries = append(entries, entry)
+        raftStorage.isEmpty = false
     }
 
     if entriesIterator.Error() != nil {
@@ -185,9 +192,14 @@ func (raftStorage *RaftStorage) Close() error {
     defer raftStorage.lock.Unlock()
 
     raftStorage.isOpen = false
+    raftStorage.isEmpty = true
     raftStorage.memoryStorage = raft.NewMemoryStorage()
 
     return raftStorage.storageDriver.Close()
+}
+
+func (raftStorage *RaftStorage) IsEmpty() bool {
+    return raftStorage.isEmpty
 }
 
 // START raft.Storage interface methods
