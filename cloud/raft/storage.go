@@ -104,7 +104,7 @@ func (raftStorage *RaftStorage) Open() error {
         if err != nil {
             return err
         }
-
+        
         raftStorage.isEmpty = false
     }
 
