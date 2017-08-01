@@ -1,11 +1,6 @@
 package cluster
 
-import (
-    "encoding/json"
-)
-
 type ClusterCommandType int
-type SynchronizedOperation int
 
 // Scenarios
 // Adding a node to a cluster
@@ -71,8 +66,12 @@ type SynchronizedOperation int
 // 
 
 const (
-    ClusterTransferToken ConfigCommandType = 0
-    ClusterTransferPartition ConfigCommandType = 1
+    ClusterUpdateNode ClusterCommandType = iota
+    ClusterAddNode ClusterCommandType = iota
+    ClusterRemoveNode ClusterCommandType = iota
+    ClusterTakePartitionReplica ClusterCommandType = iota
+    ClusterSetReplicationFactor ClusterCommandType = iota
+    ClusterSetPartitionCount ClusterCommandType = iota
 )
 
 type ClusterCommand struct {
