@@ -9,8 +9,6 @@ type ClusterStateDeltaType int
 const (
     DeltaNodeAdd ClusterStateDeltaType = iota
     DeltaNodeRemove ClusterStateDeltaType = iota
-    DeltaNodeAddress ClusterStateDeltaType = iota
-    DeltaNodeCapacity ClusterStateDeltaType = iota
     DeltaNodeLoseToken ClusterStateDeltaType = iota
     DeltaNodeGainToken ClusterStateDeltaType = iota
     DeltaNodeLosePartitionReplica ClusterStateDeltaType = iota
@@ -19,7 +17,7 @@ const (
 
 type ClusterStateDelta struct {
     Type ClusterStateDeltaType
-    Data []byte
+    Delta interface{}
 }
 
 type NodeAdd struct {
@@ -34,11 +32,6 @@ type NodeRemove struct {
 type NodeAddress struct {
     NodeID uint64
     Address ddbRaft.PeerAddress
-}
-
-type NodeCapacity struct {
-    NodeID uint64
-    Capacity uint64
 }
 
 type NodeGainToken struct {

@@ -263,5 +263,44 @@ var _ = Describe("Partitioner", func() {
             Expect(AssignmentIsValid(nodes, partitions, newAssignment)).Should(BeTrue())
             Expect(err).Should(BeNil())
         })
+        
+        It("should not change a valid assignment if nothing has changed", func() {
+            ps := &SimplePartitioningStrategy{ }
+            var partitions uint64 = 256
+
+            nodes := make([]NodeConfig, partitions / 2)
+            currentAssignment := make([]uint64, partitions)
+
+            for i, _ := range nodes {
+                nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+            }
+
+            assignment, err := ps.AssignTokens(nodes, currentAssignment, partitions)
+
+            Expect(AssignmentIsValid(nodes, partitions, assignment)).Should(BeTrue())
+            Expect(err).Should(BeNil())
+
+            for i, node := range nodes {
+                tokens := make(map[uint64]bool)
+
+                for token, owner := range assignment {
+                    if owner == nodes[i].Address.NodeID {
+                        tokens[uint64(token)] = true
+                    }
+                }
+
+                nodes[i] = NodeConfig{
+                    Capacity: 1,
+                    Tokens: tokens,
+                    Address: node.Address,
+                }
+            }
+
+            newAssignment, err := ps.AssignTokens(nodes, assignment, partitions)
+
+            Expect(AssignmentIsValid(nodes, partitions, newAssignment)).Should(BeTrue())
+            Expect(newAssignment).Should(Equal(assignment))
+            Expect(err).Should(BeNil())
+        })
     })
 })

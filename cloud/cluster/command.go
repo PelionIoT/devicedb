@@ -1,5 +1,9 @@
 package cluster
 
+import (
+    "encoding/json"
+)
+
 type ClusterCommandType int
 
 // Scenarios
@@ -78,6 +82,89 @@ type ClusterCommand struct {
     Type ClusterCommandType
     SubmitterID uint64
     Data []byte
+}
+
+type ClusterUpdateNodeBody struct {
+    NodeID uint64
+    NodeConfig NodeConfig
+}
+
+type ClusterAddNodeBody struct {
+    NodeID uint64
+    NodeConfig NodeConfig
+}
+
+type ClusterRemoveNodeBody struct {
+    NodeID uint64
+}
+
+type ClusterTakePartitionReplicaBody struct {
+    Partition uint64
+    Replica uint64
+    NodeID uint64
+}
+
+type ClusterSetReplicationFactorBody struct {
+    ReplicationFactor uint64
+}
+
+type ClusterSetPartitionCountBody struct {
+    Partitions uint64
+}
+
+func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interface{}, error) {
+    switch commandType {
+    case ClusterUpdateNode:
+        var body ClusterUpdateNodeBody
+
+        if err := json.Unmarshal(data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterAddNode:
+        var body ClusterAddNodeBody
+
+        if err := json.Unmarshal(data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterRemoveNode:
+        var body ClusterRemoveNodeBody
+
+        if err := json.Unmarshal(data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterTakePartitionReplica:
+        var body ClusterTakePartitionReplicaBody
+
+        if err := json.Unmarshal(data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterSetReplicationFactor:
+        var body ClusterSetReplicationFactorBody
+
+        if err := json.Unmarshal(data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterSetPartitionCount:
+        var body ClusterSetPartitionCountBody
+
+        if err := json.Unmarshal(data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    }
+
+    return nil, ECouldNotParseCommand
 }
 
 // assign tokens 
