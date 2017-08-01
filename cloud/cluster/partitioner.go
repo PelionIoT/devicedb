@@ -7,17 +7,17 @@ import (
 var EPreconditionFailed = errors.New("Unable to validate precondition")
 var ENoNodesAvailable = errors.New("Unable to assign tokens because there are no available nodes in the cluster")
 
-type ReplicationStrategy interface {
+type PartitioningStrategy interface {
     AssignTokens(nodes []NodeConfig, currentTokenAssignment []uint64, partitions uint64) ([]uint64, error)
 }
 
 // Simple replication strategy that does not account for capacity other than finding nodes
 // that are marked as having 0 capacity to account for decomissioned nodes. Other than that
 // It just tries to assign as close to an even amount of tokens to each node as possible
-type SimpleReplicationStrategy struct {
+type SimplePartitioningStrategy struct {
 }
 
-func (rs *SimpleReplicationStrategy) countAvailableNodes(nodes []NodeConfig) int {
+func (ps *SimplePartitioningStrategy) countAvailableNodes(nodes []NodeConfig) int {
     availableNodes := 0
 
     for _, node := range nodes {
@@ -31,7 +31,7 @@ func (rs *SimpleReplicationStrategy) countAvailableNodes(nodes []NodeConfig) int
     return availableNodes
 }
 
-func (rs *SimpleReplicationStrategy) countTokens(nodes []NodeConfig) []uint64 {
+func (ps *SimplePartitioningStrategy) countTokens(nodes []NodeConfig) []uint64 {
     tokens := make([]uint64, len(nodes))
 
     for i, node := range nodes {
@@ -41,14 +41,14 @@ func (rs *SimpleReplicationStrategy) countTokens(nodes []NodeConfig) []uint64 {
     return tokens
 }
 
-func (rs *SimpleReplicationStrategy) checkPreconditions(nodes []NodeConfig, currentAssignments []uint64, partitions uint64) error {
+func (ps *SimplePartitioningStrategy) checkPreconditions(nodes []NodeConfig, currentAssignments []uint64, partitions uint64) error {
     // Precondition 1: nodes must be non-nil
     if nodes == nil {
         return EPreconditionFailed
     }
 
     // Precondition 2: nodes must be sorted in order of ascending node id and all node ids are unique
-    if !rs.nodesAreSortedAndUnique(nodes) {
+    if !ps.nodesAreSortedAndUnique(nodes) {
         return EPreconditionFailed
     }
 
@@ -87,7 +87,7 @@ func (rs *SimpleReplicationStrategy) checkPreconditions(nodes []NodeConfig, curr
     return nil
 }
 
-func (rs *SimpleReplicationStrategy) nodesAreSortedAndUnique(nodes []NodeConfig) bool {
+func (ps *SimplePartitioningStrategy) nodesAreSortedAndUnique(nodes []NodeConfig) bool {
     var lastNodeID uint64 = 0
 
     for _, node := range nodes {
@@ -101,8 +101,8 @@ func (rs *SimpleReplicationStrategy) nodesAreSortedAndUnique(nodes []NodeConfig)
     return true
 }
 
-func (rs *SimpleReplicationStrategy) AssignTokens(nodes []NodeConfig, currentAssignments []uint64, partitions uint64) ([]uint64, error) {
-    if err := rs.checkPreconditions(nodes, currentAssignments, partitions); err != nil {
+func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAssignments []uint64, partitions uint64) ([]uint64, error) {
+    if err := ps.checkPreconditions(nodes, currentAssignments, partitions); err != nil {
         return nil, err
     }
 
@@ -114,8 +114,8 @@ func (rs *SimpleReplicationStrategy) AssignTokens(nodes []NodeConfig, currentAss
     }
 
     assignments := make([]uint64, partitions)
-    tokenCounts := rs.countTokens(nodes)
-    availableNodes := rs.countAvailableNodes(nodes)
+    tokenCounts := ps.countTokens(nodes)
+    availableNodes := ps.countAvailableNodes(nodes)
 
     if availableNodes == 0 {
         return nil, ENoNodesAvailable

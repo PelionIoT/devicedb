@@ -13,7 +13,7 @@ var ECouldNotParseCommand = errors.New("The cluster command data was not properl
 type ClusterController struct {
     LocalNodeID uint64
     State ClusterState
-    ReplicationStrategy ReplicationStrategy
+    PartitioningStrategy PartitioningStrategy
 }
 
 func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) error {
@@ -161,7 +161,7 @@ func (clusterController *ClusterController) assignTokens() {
         nodes = append(nodes, *nodeConfig)
     }
 
-    newTokenAssignment, _ := clusterController.ReplicationStrategy.AssignTokens(nodes, clusterController.State.Tokens, clusterController.State.ClusterSettings.Partitions)
+    newTokenAssignment, _ := clusterController.PartitioningStrategy.AssignTokens(nodes, clusterController.State.Tokens, clusterController.State.ClusterSettings.Partitions)
 
     // TODO perform diff between original token assignment and new token assignment to build deltas to place into update channel
 

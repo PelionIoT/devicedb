@@ -83,74 +83,74 @@ func AssignmentIsValid(nodes []NodeConfig, partitions uint64, assignment []uint6
 }
 
 var _ = Describe("Partitioner", func() {
-    Describe("SimpleReplicationStrategy", func() {
+    Describe("SimplePartitioningStrategy", func() {
         It("should return EPreconditionFailed if node list is nil", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens(nil, make([]uint64, 8), 8)
+            assignment, err := ps.AssignTokens(nil, make([]uint64, 8), 8)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(EPreconditionFailed))
         })
 
         It("should return ENoNodesAvailable if node list is empty", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ }, make([]uint64, 8), 8)
+            assignment, err := ps.AssignTokens([]NodeConfig{ }, make([]uint64, 8), 8)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(ENoNodesAvailable))
         })
 
         It("should return ENoNodesAvailable if node list has nodes but they all have 0 capacity", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 8), 8)
+            assignment, err := ps.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 8), 8)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(ENoNodesAvailable))
         })
 
         It("should return EPreconditionFailed if node list has nodes with duplicate IDs", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Address: PeerAddress{ NodeID: 1 } } }, make([]uint64, 8), 8)
+            assignment, err := ps.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Address: PeerAddress{ NodeID: 1 } } }, make([]uint64, 8), 8)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(EPreconditionFailed))
         })
 
         It("should return EPreconditionFailed if node list is not sorted in order of increasing node ID", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 2 } }, NodeConfig{ Address: PeerAddress{ NodeID: 1 } } }, make([]uint64, 8), 8)
+            assignment, err := ps.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 2 } }, NodeConfig{ Address: PeerAddress{ NodeID: 1 } } }, make([]uint64, 8), 8)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(EPreconditionFailed))
         })
 
         It("should return EPreconditionFailed if the length of the currentAssignments array is not equal to the number of partitions", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 7), 8)
+            assignment, err := ps.AssignTokens([]NodeConfig{ NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 7), 8)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(EPreconditionFailed))
         })
 
         It("should return EPreconditionFailed if the number of partitions is set to 0", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 0), 0)
+            assignment, err := ps.AssignTokens([]NodeConfig{ NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 0), 0)
 
             Expect(assignment).Should(BeNil())
             Expect(err).Should(Equal(EPreconditionFailed))
         })
 
         It("should return EPreconditionFailed if there is a non-zero node ID contained in the currentAssignments array that does not match up with a node contained in the nodes list", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
 
-            assignment, err := rs.AssignTokens([]NodeConfig{ 
+            assignment, err := ps.AssignTokens([]NodeConfig{ 
                 NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } }, 
                 NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 2 } },
             }, []uint64{ 0, 0, 6, 0, 0, 0, 0, 0 }, 8)
@@ -160,7 +160,7 @@ var _ = Describe("Partitioner", func() {
         })
 
         It("should return a valid assignment utilizing all the nodes if the number of nodes <= the number of partitions when starting from all unassigned nodes", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
             var partitions uint64 = 256
 
             for numNodes := 1; uint64(numNodes) <= partitions; numNodes++ {
@@ -171,7 +171,7 @@ var _ = Describe("Partitioner", func() {
                     nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
                 }
 
-                assignment, err := rs.AssignTokens(nodes, currentAssignment, partitions)
+                assignment, err := ps.AssignTokens(nodes, currentAssignment, partitions)
 
                 Expect(AssignmentIsValid(nodes, partitions, assignment)).Should(BeTrue())
                 Expect(err).Should(BeNil())
@@ -179,7 +179,7 @@ var _ = Describe("Partitioner", func() {
         })
 
         It("should return a valid assignment after a node is added", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
             var partitions uint64 = 256
 
             nodes := make([]NodeConfig, partitions / 2)
@@ -189,7 +189,7 @@ var _ = Describe("Partitioner", func() {
                 nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
             }
 
-            assignment, err := rs.AssignTokens(nodes, currentAssignment, partitions)
+            assignment, err := ps.AssignTokens(nodes, currentAssignment, partitions)
 
             Expect(AssignmentIsValid(nodes, partitions, assignment)).Should(BeTrue())
             Expect(err).Should(BeNil())
@@ -214,14 +214,14 @@ var _ = Describe("Partitioner", func() {
             nodes = append(nodes, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: (partitions / 2) + 2 } })
             nodes = append(nodes, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: (partitions / 2) + 3 } })
 
-            newAssignment, err := rs.AssignTokens(nodes, assignment, partitions)
+            newAssignment, err := ps.AssignTokens(nodes, assignment, partitions)
 
             Expect(AssignmentIsValid(nodes, partitions, newAssignment)).Should(BeTrue())
             Expect(err).Should(BeNil())
         })
 
         It("should return a valid assignment after a node is removed", func() {
-            rs := &SimpleReplicationStrategy{ }
+            ps := &SimplePartitioningStrategy{ }
             var partitions uint64 = 256
 
             nodes := make([]NodeConfig, partitions / 2)
@@ -231,7 +231,7 @@ var _ = Describe("Partitioner", func() {
                 nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
             }
 
-            assignment, err := rs.AssignTokens(nodes, currentAssignment, partitions)
+            assignment, err := ps.AssignTokens(nodes, currentAssignment, partitions)
 
             Expect(AssignmentIsValid(nodes, partitions, assignment)).Should(BeTrue())
             Expect(err).Should(BeNil())
@@ -258,7 +258,7 @@ var _ = Describe("Partitioner", func() {
 
             nodes = nodes[1:]
 
-            newAssignment, err := rs.AssignTokens(nodes, assignment, partitions)
+            newAssignment, err := ps.AssignTokens(nodes, assignment, partitions)
 
             Expect(AssignmentIsValid(nodes, partitions, newAssignment)).Should(BeTrue())
             Expect(err).Should(BeNil())
