@@ -179,8 +179,6 @@ func (clusterController *ClusterController) SetPartitionCount(clusterCommand Clu
 
     clusterController.State.ClusterSettings.Partitions = clusterCommand.Partitions
     clusterController.initializeClusterIfReady()
-
-    return
 }
 
 func (clusterController *ClusterController) initializeClusterIfReady() {

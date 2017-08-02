@@ -514,12 +514,250 @@ var _ = Describe("Controller", func() {
         })
 
         Describe("#TakePartitionReplica", func() {
+            It("should assign a partition replica to a node if they are all valid", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    Tokens: map[uint64]bool{ 2: true, 3: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{ 
+                        1: &node1,
+                        2: &node2,
+                    },
+                    Partitions: [][]*PartitionReplica {
+                        []*PartitionReplica{ },
+                        []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
+                    },
+                    Tokens: []uint64{ 1, 1, 2, 2 },
+                }
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: clusterState,
+                }
+
+                // moves partition 1 replica 0 from node 1 to node 2
+                clusterCommand := ClusterTakePartitionReplicaBody{
+                    Partition: 1,
+                    Replica: 0,
+                    NodeID: 2,
+                }
+
+                clusterController.TakePartitionReplica(clusterCommand)
+                Expect(clusterController.State.Nodes[1].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ }))
+                Expect(clusterController.State.Nodes[2].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ 1: { 0: true } }))
+            })
+
+            It("should provide a notification that the local node has lost a partition replica if another node takes it", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    Tokens: map[uint64]bool{ 2: true, 3: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{ 
+                        1: &node1,
+                        2: &node2,
+                    },
+                    Partitions: [][]*PartitionReplica {
+                        []*PartitionReplica{ },
+                        []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
+                    },
+                    Tokens: []uint64{ 1, 1, 2, 2 },
+                }
+                localUpdates := make(chan ClusterStateDelta, 1) // make this a buffered node so the call to RemoveNode() doesn't block
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: clusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                // moves partition 1 replica 0 from node 1 to node 2
+                clusterCommand := ClusterTakePartitionReplicaBody{
+                    Partition: 1,
+                    Replica: 0,
+                    NodeID: 2,
+                }
+
+                clusterController.TakePartitionReplica(clusterCommand)
+                Expect(clusterController.State.Nodes[1].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ }))
+                Expect(clusterController.State.Nodes[2].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ 1: { 0: true } }))
+                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
+            })
+
+            It("should provide a notification that the local node has gained a partition replica if it is the one taking it", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    Tokens: map[uint64]bool{ 2: true, 3: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{ 
+                        1: &node1,
+                        2: &node2,
+                    },
+                    Partitions: [][]*PartitionReplica {
+                        []*PartitionReplica{ },
+                        []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
+                    },
+                    Tokens: []uint64{ 1, 1, 2, 2 },
+                }
+                localUpdates := make(chan ClusterStateDelta, 1) // make this a buffered node so the call to RemoveNode() doesn't block
+                clusterController := &ClusterController{
+                    LocalNodeID: 2,
+                    State: clusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                // moves partition 1 replica 0 from node 1 to node 2
+                clusterCommand := ClusterTakePartitionReplicaBody{
+                    Partition: 1,
+                    Replica: 0,
+                    NodeID: 2,
+                }
+
+                clusterController.TakePartitionReplica(clusterCommand)
+                Expect(clusterController.State.Nodes[1].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ }))
+                Expect(clusterController.State.Nodes[2].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ 1: { 0: true } }))
+                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ NodeID: 2, Partition: 1, Replica: 0 } }))
+            })
         })
 
         Describe("#SetReplicationFactor", func() {
+            It("should set the replication factor only if it has not yet been set", func() {
+                clusterState := ClusterState{ }
+                clusterController := &ClusterController{ State: clusterState }
+
+                Expect(clusterController.State.ClusterSettings.ReplicationFactor).Should(Equal(uint64(0)))
+                clusterController.SetReplicationFactor(ClusterSetReplicationFactorBody{ ReplicationFactor: 4 })
+                Expect(clusterController.State.ClusterSettings.ReplicationFactor).Should(Equal(uint64(4)))
+                clusterController.SetReplicationFactor(ClusterSetReplicationFactorBody{ ReplicationFactor: 5 })
+                Expect(clusterController.State.ClusterSettings.ReplicationFactor).Should(Equal(uint64(4)))
+            })
+
+            It("should create a token assignment and notify the local node of its tokens upon triggering an initialization", func() {
+               node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                        2: &node2,
+                    },
+                    ClusterSettings: ClusterSettings{ Partitions: 4 },
+                }
+                localUpdates := make(chan ClusterStateDelta, 2) // make this a buffered node so the call to RemoveNode() doesn't block
+                partitioningStrategy := &testPartitioningStrategy{ 
+                    results: [][]uint64{
+                        []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
+                    },
+                }
+                clusterController := &ClusterController{
+                    LocalNodeID: 2,
+                    State: clusterState,
+                    LocalUpdates: localUpdates,
+                    PartitioningStrategy: partitioningStrategy,
+                }
+
+                // moves partition 1 replica 0 from node 1 to node 2
+                clusterCommand := ClusterSetReplicationFactorBody{
+                    ReplicationFactor: 3,
+                }
+
+                clusterController.SetReplicationFactor(clusterCommand)
+                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{
+                    2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
+                    3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
+                })
+            })
         })
 
         Describe("#SetPartitionCount", func() {
+            It("should set the partition count only if it has not yet been set", func() {
+                clusterState := ClusterState{ }
+                clusterController := &ClusterController{ State: clusterState }
+
+                Expect(clusterController.State.ClusterSettings.Partitions).Should(Equal(uint64(0)))
+                clusterController.SetPartitionCount(ClusterSetPartitionCountBody{ Partitions: 8 })
+                Expect(clusterController.State.ClusterSettings.Partitions).Should(Equal(uint64(8)))
+                clusterController.SetPartitionCount(ClusterSetPartitionCountBody{ Partitions: 10 })
+                Expect(clusterController.State.ClusterSettings.Partitions).Should(Equal(uint64(8)))
+            })
+
+            It("should create a token assignment and notify the local node of its tokens upon triggering an initialization", func() {
+				node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                        2: &node2,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2 },
+                }
+                localUpdates := make(chan ClusterStateDelta, 2) // make this a buffered node so the call to RemoveNode() doesn't block
+                partitioningStrategy := &testPartitioningStrategy{ 
+                    results: [][]uint64{
+                        []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
+                    },
+                }
+                clusterController := &ClusterController{
+                    LocalNodeID: 2,
+                    State: clusterState,
+                    LocalUpdates: localUpdates,
+                    PartitioningStrategy: partitioningStrategy,
+                }
+
+                // moves partition 1 replica 0 from node 1 to node 2
+                clusterCommand := ClusterSetPartitionCountBody{
+                    Partitions: 8,
+                }
+
+                clusterController.SetPartitionCount(clusterCommand)
+                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{
+                    2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
+                    3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
+                })
+            })
         })
     })
 })
