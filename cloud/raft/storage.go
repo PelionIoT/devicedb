@@ -452,3 +452,122 @@ func (raftStorage *RaftStorage) Append(entries []raftpb.Entry) error {
 
     return nil
 }
+
+// This should apply the entries, then the hard state, then the snapshot atomically to both in memory and persistent storage
+// This means that if any part fails no change occurs and the error is reported. If persisting the state to disk encounters
+// an error then the operation is aborted and no change occurs.
+func (raftStorage *RaftStorage) ApplyAll(hs raftpb.HardState, ents []raftpb.Entry, snap raftpb.Snapshot) error {
+    raftStorage.lock.Lock()
+    defer raftStorage.lock.Unlock()
+
+    if !raftStorage.isOpen {
+        return errors.New("ApplyAll only available when node is open")
+    }
+
+    memoryStorageCopy := raftStorage.cloneMemoryStorage()
+    storageBatch := devicedb.NewBatch()
+
+    // apply entries to storage
+    if len(ents) != 0 {
+        originalFirstIndex, _ := raftStorage.memoryStorage.FirstIndex()
+        originalLastIndex, _ := raftStorage.memoryStorage.LastIndex()
+
+        if ents[0].Index + uint64(len(ents)) - 1 < originalFirstIndex {
+            raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+            return nil
+        }
+
+        err := raftStorage.memoryStorage.Append(ents)
+
+        if err != nil {
+            raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+            return err
+        }
+
+        // truncate compacted entries
+        // ignores entries being appended whose index was previously compacted
+        if originalFirstIndex > ents[0].Index {
+            ents = ents[originalFirstIndex - ents[0].Index:]
+        }
+
+        // purge all old entries whose index >= entires[0].Index
+        for i := ents[0].Index; i <= originalLastIndex; i++ {
+            ek := entryKey(i)
+
+            storageBatch.Delete(ek)
+        }
+
+        // put all newly appended entries into the storage
+        for i := 0; i < len(ents); i += 1 {
+            ek := entryKey(ents[i].Index)
+            encodedEntry, err := ents[i].Marshal()
+
+            if err != nil {
+                raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+                return err
+            }
+
+            storageBatch.Put(ek, encodedEntry)
+        }
+    }
+
+    // update hard state if set
+    if !raft.IsEmptyHardState(hs) {
+        err := raftStorage.memoryStorage.SetHardState(hs)
+
+        if err != nil {
+            raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+            return err
+        }
+
+        encodedHardState, err := hs.Marshal()
+
+        if err != nil {
+            raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+            return err
+        }
+
+        storageBatch.Put(KeyHardState, encodedHardState)
+    }
+
+    // apply snapshot
+    if !raft.IsEmptySnap(snap) {
+        firstIndex, _ := raftStorage.memoryStorage.FirstIndex()
+        lastIndex, _ := raftStorage.memoryStorage.LastIndex()
+        err := raftStorage.memoryStorage.ApplySnapshot(snap)
+
+        if err != nil {
+            raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+            return err
+        }
+
+        purgedEntryKeys := entryKeys(firstIndex, lastIndex)
+        encodedSnap, err := snap.Marshal()
+
+        if err != nil {
+            raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+            return err
+        }
+
+        for _, purgedEntryKey := range purgedEntryKeys {
+            storageBatch.Delete(purgedEntryKey)
+        }
+
+        storageBatch.Put(KeySnapshot, encodedSnap)
+    }
+
+    if err := raftStorage.storageDriver.Batch(storageBatch); err != nil {
+        raftStorage.restoreMemoryStorage(memoryStorageCopy)
+
+        return err
+    }
+
+    return nil
+}

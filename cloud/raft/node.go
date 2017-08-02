@@ -24,10 +24,11 @@ type RaftNode struct {
     config *RaftNodeConfig
     node raft.Node
     stop chan int
-    messages chan raftpb.Message
-    snapshots chan raftpb.Snapshot
-    entries chan raftpb.Entry
-    errors chan error
+    lastCommittedIndex uint64
+    onMessagesCB func([]raftpb.Message) error
+    onSnapshotCB func(raftpb.Snapshot) error
+    onEntryCB func(raftpb.Entry) error
+    onErrorCB func(error) error
     currentRaftConfState raftpb.ConfState
 }
 
@@ -36,10 +37,6 @@ func NewRaftNode(config *RaftNodeConfig) *RaftNode {
         config: config,
         node: nil,
         stop: make(chan int),
-        messages: make(chan raftpb.Message),
-        snapshots: make(chan raftpb.Snapshot),
-        entries: make(chan raftpb.Entry),
-        errors: make(chan error),
     }
 
     return raftNode
@@ -83,26 +80,6 @@ func (raftNode *RaftNode) Propose(ctx context.Context, proposition []byte) error
     return raftNode.node.Propose(ctx, proposition)
 }
 
-func (raftNode *RaftNode) Messages() <-chan raftpb.Message {
-    return raftNode.messages
-}
-
-func (raftNode *RaftNode) Snapshots() <-chan raftpb.Snapshot {
-    return raftNode.snapshots
-}
-
-func (raftNode *RaftNode) Entries() <-chan raftpb.Entry {
-    return raftNode.entries
-}
-
-// Errors returns a channel that receives any error that occurs
-// In the main node processsing loop. An error receives on this
-// channel indicates that the node has been stopped and the user
-// should not attempt to call Stop() since it will block
-func (raftNode *RaftNode) Errors() <-chan error {
-    return raftNode.errors
-}
-
 func (raftNode *RaftNode) LastSnapshot() (raftpb.Snapshot, error) {
     return raftNode.config.Storage.Snapshot()
 }
@@ -136,6 +113,14 @@ func (raftNode *RaftNode) Start() error {
         raftNode.node = raft.StartNode(config, peers)
     }
 
+    lastSnapshot, _ := raftNode.LastSnapshot()
+
+    if !raft.IsEmptySnap(lastSnapshot) {
+        // call onSnapshot callback to give initial state to system config
+        raftNode.onSnapshotCB(lastSnapshot)
+        raftNode.lastCommittedIndex = lastSnapshot.Metadata.Index
+    }
+
     go raftNode.run()
 
     return nil
@@ -160,36 +145,44 @@ func (raftNode *RaftNode) run() {
         case <-ticker:
             raftNode.node.Tick()
         case rd := <-raftNode.node.Ready():
+            // Saves raft state to persistent storage first. If the process dies or fails after this point
+            // This ensures that there is a checkpoint to resume from on restart
             if err := raftNode.saveToStorage(rd.HardState, rd.Entries, rd.Snapshot); err != nil {
-                raftNode.errors <- err
+                raftNode.onErrorCB(err)
 
                 return
             }
 
-            for _, msg := range rd.Messages {
-                raftNode.messages <- msg
+            // Messages must be sent after entries and hard state are saved to stable storage
+            if len(rd.Messages) != 0 {
+                raftNode.onMessagesCB(rd.Messages)
             }
 
             if !raft.IsEmptySnap(rd.Snapshot) {
                 // snapshots received from other nodes. 
                 // Used to allow this node to catch up
-                raftNode.snapshots <- rd.Snapshot
+                raftNode.onSnapshotCB(rd.Snapshot)
+                raftNode.lastCommittedIndex = rd.Snapshot.Metadata.Index
             }
 
             for _, entry := range rd.CommittedEntries {
-                raftNode.entries <- entry
+                raftNode.onEntryCB(entry)
+
+                raftNode.lastCommittedIndex = entry.Index
 
                 if entry.Type == raftpb.EntryConfChange {
                     if err := raftNode.applyConfigurationChange(entry); err != nil {
-                        raftNode.errors <- err
+                        raftNode.onErrorCB(err)
 
                         return
                     }
                 }
             }
 
+            // Snapshot current state and perform a compaction of entries
+            // if the number of entries exceeds a certain theshold
             if err := raftNode.takeSnapshotIfEnoughEntries(); err != nil {
-                raftNode.errors <- err
+                raftNode.onErrorCB(err)
                 
                 return
             }
@@ -202,20 +195,11 @@ func (raftNode *RaftNode) run() {
 }
 
 func (raftNode *RaftNode) saveToStorage(hs raftpb.HardState, ents []raftpb.Entry, snap raftpb.Snapshot) error {
-    if err := raftNode.config.Storage.Append(ents); err != nil {
+    // Ensures that all updates get applied atomically to persistent storage: HardState, Entries, Snapshot.
+    // If any part of the update fails then no change is applied. This is important so that the persistent state
+    // remains consistent.
+    if err := raftNode.config.Storage.ApplyAll(hs, ents, snap); err != nil {
         return err
-    }
-
-    if !raft.IsEmptyHardState(hs) {
-        if err := raftNode.config.Storage.SetHardState(hs); err != nil {
-            return err
-        }
-    }
-
-    if !raft.IsEmptySnap(snap) {
-        if err := raftNode.config.Storage.ApplySnapshot(snap); err != nil {
-            return err
-        }
     }
 
     return nil
@@ -240,17 +224,11 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
         return err
     }
 
-    lastIndex, err := raftNode.config.Storage.LastIndex()
-
-    if err != nil {
-        return err
-    }
-
-    if lastIndex < lastSnapshot.Metadata.Index {
+    if raftNode.lastCommittedIndex < lastSnapshot.Metadata.Index {
         return nil
     }
 
-    if lastIndex - lastSnapshot.Metadata.Index >= LogCompactionSize {
+    if raftNode.lastCommittedIndex - lastSnapshot.Metadata.Index >= LogCompactionSize {
         // data is my config state snapshot
         data, err := raftNode.config.GetSnapshot()
 
@@ -258,8 +236,8 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
             return err
         }
 
-        devicedb.Log.Infof("Node %d compacting entries up to %d", raftNode.config.ID, lastIndex)
-        _, err = raftNode.config.Storage.CreateSnapshot(lastIndex, &raftNode.currentRaftConfState, data)
+        devicedb.Log.Infof("Node %d compacting entries up to %d", raftNode.config.ID, raftNode.lastCommittedIndex)
+        _, err = raftNode.config.Storage.CreateSnapshot(raftNode.lastCommittedIndex, &raftNode.currentRaftConfState, data)
 
         if err != nil {
             return err
@@ -271,4 +249,26 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
 
 func (raftNode *RaftNode) Stop() {
     raftNode.stop <- 1
+}
+
+func (raftNode *RaftNode) OnMessages(cb func([]raftpb.Message) error) {
+    raftNode.onMessagesCB = cb
+}
+
+func (raftNode *RaftNode) OnSnapshot(cb func(raftpb.Snapshot) error) {
+    raftNode.onSnapshotCB = cb
+}
+
+func (raftNode *RaftNode) OnCommittedEntry(cb func(raftpb.Entry) error) {
+    raftNode.onEntryCB = cb
+}
+
+func (raftNode *RaftNode) OnError(cb func(error) error) {
+    raftNode.onErrorCB = cb
+}
+
+func (raftNode *RaftNode) ReportUnreachable(id uint64) {
+}
+
+func (raftNode *RaftNode) ReportSnapshot(id uint64, status raft.SnapshotStatus) {
 }

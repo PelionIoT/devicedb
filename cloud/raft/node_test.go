@@ -48,15 +48,23 @@ var _ = Describe("Node", func() {
         }
 
         var run = func(id uint64, node *RaftNode) {
-            for {
-                select {
-                case msg := <-node.Messages():
+            node.OnMessages(func(messages []raftpb.Message) error {
+                for _, msg := range messages {
                     nodeMap[msg.To].Receive(context.TODO(), msg)
-                case <-node.Snapshots():
-                case entry := <-node.Entries():
-                    nodeEntriesMap[id] = append(nodeEntriesMap[id], entry)
                 }
-            }
+
+                return nil
+            })
+
+            node.OnCommittedEntry(func(entry raftpb.Entry) error {
+                nodeEntriesMap[id] = append(nodeEntriesMap[id], entry)
+
+                return nil
+            })
+
+            node.OnSnapshot(func(snap raftpb.Snapshot) error {
+                return nil
+            })
         }
 
         go run(1, node1)
@@ -143,15 +151,23 @@ var _ = Describe("Node", func() {
         var snapshot raftpb.Snapshot
 
         var run = func(id uint64, node *RaftNode) {
-            for {
-                select {
-                case msg := <-node.Messages():
+            node.OnMessages(func(messages []raftpb.Message) error {
+                for _, msg := range messages {
                     nodeMap[msg.To].Receive(context.TODO(), msg)
-                case snap := <-node.Snapshots():
-                    snapshot = snap
-                case <-node.Entries():
                 }
-            }
+
+                return nil
+            })
+
+            node.OnCommittedEntry(func(entry raftpb.Entry) error {
+                return nil
+            })
+
+            node.OnSnapshot(func(snap raftpb.Snapshot) error {
+                snapshot = snap
+                
+                return nil
+            })
         }
 
         go run(1, node1)
