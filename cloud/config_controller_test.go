@@ -104,6 +104,14 @@ var _ = Describe("ConfigController", func() {
             // Make Sure Current Configuration == Configuration Before Controller Was Stopped
             Expect(newClusterController.State).Should(Equal(clusterController.State))
         })
+
+        Context("A node is restarting after being disconnected from the cluster for some time.", func() {
+            Specify("If the state was compacted at other nodes then this node should receive a snapshot from them first", func() {
+            })
+
+            Specify("If the state was not yet compacted at other nodes then this node should receive a series of cluster commands  allowing its state to catch up", func() {
+            })
+        })
     })
 
     Describe("Adding a node to a cluster", func() {
@@ -111,15 +119,25 @@ var _ = Describe("ConfigController", func() {
             // This is important for any external transport module that needs to know where a node resides before communicating
             // with it
         })
+
+        Specify("If a majority of cluster nodes are not available when requesting that a node be added the addition should fail", func() {
+        })
     })
 
-    Describe("A node being unable to communicate with the majority for some time", func() {
+    Describe("A node resuming communication with the cluster after being unable to communicate with the majority for some time", func() {
         Context("A snapshot has occurred", func() {
             Specify("The node should catch up with the rest of the cluster by receiving a snapshot from the leader", func() {
             })
         })
+
+        Context("No snapshot has occurred", func() {
+            Specify("The node should catch up with the rest of the cluster by receiving a series of cluster commands", func() {
+            })
+        })
     })
 
-    Describe("Removing a node to from cluster", func() {
+    Describe("Removing a node from cluster", func() {
+        Specify("If a majority of cluster nodes are not available when requesting that a node be removed the removal should fail", func() {
+        })
     })
 })
