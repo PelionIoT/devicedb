@@ -112,12 +112,83 @@ type ClusterSetPartitionCountBody struct {
     Partitions uint64
 }
 
-func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interface{}, error) {
+func EncodeClusterCommand(command ClusterCommand) ([]byte, error) {
+    encodedCommand, err := json.Marshal(command)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return encodedCommand, nil
+}
+
+func DecodeClusterCommand(encodedCommand []byte) (ClusterCommand, error) {
+    var command ClusterCommand
+
+    err := json.Unmarshal(encodedCommand, &command)
+
+    if err != nil {
+        return ClusterCommand{}, err
+    }
+
+    return command, nil
+}
+
+func CreateClusterCommand(commandType ClusterCommandType, body interface{}) (ClusterCommand, error) {
+    encodedBody, err := json.Marshal(body)
+
+    if err != nil {
+        return ClusterCommand{}, ECouldNotParseCommand
+    }
+
     switch commandType {
+    case ClusterUpdateNode:
+        if _, ok := body.(ClusterUpdateNodeBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterAddNode:
+        if _, ok := body.(ClusterAddNodeBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterRemoveNode:
+        if _, ok := body.(ClusterRemoveNodeBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterTakePartitionReplica:
+        if _, ok := body.(ClusterTakePartitionReplicaBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterSetReplicationFactor:
+        if _, ok := body.(ClusterSetReplicationFactorBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterSetPartitionCount:
+        if _, ok := body.(ClusterSetPartitionCountBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    default:
+        return ClusterCommand{ }, ENoSuchCommand
+    }
+
+    return ClusterCommand{ Type: commandType, Data: encodedBody }, nil
+}
+
+func EncodeClusterCommandBody(body interface{}) ([]byte, error) {
+    encodedBody, err := json.Marshal(body)
+
+    if err != nil {
+        return nil, ECouldNotParseCommand
+    }
+
+    return encodedBody, nil
+}
+
+func DecodeClusterCommandBody(command ClusterCommand) (interface{}, error) {
+    switch command.Type {
     case ClusterUpdateNode:
         var body ClusterUpdateNodeBody
 
-        if err := json.Unmarshal(data, &body); err != nil {
+        if err := json.Unmarshal(command.Data, &body); err != nil {
             break
         }
 
@@ -125,7 +196,7 @@ func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interfac
     case ClusterAddNode:
         var body ClusterAddNodeBody
 
-        if err := json.Unmarshal(data, &body); err != nil {
+        if err := json.Unmarshal(command.Data, &body); err != nil {
             break
         }
 
@@ -133,7 +204,7 @@ func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interfac
     case ClusterRemoveNode:
         var body ClusterRemoveNodeBody
 
-        if err := json.Unmarshal(data, &body); err != nil {
+        if err := json.Unmarshal(command.Data, &body); err != nil {
             break
         }
 
@@ -141,7 +212,7 @@ func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interfac
     case ClusterTakePartitionReplica:
         var body ClusterTakePartitionReplicaBody
 
-        if err := json.Unmarshal(data, &body); err != nil {
+        if err := json.Unmarshal(command.Data, &body); err != nil {
             break
         }
 
@@ -149,7 +220,7 @@ func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interfac
     case ClusterSetReplicationFactor:
         var body ClusterSetReplicationFactorBody
 
-        if err := json.Unmarshal(data, &body); err != nil {
+        if err := json.Unmarshal(command.Data, &body); err != nil {
             break
         }
 
@@ -157,11 +228,13 @@ func DecodeClusterCommand(commandType ClusterCommandType, data []byte) (interfac
     case ClusterSetPartitionCount:
         var body ClusterSetPartitionCountBody
 
-        if err := json.Unmarshal(data, &body); err != nil {
+        if err := json.Unmarshal(command.Data, &body); err != nil {
             break
         }
 
         return body, nil
+    default:
+        return nil, ENoSuchCommand
     }
 
     return nil, ECouldNotParseCommand

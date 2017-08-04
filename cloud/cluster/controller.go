@@ -16,7 +16,7 @@ type ClusterController struct {
 }
 
 func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) error {
-    body, err := DecodeClusterCommand(clusterCommand.Type, clusterCommand.Data)
+    body, err := DecodeClusterCommandBody(clusterCommand)
 
     if err != nil {
         return ECouldNotParseCommand
@@ -42,6 +42,35 @@ func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) 
     return nil
 }
 
+// Apply a snapshot to the state and notify on the local updates channel of any relevant
+// changes
+func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
+    localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
+    localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
+    _, localNodeWasPresentBefore := clusterController.State.Nodes[clusterController.LocalNodeID]
+
+    if err := clusterController.State.Recover(snap); err != nil {
+        return err
+    }
+
+    nodeConfig, localNodeIsPresentNow := clusterController.State.Nodes[clusterController.LocalNodeID]
+
+    if !localNodeWasPresentBefore && localNodeIsPresentNow {
+        // This node was added. Provide an add node delta
+        clusterController.notifyLocalNode(DeltaNodeAdd, NodeAdd{ NodeID: clusterController.LocalNodeID, NodeConfig: *nodeConfig })
+    }
+
+    clusterController.localDiffTokensAndNotify(localNodeTokenSnapshot)
+    clusterController.localDiffPartitionReplicasAndNotify(localNodePartitionReplicaSnapshot)
+
+    if localNodeWasPresentBefore && !localNodeIsPresentNow {
+        // This node was removed. Provide a remove node delta
+        clusterController.notifyLocalNode(DeltaNodeRemove, NodeRemove{ NodeID: clusterController.LocalNodeID })
+    }
+
+    return nil
+}
+
 func (clusterController *ClusterController) UpdateNodeConfig(clusterCommand ClusterUpdateNodeBody) {
     currentNodeConfig, ok := clusterController.State.Nodes[clusterCommand.NodeID]
 
@@ -59,13 +88,19 @@ func (clusterController *ClusterController) UpdateNodeConfig(clusterCommand Clus
         // a capacity change with any node means tokens need to be redistributed to account for different
         // relative capacity of the nodes. This has no effect with the simple partitioning strategy unless
         // a node has been assigned capacity 0 indicating that it is leaving the cluster soon
-        clusterController.assignTokens()
+
+        if clusterController.State.ClusterSettings.AreInitialized() {
+            clusterController.assignTokens()
+        }
     }
 }
 
 func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNodeBody) {
     if _, ok := clusterController.State.Nodes[clusterCommand.NodeID]; !ok {
         // add the node if it isn't already added
+        clusterCommand.NodeConfig.Tokens = make(map[uint64]bool)
+        clusterCommand.NodeConfig.PartitionReplicas = make(map[uint64]map[uint64]bool)
+
         clusterController.State.AddNode(clusterCommand.NodeConfig)
 
         if clusterCommand.NodeID == clusterController.LocalNodeID {
@@ -74,7 +109,9 @@ func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNod
         }
 
         // redistribute tokens in the cluster. tokens will be reassigned from other nodes to this node to distribute the load
-        clusterController.assignTokens()
+        if clusterController.State.ClusterSettings.AreInitialized() {
+            clusterController.assignTokens()
+        }
     }
 }
 
@@ -84,7 +121,9 @@ func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRem
         clusterController.State.RemoveNode(clusterCommand.NodeID)
 
         // redistribute tokens in the cluster, making sure to distribute tokens that were owned by this node to other nodes
-        clusterController.assignTokens()
+        if clusterController.State.ClusterSettings.AreInitialized() {
+            clusterController.assignTokens()
+        }
 
         if clusterCommand.NodeID == clusterController.LocalNodeID {
             // notify the local node that it has been removed from the cluster

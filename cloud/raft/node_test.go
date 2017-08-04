@@ -48,6 +48,7 @@ var _ = Describe("Node", func() {
         }
 
         var run = func(id uint64, node *RaftNode) {
+            node.OnReplayDone(func() error { return nil })
             node.OnMessages(func(messages []raftpb.Message) error {
                 for _, msg := range messages {
                     nodeMap[msg.To].Receive(context.TODO(), msg)
@@ -75,9 +76,9 @@ var _ = Describe("Node", func() {
         Expect(node2.Start()).Should(BeNil())
         Expect(node3.Start()).Should(BeNil())
         <-time.After(time.Second * 1)
-        Expect(node1.AddNode(context.TODO(), 2)).Should(BeNil())
+        Expect(node1.AddNode(context.TODO(), 2, []byte{})).Should(BeNil())
         <-time.After(time.Second * 1)
-        Expect(node1.AddNode(context.TODO(), 3)).Should(BeNil())
+        Expect(node1.AddNode(context.TODO(), 3, []byte{})).Should(BeNil())
         <-time.After(time.Second * 5)
 
         devicedb.Log.Infof("Propose random entries")
@@ -151,6 +152,7 @@ var _ = Describe("Node", func() {
         var snapshot raftpb.Snapshot
 
         var run = func(id uint64, node *RaftNode) {
+            node.OnReplayDone(func() error { return nil })
             node.OnMessages(func(messages []raftpb.Message) error {
                 for _, msg := range messages {
                     nodeMap[msg.To].Receive(context.TODO(), msg)
@@ -180,9 +182,9 @@ var _ = Describe("Node", func() {
         Expect(node3.Start()).Should(BeNil())
         Expect(node4.Start()).Should(BeNil())
         <-time.After(time.Second * 1)
-        Expect(node1.AddNode(context.TODO(), 2)).Should(BeNil())
+        Expect(node1.AddNode(context.TODO(), 2, []byte{})).Should(BeNil())
         <-time.After(time.Second * 1)
-        Expect(node1.AddNode(context.TODO(), 3)).Should(BeNil())
+        Expect(node1.AddNode(context.TODO(), 3, []byte{})).Should(BeNil())
         <-time.After(time.Second * 5)
 
         devicedb.Log.Infof("Propose %d random entries", LogCompactionSize)
@@ -203,7 +205,7 @@ var _ = Describe("Node", func() {
 
         <-time.After(time.Second * 5)
         devicedb.Log.Infof("Add node 4 to cluster after compactions occcurred. Should result in node 4 recieving snapshot")
-        Expect(node2.AddNode(context.TODO(), 4)).Should(BeNil())
+        Expect(node2.AddNode(context.TODO(), 4, []byte{})).Should(BeNil())
         <-time.After(time.Second * 5)
         Expect(raft.IsEmptySnap(snapshot)).Should(BeFalse())
     })

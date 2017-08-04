@@ -117,6 +117,7 @@ var _ = Describe("Controller", func() {
                         1: &node1,
                         2: &node2,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 2 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -163,6 +164,7 @@ var _ = Describe("Controller", func() {
                     Nodes: map[uint64]*NodeConfig{ 
                         1: &node1,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 2 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -244,6 +246,7 @@ var _ = Describe("Controller", func() {
                     Nodes: map[uint64]*NodeConfig{ 
                         1: &node1,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -269,6 +272,7 @@ var _ = Describe("Controller", func() {
                 }
 
                 clusterController.AddNode(clusterCommand)
+                node2.Tokens = map[uint64]bool{ 2: true, 3: true }
 
                 Expect(clusterController.State.Nodes[1].Capacity).Should(Equal(uint64(1)))
                 Expect(clusterController.State.Nodes[2].Capacity).Should(Equal(uint64(1)))
@@ -298,6 +302,7 @@ var _ = Describe("Controller", func() {
                     Nodes: map[uint64]*NodeConfig{ 
                         1: &node1,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -352,6 +357,7 @@ var _ = Describe("Controller", func() {
                         1: &node1,
                         2: &node2,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -431,6 +437,7 @@ var _ = Describe("Controller", func() {
                         1: &node1,
                         2: &node2,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -479,6 +486,7 @@ var _ = Describe("Controller", func() {
                         1: &node1,
                         2: &node2,
                     },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
                     Partitions: [][]*PartitionReplica {
                         []*PartitionReplica{ },
                         []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
@@ -715,7 +723,7 @@ var _ = Describe("Controller", func() {
             })
 
             It("should create a token assignment and notify the local node of its tokens upon triggering an initialization", func() {
-				node1 := NodeConfig{
+                node1 := NodeConfig{
                     Capacity: 1, 
                     Address: PeerAddress{ NodeID: 1 },
                     Tokens: map[uint64]bool{ },
@@ -757,6 +765,304 @@ var _ = Describe("Controller", func() {
                     2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
                 })
+            })
+        })
+        
+        Describe("#ApplySnapshot", func() {
+            It("should restore cluster state to the state encoded in the snapshot", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        2: &node2,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 3, Partitions: 9 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                localUpdates := make(chan ClusterStateDelta, 100) // gives this channel enough room so applying the snapshot doesnt block
+                clusterController := &ClusterController{
+                    LocalNodeID: 2,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+            })
+
+            It("should notify the node that it has been removed from the cluster if the first snapshot has the node in it and the next one doesnt", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                localUpdates := make(chan ClusterStateDelta, 1)
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeRemove, Delta: NodeRemove{ NodeID: 1 } }))
+            })
+
+            It("should notify the node that it has been added to the cluster if the first snapshot doesnt have the node in it and the next one does", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                localUpdates := make(chan ClusterStateDelta, 1)
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 1, NodeConfig: node1 } }))
+            })
+
+            It("should notify the node of tokens that it has gained ownership of if the node does not originally own it but the snapshot gives it ownership", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node1Snap := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true, 2: true, 3: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1Snap,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Tokens = []uint64{ 1, 1, 2, 2 }
+                snapshotClusterState.Tokens = []uint64{ 1, 1, 1, 1 }
+
+                localUpdates := make(chan ClusterStateDelta, 2)
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{
+                    2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 2 } },
+                    3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 3 } },
+                })
+            })
+
+            It("should notify the node of tokens that it has lost ownership of if the node originally owns it but the snapshot takes its ownership away", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true, 2: true, 3: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node1Snap := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ 0: true, 1: true },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1Snap,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Tokens = []uint64{ 1, 1, 1, 1 }
+                snapshotClusterState.Tokens = []uint64{ 1, 1, 2, 2 }
+
+                localUpdates := make(chan ClusterStateDelta, 2)
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                expectTokenLosses(localUpdates, map[uint64]ClusterStateDelta{
+                    2: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 2 } },
+                    3: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 3 } },
+                })
+            })
+
+            It("should notify the node of partition replicas that it has gained ownership of if the node does not originally own it but the snapshot gives it ownership", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node1Snap := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1Snap,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                localUpdates := make(chan ClusterStateDelta, 2)
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
+            })
+
+            It("should notify the node of partition replicas that it has lost ownership of if the node originally owns it but the snapshot takes its ownership away", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node1Snap := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    Tokens: map[uint64]bool{ },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                        1: &node1Snap,
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                }
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                localUpdates := make(chan ClusterStateDelta, 2)
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    LocalUpdates: localUpdates,
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
             })
         })
     })

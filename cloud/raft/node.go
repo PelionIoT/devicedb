@@ -18,17 +18,20 @@ type RaftNodeConfig struct {
     CreateClusterIfNotExist bool
     Storage *RaftStorage
     GetSnapshot func() ([]byte, error)
+    Context []byte
 }
 
 type RaftNode struct {
     config *RaftNodeConfig
     node raft.Node
     stop chan int
+    lastReplayIndex uint64
     lastCommittedIndex uint64
     onMessagesCB func([]raftpb.Message) error
     onSnapshotCB func(raftpb.Snapshot) error
     onEntryCB func(raftpb.Entry) error
     onErrorCB func(error) error
+    onReplayDoneCB func() error
     currentRaftConfState raftpb.ConfState
 }
 
@@ -42,14 +45,14 @@ func NewRaftNode(config *RaftNodeConfig) *RaftNode {
     return raftNode
 }
 
-func (raftNode *RaftNode) AddNode(ctx context.Context, nodeID uint64) error {
+func (raftNode *RaftNode) AddNode(ctx context.Context, nodeID uint64, context []byte) error {
     devicedb.Log.Infof("Node %d proposing addition of node %d to its cluster", raftNode.config.ID, nodeID)
 
     err := raftNode.node.ProposeConfChange(ctx, raftpb.ConfChange{
         ID: nodeID,
         Type: raftpb.ConfChangeAddNode,
         NodeID: nodeID,
-        Context: []byte{ },
+        Context: context,
     })
 
     if err != nil {
@@ -89,6 +92,12 @@ func (raftNode *RaftNode) Start() error {
         return err
     }
 
+    context := raftNode.config.Context
+
+    if context == nil {
+        context = []byte{ }
+    }
+
     config := &raft.Config{
         ID: raftNode.config.ID,
         ElectionTick: 10,
@@ -103,7 +112,7 @@ func (raftNode *RaftNode) Start() error {
         raftNode.node = raft.RestartNode(config)
     } else {
         // by default create a new cluster with one member (this node)
-        peers := []raft.Peer{ raft.Peer{ ID: raftNode.config.ID } }
+        peers := []raft.Peer{ raft.Peer{ ID: raftNode.config.ID, Context: raftNode.config.Context } }
 
         if !raftNode.config.CreateClusterIfNotExist {
             // indicates that this node should join an existing cluster
@@ -113,13 +122,15 @@ func (raftNode *RaftNode) Start() error {
         raftNode.node = raft.StartNode(config, peers)
     }
 
-    lastSnapshot, _ := raftNode.LastSnapshot()
+    hardState, _, _ := raftNode.config.Storage.InitialState()
 
-    if !raft.IsEmptySnap(lastSnapshot) {
-        // call onSnapshot callback to give initial state to system config
-        raftNode.onSnapshotCB(lastSnapshot)
-        raftNode.lastCommittedIndex = lastSnapshot.Metadata.Index
+    // this keeps track of the highest index that is knowns
+    // to have been committed to the cluster
+    if !raft.IsEmptyHardState(hardState) {
+        raftNode.lastReplayIndex = hardState.Commit
     }
+
+    devicedb.Log.Debugf("Starting up raft node. Last known commit index was %v", raftNode.lastReplayIndex)
 
     go raftNode.run()
 
@@ -130,15 +141,32 @@ func (raftNode *RaftNode) Receive(ctx context.Context, msg raftpb.Message) error
     return raftNode.node.Step(ctx, msg)
 }
 
+func (raftNode *RaftNode) notifyIfReplayDone() {
+    if raftNode.lastCommittedIndex == raftNode.lastReplayIndex {
+        raftNode.onReplayDoneCB()
+    }
+}
+
 func (raftNode *RaftNode) run() {
     ticker := time.Tick(time.Second)
 
     defer func() {
         // makes sure cleanup happens when the loop exits
+        raftNode.lastCommittedIndex = 0
+        raftNode.lastReplayIndex = 0
         raftNode.config.Storage.Close()
         raftNode.node.Stop()
         raftNode.currentRaftConfState = raftpb.ConfState{ }
     }()
+
+    lastSnapshot, _ := raftNode.LastSnapshot()
+    
+    if !raft.IsEmptySnap(lastSnapshot) {
+        // call onSnapshot callback to give initial state to system config
+        raftNode.onSnapshotCB(lastSnapshot)
+    }
+
+    raftNode.notifyIfReplayDone()
 
     for {
         select {
@@ -163,9 +191,17 @@ func (raftNode *RaftNode) run() {
                 // Used to allow this node to catch up
                 raftNode.onSnapshotCB(rd.Snapshot)
                 raftNode.lastCommittedIndex = rd.Snapshot.Metadata.Index
+                raftNode.notifyIfReplayDone()
             }
 
             for _, entry := range rd.CommittedEntries {
+                // Skip an entry if it has already been applied.
+                // I don't know why I would receive a committed entry here
+                // twice but the raft example does this so I'm doing it.
+                if entry.Index < raftNode.lastCommittedIndex {
+                    continue
+                }
+
                 raftNode.onEntryCB(entry)
 
                 raftNode.lastCommittedIndex = entry.Index
@@ -177,6 +213,8 @@ func (raftNode *RaftNode) run() {
                         return
                     }
                 }
+                
+                raftNode.notifyIfReplayDone()
             }
 
             // Snapshot current state and perform a compaction of entries
@@ -251,6 +289,10 @@ func (raftNode *RaftNode) Stop() {
     raftNode.stop <- 1
 }
 
+func (raftNode *RaftNode) OnReplayDone(cb func() error) {
+    raftNode.onReplayDoneCB = cb
+}
+
 func (raftNode *RaftNode) OnMessages(cb func([]raftpb.Message) error) {
     raftNode.onMessagesCB = cb
 }
@@ -268,7 +310,9 @@ func (raftNode *RaftNode) OnError(cb func(error) error) {
 }
 
 func (raftNode *RaftNode) ReportUnreachable(id uint64) {
+    raftNode.node.ReportUnreachable(id)
 }
 
 func (raftNode *RaftNode) ReportSnapshot(id uint64, status raft.SnapshotStatus) {
+    raftNode.node.ReportSnapshot(id, status)
 }
