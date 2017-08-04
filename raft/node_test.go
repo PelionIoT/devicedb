@@ -1,13 +1,14 @@
 package raft_test
 
 import (
-    "devicedb"
+    . "devicedb/storage"
+    . "devicedb/logging"
     "time"
 
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
 
-    . "devicedb/cloud/raft"
+    . "devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -20,19 +21,19 @@ var _ = Describe("Node", func() {
         node1 := NewRaftNode(&RaftNodeConfig{
             ID: 0x1,
             CreateClusterIfNotExist: true,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
         })
 
         node2 := NewRaftNode(&RaftNodeConfig{
             ID: 0x2,
             CreateClusterIfNotExist: false,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
         })
 
         node3 := NewRaftNode(&RaftNodeConfig{
             ID: 0x3,
             CreateClusterIfNotExist: false,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
         })
 
         nodeMap := map[uint64]*RaftNode{
@@ -81,7 +82,7 @@ var _ = Describe("Node", func() {
         Expect(node1.AddNode(context.TODO(), 3, []byte{})).Should(BeNil())
         <-time.After(time.Second * 5)
 
-        devicedb.Log.Infof("Propose random entries")
+        Log.Infof("Propose random entries")
         go node1.Propose(context.TODO(), []byte(randomString()))
         go node2.Propose(context.TODO(), []byte(randomString()))
         go node3.Propose(context.TODO(), []byte(randomString()))
@@ -89,20 +90,20 @@ var _ = Describe("Node", func() {
         go node2.Propose(context.TODO(), []byte(randomString()))
         go node3.Propose(context.TODO(), []byte(randomString()))
         <-time.After(time.Second * 5)
-        devicedb.Log.Infof("Shutting down node 2")
+        Log.Infof("Shutting down node 2")
         node2.Stop()
-        devicedb.Log.Infof("Shut down node 2")
+        Log.Infof("Shut down node 2")
 
-        devicedb.Log.Infof("Proposing random entires with nodes 1 and 3")
+        Log.Infof("Proposing random entires with nodes 1 and 3")
         <-time.After(time.Second * 5)
         go node1.Propose(context.TODO(), []byte(randomString()))
         go node3.Propose(context.TODO(), []byte(randomString()))
         <-time.After(time.Second * 5)
-        devicedb.Log.Infof("Restarting node 2")
+        Log.Infof("Restarting node 2")
         // clear out the entries received so far since we should expect the entires to be replayed
         nodeEntriesMap[2] = []raftpb.Entry{ }
         Expect(node2.Start()).Should(BeNil())
-        devicedb.Log.Infof("Restarted node 2")
+        Log.Infof("Restarted node 2")
         <-time.After(time.Second * 5)
 
         Expect(nodeEntriesMap[1]).Should(Equal(nodeEntriesMap[2]))
@@ -117,28 +118,28 @@ var _ = Describe("Node", func() {
         node1 := NewRaftNode(&RaftNodeConfig{
             ID: 0x1,
             CreateClusterIfNotExist: true,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
             GetSnapshot: getSnapshot,
         })
 
         node2 := NewRaftNode(&RaftNodeConfig{
             ID: 0x2,
             CreateClusterIfNotExist: false,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
             GetSnapshot: getSnapshot,
         })
 
         node3 := NewRaftNode(&RaftNodeConfig{
             ID: 0x3,
             CreateClusterIfNotExist: false,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
             GetSnapshot: getSnapshot,
         })
 
         node4 := NewRaftNode(&RaftNodeConfig{
             ID: 0x4,
             CreateClusterIfNotExist: false,
-            Storage: NewRaftStorage(devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
             GetSnapshot: getSnapshot,
         })
 
@@ -187,7 +188,7 @@ var _ = Describe("Node", func() {
         Expect(node1.AddNode(context.TODO(), 3, []byte{})).Should(BeNil())
         <-time.After(time.Second * 5)
 
-        devicedb.Log.Infof("Propose %d random entries", LogCompactionSize)
+        Log.Infof("Propose %d random entries", LogCompactionSize)
 
         for i := 0; i < LogCompactionSize; i++ {
             nodeMap[uint64((i % 3) + 1)].Propose(context.TODO(), []byte(randomString()))
@@ -195,7 +196,7 @@ var _ = Describe("Node", func() {
 
         <-time.After(time.Second * 5)
 
-        devicedb.Log.Infof("Restart node 2")
+        Log.Infof("Restart node 2")
         node2.Stop()
         <-time.After(time.Second * 1)
         Expect(node2.Start()).Should(BeNil())
@@ -204,7 +205,7 @@ var _ = Describe("Node", func() {
         Expect(snap.Metadata.ConfState.Nodes).Should(Equal([]uint64{ 1, 2, 3 }))
 
         <-time.After(time.Second * 5)
-        devicedb.Log.Infof("Add node 4 to cluster after compactions occcurred. Should result in node 4 recieving snapshot")
+        Log.Infof("Add node 4 to cluster after compactions occcurred. Should result in node 4 recieving snapshot")
         Expect(node2.AddNode(context.TODO(), 4, []byte{})).Should(BeNil())
         <-time.After(time.Second * 5)
         Expect(raft.IsEmptySnap(snapshot)).Should(BeFalse())

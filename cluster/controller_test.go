@@ -1,8 +1,8 @@
 package cluster_test
 
 import (
-    . "devicedb/cloud/cluster"
-    . "devicedb/cloud/raft"
+    . "devicedb/cluster"
+    . "devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

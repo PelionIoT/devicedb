@@ -1,7 +1,7 @@
 package cluster
 
 import (
-    ddbRaft "devicedb/cloud/raft"
+    ddbRaft "devicedb/raft"
 )
 
 type ClusterStateDeltaType int

@@ -1,4 +1,4 @@
-package cloud_test
+package cluster_test
 
 import (
     "fmt"
@@ -7,10 +7,9 @@ import (
     "context"
     "time"
     
-    . "devicedb"
-    . "devicedb/cloud"
-    . "devicedb/cloud/cluster"
-    . "devicedb/cloud/raft"
+    . "devicedb/storage"
+    . "devicedb/cluster"
+    . "devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

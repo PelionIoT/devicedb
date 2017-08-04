@@ -8,11 +8,11 @@ import (
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
 
-    . "devicedb/cloud/raft"
+    . "devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
-    "devicedb"
+    . "devicedb/storage"
     "math"
 )
 
@@ -47,11 +47,11 @@ func ev(index uint64) []byte {
 }
 
 var _ = Describe("Storage", func() {
-    var storageDriver devicedb.StorageDriver
+    var storageDriver StorageDriver
     var raftStorage *RaftStorage
 
     BeforeEach(func() {
-        storageDriver = devicedb.NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)
+        storageDriver = NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)
         raftStorage = NewRaftStorage(storageDriver)
     })
 
@@ -84,7 +84,7 @@ var _ = Describe("Storage", func() {
         })
 
         It("should return an error if the snapshot is corrupted or not formatted correctly on disk", func() {
-            batch := devicedb.NewBatch()
+            batch := NewBatch()
             batch.Put(KeySnapshot, []byte{ 8, 3, 9, 2 })
 
             Expect(storageDriver.Open()).Should(BeNil())
@@ -95,7 +95,7 @@ var _ = Describe("Storage", func() {
         })
 
         It("should return an error if the hard state is corrupted or not formatted correctly on disk", func() {
-            batch := devicedb.NewBatch()
+            batch := NewBatch()
             batch.Put(KeyHardState, []byte{ 8, 3, 9, 2 })
 
             Expect(storageDriver.Open()).Should(BeNil())
@@ -106,7 +106,7 @@ var _ = Describe("Storage", func() {
         })
 
         It("should return an error if the entries on disk do not contain monotonically increasing indices", func() {
-            batch := devicedb.NewBatch()
+            batch := NewBatch()
 
             batch.Put(ek(3), ev(3))
             batch.Put(ek(4), ev(4))
@@ -121,7 +121,7 @@ var _ = Describe("Storage", func() {
         })
 
         It("should return an error if the index in the entries on disk do not match the index implied by their key", func() {
-            batch := devicedb.NewBatch()
+            batch := NewBatch()
 
             batch.Put(ek(3), ev(3))
             batch.Put(ek(4), ev(4))

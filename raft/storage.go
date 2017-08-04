@@ -4,7 +4,7 @@ import (
     "sync"
     "errors"
 
-    "devicedb"
+    . "devicedb/storage"
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
     "encoding/binary"
@@ -52,12 +52,12 @@ func entryKeys(firstIndex, lastIndex uint64) [][]byte {
 type RaftStorage struct {
     isOpen bool
     isEmpty bool
-    storageDriver devicedb.StorageDriver
+    storageDriver StorageDriver
     lock sync.Mutex
     memoryStorage *raft.MemoryStorage
 }
 
-func NewRaftStorage(storageDriver devicedb.StorageDriver) *RaftStorage {
+func NewRaftStorage(storageDriver StorageDriver) *RaftStorage {
     return &RaftStorage{
         isEmpty: true,
         storageDriver: storageDriver,
@@ -269,7 +269,7 @@ func (raftStorage *RaftStorage) SetHardState(st raftpb.HardState) error {
         return err
     }
 
-    storageBatch := devicedb.NewBatch()
+    storageBatch := NewBatch()
     storageBatch.Put(KeyHardState, encodedHardState)
 
     err = raftStorage.storageDriver.Batch(storageBatch)
@@ -310,7 +310,7 @@ func (raftStorage *RaftStorage) ApplySnapshot(snap raftpb.Snapshot) error {
         return err
     }
 
-    storageBatch := devicedb.NewBatch()
+    storageBatch := NewBatch()
 
     for _, purgedEntryKey := range purgedEntryKeys {
         storageBatch.Delete(purgedEntryKey)
@@ -368,7 +368,7 @@ func (raftStorage *RaftStorage) CreateSnapshot(i uint64, cs *raftpb.ConfState, d
     newFirstIndex, _ := raftStorage.memoryStorage.FirstIndex()
     purgedEntryKeys := entryKeys(originalFirstIndex, newFirstIndex - 1)
 
-    storageBatch := devicedb.NewBatch()
+    storageBatch := NewBatch()
 
     for _, purgedEntryKey := range purgedEntryKeys {
         storageBatch.Delete(purgedEntryKey)
@@ -419,7 +419,7 @@ func (raftStorage *RaftStorage) Append(entries []raftpb.Entry) error {
         entries = entries[originalFirstIndex - entries[0].Index:]
     }
 
-    storageBatch := devicedb.NewBatch()
+    storageBatch := NewBatch()
 
     // purge all old entries whose index >= entires[0].Index
     for i := entries[0].Index; i <= originalLastIndex; i++ {
@@ -465,7 +465,7 @@ func (raftStorage *RaftStorage) ApplyAll(hs raftpb.HardState, ents []raftpb.Entr
     }
 
     memoryStorageCopy := raftStorage.cloneMemoryStorage()
-    storageBatch := devicedb.NewBatch()
+    storageBatch := NewBatch()
 
     // apply entries to storage
     if len(ents) != 0 {

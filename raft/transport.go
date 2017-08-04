@@ -5,7 +5,7 @@ import (
     "github.com/coreos/etcd/raft/raftpb"
     "golang.org/x/net/context"
 
-    "devicedb"
+    . "devicedb/logging"
 
     "fmt"
     "errors"
@@ -100,7 +100,7 @@ func (hub *TransportHub) Attach(router mux.Router) {
         raftMessage, err := ioutil.ReadAll(r.Body)
 
         if err != nil {
-            devicedb.Log.Warningf("POST /raftmessages: Unable to read message body")
+            Log.Warningf("POST /raftmessages: Unable to read message body")
 
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusInternalServerError)
@@ -114,7 +114,7 @@ func (hub *TransportHub) Attach(router mux.Router) {
         err = msg.Unmarshal(raftMessage)
 
         if err != nil {
-            devicedb.Log.Warningf("POST /raftmessages: Unable to parse message body")
+            Log.Warningf("POST /raftmessages: Unable to parse message body")
 
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusBadRequest)
@@ -126,7 +126,7 @@ func (hub *TransportHub) Attach(router mux.Router) {
         err = hub.Receive(r.Context(), msg)
 
         if err != nil {
-            devicedb.Log.Warningf("POST /raftmessages: Unable to receive message")
+            Log.Warningf("POST /raftmessages: Unable to receive message")
 
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusInternalServerError)

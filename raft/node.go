@@ -3,7 +3,8 @@ package raft
 import (
     "math"
     "time"
-    "devicedb"
+
+    . "devicedb/logging"
     
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
@@ -46,7 +47,7 @@ func NewRaftNode(config *RaftNodeConfig) *RaftNode {
 }
 
 func (raftNode *RaftNode) AddNode(ctx context.Context, nodeID uint64, context []byte) error {
-    devicedb.Log.Infof("Node %d proposing addition of node %d to its cluster", raftNode.config.ID, nodeID)
+    Log.Infof("Node %d proposing addition of node %d to its cluster", raftNode.config.ID, nodeID)
 
     err := raftNode.node.ProposeConfChange(ctx, raftpb.ConfChange{
         ID: nodeID,
@@ -56,14 +57,14 @@ func (raftNode *RaftNode) AddNode(ctx context.Context, nodeID uint64, context []
     })
 
     if err != nil {
-        devicedb.Log.Errorf("Node %d was unable to propose addition of node %d to its cluster: %s", raftNode.config.ID, nodeID, err.Error())
+        Log.Errorf("Node %d was unable to propose addition of node %d to its cluster: %s", raftNode.config.ID, nodeID, err.Error())
     }
 
     return err
 }
 
 func (raftNode *RaftNode) RemoveNode(ctx context.Context, nodeID uint64) error {
-    devicedb.Log.Infof("Node %d proposing removal of node %d from its cluster", raftNode.config.ID, nodeID)
+    Log.Infof("Node %d proposing removal of node %d from its cluster", raftNode.config.ID, nodeID)
 
     err := raftNode.node.ProposeConfChange(ctx, raftpb.ConfChange{
         ID: nodeID,
@@ -73,7 +74,7 @@ func (raftNode *RaftNode) RemoveNode(ctx context.Context, nodeID uint64) error {
     })
 
     if err != nil {
-        devicedb.Log.Errorf("Node %d was unable to propose removal of node %d from its cluster: %s", raftNode.config.ID, nodeID, err.Error())
+        Log.Errorf("Node %d was unable to propose removal of node %d from its cluster: %s", raftNode.config.ID, nodeID, err.Error())
     }
 
     return err
@@ -130,7 +131,7 @@ func (raftNode *RaftNode) Start() error {
         raftNode.lastReplayIndex = hardState.Commit
     }
 
-    devicedb.Log.Debugf("Starting up raft node. Last known commit index was %v", raftNode.lastReplayIndex)
+    Log.Debugf("Starting up raft node. Last known commit index was %v", raftNode.lastReplayIndex)
 
     go raftNode.run()
 
@@ -160,7 +161,7 @@ func (raftNode *RaftNode) run() {
     }()
 
     lastSnapshot, _ := raftNode.LastSnapshot()
-    
+
     if !raft.IsEmptySnap(lastSnapshot) {
         // call onSnapshot callback to give initial state to system config
         raftNode.onSnapshotCB(lastSnapshot)
@@ -274,7 +275,7 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
             return err
         }
 
-        devicedb.Log.Infof("Node %d compacting entries up to %d", raftNode.config.ID, raftNode.lastCommittedIndex)
+        Log.Infof("Node %d compacting entries up to %d", raftNode.config.ID, raftNode.lastCommittedIndex)
         _, err = raftNode.config.Storage.CreateSnapshot(raftNode.lastCommittedIndex, &raftNode.currentRaftConfState, data)
 
         if err != nil {
