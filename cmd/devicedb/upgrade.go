@@ -4,7 +4,8 @@ import (
     "fmt"
     "os"
         
-    . "devicedb"
+    . "devicedb/compatibility"
+    . "devicedb/shared"
 )
 
 func init() {

@@ -8,7 +8,9 @@ import (
     "time"
     "sync"
     
-    . "devicedb"
+    . "devicedb/shared"
+    . "devicedb/server"
+    . "devicedb/logging"
 )
 
 func init() {

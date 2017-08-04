@@ -4,7 +4,7 @@ import (
     "fmt"
     "flag"
     "os"
-    "devicedb"
+    . "devicedb/version"
 )
 
 var usage string = 
@@ -75,7 +75,7 @@ func main() {
             flag.Usage()
         }
     } else if commandName == "-version" {
-        fmt.Fprintf(os.Stdout, "%s\n", devicedb.DEVICEDB_VERSION)
+        fmt.Fprintf(os.Stdout, "%s\n", DEVICEDB_VERSION)
     } else {
         flag.Usage()
     }

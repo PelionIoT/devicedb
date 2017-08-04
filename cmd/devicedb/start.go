@@ -3,7 +3,7 @@ package main
 import (
     "fmt"
     
-    . "devicedb"
+    . "devicedb/server"
 )
 
 func init() {
