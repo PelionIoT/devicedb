@@ -379,6 +379,142 @@ var _ = Describe("Controller", func() {
                 Expect(len(clusterController.State.Nodes)).Should(Equal(1))
                 Expect(partitioningStrategy.calls).Should(Equal(1))
             })
+            
+            It("should do nothing if the specified replacement node does not exist", func() {
+                node1 := NodeConfig{ 
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node2 := NodeConfig{ 
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 2 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{ 
+                        1: &node1,
+                        2: &node2,
+                    },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
+                    Partitions: [][]*PartitionReplica {
+                        []*PartitionReplica{ },
+                        []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
+                    },
+                }
+                partitioningStrategy := &testPartitioningStrategy{ }
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: clusterState,
+                    PartitioningStrategy: partitioningStrategy,
+                }
+
+                clusterCommand := ClusterRemoveNodeBody{
+                    NodeID: 2,
+                    ReplacementNodeID: 3,
+                }
+
+                Expect(len(clusterController.State.Nodes)).Should(Equal(2))
+                clusterController.RemoveNode(clusterCommand)
+                Expect(len(clusterController.State.Nodes)).Should(Equal(2))
+                Expect(partitioningStrategy.calls).Should(Equal(0))
+            })
+
+            It("should do nothing if the specified replacement node exists but has already been allocated tokens", func() {
+                node1 := NodeConfig{ 
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node2 := NodeConfig{ 
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 2 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                }
+                node3 := NodeConfig{
+                    Capacity: 0,
+                    Address: PeerAddress{ NodeID: 3 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                    Tokens: map[uint64]bool{ 1: true },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{ 
+                        1: &node1,
+                        2: &node2,
+                        3: &node3,
+                    },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
+                    Partitions: [][]*PartitionReplica {
+                        []*PartitionReplica{ },
+                        []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
+                    },
+                }
+                partitioningStrategy := &testPartitioningStrategy{ }
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: clusterState,
+                    PartitioningStrategy: partitioningStrategy,
+                }
+
+                clusterCommand := ClusterRemoveNodeBody{
+                    NodeID: 2,
+                    ReplacementNodeID: 3,
+                }
+
+                Expect(len(clusterController.State.Nodes)).Should(Equal(3))
+                clusterController.RemoveNode(clusterCommand)
+                Expect(len(clusterController.State.Nodes)).Should(Equal(3))
+                Expect(partitioningStrategy.calls).Should(Equal(0))
+            })
+
+            It("should hand the tokens of the removed node to the specified replacement node if it exists and give it its capacity", func() {
+                node1 := NodeConfig{
+                    Capacity: 1, 
+                    Address: PeerAddress{ NodeID: 1 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ 1: { 0: true } },
+                }
+                node2 := NodeConfig{
+                    Capacity: 1,
+                    Address: PeerAddress{ NodeID: 2 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                    Tokens: map[uint64]bool{ 1: true, 2: true },
+                }
+                node3 := NodeConfig{
+                    Capacity: 0,
+                    Address: PeerAddress{ NodeID: 3 },
+                    PartitionReplicas: map[uint64]map[uint64]bool{ },
+                    Tokens: map[uint64]bool{ },
+                }
+                clusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{ 
+                        1: &node1,
+                        2: &node2,
+                        3: &node3,
+                    },
+                    Tokens: []uint64{ 0, 2, 2 },
+                    ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 1 },
+                    Partitions: [][]*PartitionReplica {
+                        []*PartitionReplica{ },
+                        []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0, Holder: 1 } },
+                    },
+                }
+                partitioningStrategy := &testPartitioningStrategy{ }
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: clusterState,
+                    PartitioningStrategy: partitioningStrategy,
+                }
+
+                clusterCommand := ClusterRemoveNodeBody{
+                    NodeID: 2,
+                    ReplacementNodeID: 3,
+                }
+
+                Expect(len(clusterController.State.Nodes)).Should(Equal(3))
+                clusterController.RemoveNode(clusterCommand)
+                Expect(len(clusterController.State.Nodes)).Should(Equal(2))
+                Expect(partitioningStrategy.calls).Should(Equal(0))
+            })
 
             It("should do nothing if the node isn't part of the cluster", func() {
                 node1 := NodeConfig{ 

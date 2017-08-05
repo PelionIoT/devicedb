@@ -2,6 +2,7 @@ package cluster
 
 import (
     "errors"
+    "devicedb/raft"
 )
 
 var ENoSuchCommand = errors.New("The cluster command type is not supported")
@@ -28,7 +29,7 @@ func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) 
     case ClusterAddNode:
         clusterController.AddNode(body.(ClusterAddNodeBody))
     case ClusterRemoveNode:
-        clusterController.RemoveNode(body.(ClusterRemoveNodeBody))
+        return clusterController.RemoveNode(body.(ClusterRemoveNodeBody))
     case ClusterTakePartitionReplica:
         clusterController.TakePartitionReplica(body.(ClusterTakePartitionReplicaBody))
     case ClusterSetReplicationFactor:
@@ -115,13 +116,25 @@ func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNod
     }
 }
 
-func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRemoveNodeBody) {
+func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRemoveNodeBody) error {
+    replacementNode, ok := clusterController.State.Nodes[clusterCommand.ReplacementNodeID]
+
+    if (!ok && clusterCommand.ReplacementNodeID != 0) || (ok && len(replacementNode.Tokens) != 0) {
+        // configuration change should be cancelled if the replacement node does not exist
+        return raft.ECancelConfChange
+    }
+
     if _, ok := clusterController.State.Nodes[clusterCommand.NodeID]; ok {
+        if ok && clusterCommand.ReplacementNodeID != 0 {
+            // assign tokens that this node owned to another token
+            clusterController.reassignTokens(clusterCommand.NodeID, clusterCommand.ReplacementNodeID)
+        }
+
         // remove the node if it isn't already removed
         clusterController.State.RemoveNode(clusterCommand.NodeID)
 
-        // redistribute tokens in the cluster, making sure to distribute tokens that were owned by this node to other nodes
-        if clusterController.State.ClusterSettings.AreInitialized() {
+        if (!ok || clusterCommand.ReplacementNodeID == 0) && clusterController.State.ClusterSettings.AreInitialized() {
+            // redistribute tokens in the cluster, making sure to distribute tokens that were owned by this node to other nodes
             clusterController.assignTokens()
         }
 
@@ -130,6 +143,8 @@ func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRem
             clusterController.notifyLocalNode(DeltaNodeRemove, NodeRemove{ NodeID: clusterController.LocalNodeID })
         }
     }
+
+    return nil
 }
 
 func (clusterController *ClusterController) TakePartitionReplica(clusterCommand ClusterTakePartitionReplicaBody) {
@@ -228,6 +243,21 @@ func (clusterController *ClusterController) initializeClusterIfReady() {
 
     clusterController.State.Initialize()
     clusterController.assignTokens()
+}
+
+func (clusterController *ClusterController) reassignTokens(oldOwnerID, newOwnerID uint64) {
+    localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
+
+    // make new owner match old owners capacity
+    clusterController.State.Nodes[newOwnerID].Capacity = clusterController.State.Nodes[oldOwnerID].Capacity
+
+    // move tokens from old owner to new owner
+    for token, _ := range clusterController.State.Nodes[oldOwnerID].Tokens {
+        clusterController.State.AssignToken(newOwnerID, token)
+    }
+
+    // perform diff between original token assignment and new token assignment to build deltas to place into update channel
+    clusterController.localDiffTokensAndNotify(localNodeTokenSnapshot)
 }
 
 func (clusterController *ClusterController) assignTokens() {

@@ -95,7 +95,8 @@ type ClusterAddNodeBody struct {
 }
 
 type ClusterRemoveNodeBody struct {
-    NodeID uint64
+	NodeID uint64
+	ReplacementNodeID uint64
 }
 
 type ClusterTakePartitionReplicaBody struct {

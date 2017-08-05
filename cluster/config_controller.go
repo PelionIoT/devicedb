@@ -38,8 +38,24 @@ func (cc *ConfigController) ProposeAddNode(ctx context.Context, nodeConfig NodeC
     return cc.raftNode.AddNode(ctx, nodeConfig.Address.NodeID, context)
 }
 
+func (cc *ConfigController) ProposeReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error {
+    context, err := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: replacedNodeID, ReplacementNodeID: replacementNodeID })
+
+    if err != nil {
+        return err
+    }
+
+    return cc.raftNode.RemoveNode(ctx, replacedNodeID, context)
+}
+
 func (cc *ConfigController) ProposeRemoveNode(ctx context.Context, nodeID uint64) error {
-    return cc.raftNode.RemoveNode(ctx, nodeID)
+    context, err := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: nodeID, ReplacementNodeID: 0 })
+
+    if err != nil {
+        return err
+    }
+
+    return cc.raftNode.RemoveNode(ctx, nodeID, context)
 }
 
 func (cc *ConfigController) ProposeClusterCommand(ctx context.Context, commandBody interface{}) error {
@@ -102,13 +118,13 @@ func (cc *ConfigController) Start() error {
                     return err
                 }
             case raftpb.ConfChangeRemoveNode:
-                clusterCommandBody, err := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: confChange.NodeID })
+                commandBody, err := DecodeClusterCommandBody(ClusterCommand{ Type: ClusterRemoveNode, Data: confChange.Context })
 
                 if err != nil {
                     return err
                 }
 
-                clusterCommand = ClusterCommand{ Type: ClusterRemoveNode, Data: clusterCommandBody }
+                clusterCommand, err = CreateClusterCommand(ClusterRemoveNode, commandBody)
 
                 if err != nil {
                     return err

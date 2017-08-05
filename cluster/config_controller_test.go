@@ -139,4 +139,13 @@ var _ = Describe("ConfigController", func() {
         Specify("If a majority of cluster nodes are not available when requesting that a node be removed the removal should fail", func() {
         })
     })
+    
+    Describe("Replacing a node", func() {
+        Specify("", func() {
+            // Makes node addition proposal for new node with capacity zero so no tokens are assigned to it
+            // Once it has been added make node removal proposal with flag to indicate intent to give all its tokens to the new node
+            // When committed the node removal should be cancelled if the other node no longer exists in the config (maybe it was removed quickly after)
+            // If not cancelled here then give all of the old node's tokens to the new node and apply the configuration change
+        })
+    })
 })

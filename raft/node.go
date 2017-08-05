@@ -3,6 +3,7 @@ package raft
 import (
     "math"
     "time"
+    "errors"
 
     . "devicedb/logging"
     
@@ -10,6 +11,8 @@ import (
     "github.com/coreos/etcd/raft/raftpb"
     "golang.org/x/net/context"
 )
+
+var ECancelConfChange = errors.New("Conf change cancelled")
 
 // Limit on the number of entries that can accumulate before a snapshot and compaction occurs
 const LogCompactionSize = 1000
@@ -63,14 +66,14 @@ func (raftNode *RaftNode) AddNode(ctx context.Context, nodeID uint64, context []
     return err
 }
 
-func (raftNode *RaftNode) RemoveNode(ctx context.Context, nodeID uint64) error {
+func (raftNode *RaftNode) RemoveNode(ctx context.Context, nodeID uint64, context []byte) error {
     Log.Infof("Node %d proposing removal of node %d from its cluster", raftNode.config.ID, nodeID)
 
     err := raftNode.node.ProposeConfChange(ctx, raftpb.ConfChange{
         ID: nodeID,
         Type: raftpb.ConfChangeRemoveNode,
         NodeID: nodeID,
-        Context: []byte{ },
+        Context: context,
     })
 
     if err != nil {
@@ -203,12 +206,12 @@ func (raftNode *RaftNode) run() {
                     continue
                 }
 
-                raftNode.onEntryCB(entry)
+                cancelConfChange := raftNode.onEntryCB(entry) == ECancelConfChange
 
                 raftNode.lastCommittedIndex = entry.Index
 
                 if entry.Type == raftpb.EntryConfChange {
-                    if err := raftNode.applyConfigurationChange(entry); err != nil {
+                    if err := raftNode.applyConfigurationChange(entry, cancelConfChange); err != nil {
                         raftNode.onErrorCB(err)
 
                         return
@@ -244,11 +247,23 @@ func (raftNode *RaftNode) saveToStorage(hs raftpb.HardState, ents []raftpb.Entry
     return nil
 }
 
-func (raftNode *RaftNode) applyConfigurationChange(entry raftpb.Entry) error {
+func (raftNode *RaftNode) applyConfigurationChange(entry raftpb.Entry, cancelConfChange bool) error {
     var confChange raftpb.ConfChange
 
     if err := confChange.Unmarshal(entry.Data); err != nil {
         return err
+    }
+
+    if cancelConfChange {
+        // From the etcd/raft docs: "The configuration change may be cancelled at this point by setting the NodeID field to zero before calling ApplyConfChange"
+        switch confChange.Type {
+        case raftpb.ConfChangeAddNode:
+            Log.Debugf("Ignoring proposed addition of node %d", confChange.NodeID)
+        case raftpb.ConfChangeRemoveNode:
+            Log.Debugf("Ignoring proposed removal of node %d", confChange.NodeID)
+        }
+
+        confChange.NodeID = 0
     }
 
     raftNode.currentRaftConfState = *raftNode.node.ApplyConfChange(confChange)

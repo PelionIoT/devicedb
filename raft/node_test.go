@@ -17,6 +17,82 @@ import (
 )
 
 var _ = Describe("Node", func() {
+    It("should not add a new node to the cluster if the OnEntry handler for the conf change entry returns ECancelConfChange", func() {
+        node1 := NewRaftNode(&RaftNodeConfig{
+            ID: 0x1,
+            CreateClusterIfNotExist: true,
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+        })
+
+        node2 := NewRaftNode(&RaftNodeConfig{
+            ID: 0x2,
+            CreateClusterIfNotExist: false,
+            Storage: NewRaftStorage(NewLevelDBStorageDriver("/tmp/testraftstore-" + randomString(), nil)),
+        })
+
+        nodeMap := map[uint64]*RaftNode{
+            1: node1,
+            2: node2,
+        }
+
+        nodeEntriesMap := map[uint64][]raftpb.Entry{
+            1: []raftpb.Entry{ },
+            2: []raftpb.Entry{ },
+        }
+
+        var run = func(id uint64, node *RaftNode) {
+            node.OnReplayDone(func() error { return nil })
+            node.OnMessages(func(messages []raftpb.Message) error {
+                for _, msg := range messages {
+                    nodeMap[msg.To].Receive(context.TODO(), msg)
+                }
+
+                return nil
+            })
+
+            node.OnCommittedEntry(func(entry raftpb.Entry) error {
+                nodeEntriesMap[id] = append(nodeEntriesMap[id], entry)
+
+                if entry.Type == raftpb.EntryConfChange {
+                    var confChange raftpb.ConfChange
+
+                    confChange.Unmarshal(entry.Data)
+
+                    if confChange.NodeID == 0x2 {
+                        return ECancelConfChange
+                    }
+                }
+
+                return nil
+            })
+
+            node.OnSnapshot(func(snap raftpb.Snapshot) error {
+                return nil
+            })
+        }
+
+        go run(1, node1)
+        go run(2, node2)
+
+        Expect(node1.Start()).Should(BeNil())
+        Expect(node2.Start()).Should(BeNil())
+        <-time.After(time.Second * 1)
+        Expect(node1.AddNode(context.TODO(), 2, []byte{})).Should(BeNil())
+        <-time.After(time.Second * 5)
+
+        Log.Infof("Propose random entries")
+        go node1.Propose(context.TODO(), []byte(randomString()))
+        go node2.Propose(context.TODO(), []byte(randomString()))
+        go node1.Propose(context.TODO(), []byte(randomString()))
+        go node2.Propose(context.TODO(), []byte(randomString()))
+        <-time.After(time.Second * 5)
+        Log.Infof("Shutting down node 2")
+
+        Expect(len(nodeEntriesMap[1])).Should(Not(Equal(0)))
+        Expect(len(nodeEntriesMap[2])).Should(Equal(0))
+
+    })
+
     It("should catch up with the rest of the nodes in the cluster if it is shut down then re-initialized", func() {
         node1 := NewRaftNode(&RaftNodeConfig{
             ID: 0x1,
