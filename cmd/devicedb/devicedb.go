@@ -1,14 +1,3 @@
-// devicedb cluster start-node -conf=/a/b/c.yaml -seed=true -partitions=256 -replication_factor=3  Create a new single node cluster
-// devicedb cluster start-node -conf=/a/b/c.yaml                                   Create a node that does not belong to a cluster yet
-// devicedb cluster add-node [CLUSTER_ADDRESS] [NODE_ADDRESS]                      Add a node to an existing cluster
-// devicedb cluster remove-node [CLUSTER_ADDRESS] [NODE_ID]                        Forcefully remove a node from the cluster and reassign its tokens
-// devicedb cluster decommission-node [CLUSTER_ADDRESS] [NODE_ID]                  Gracefully remove a node from the cluster
-// devicedb cluster replace-node [CLUSTER_ADDRESS] [NODE_ID] [REPLACEMENT_ADDRESS]
-// devicedb cluster status [CLUSTER_ADDRESS]                                       Report information related to cluster health and provisioning status
-// devicedb cluster partitions [CLUSTER_ADDRESS]                                   Report cluster membership info and info about data distribution in the cluster
-// devicedb cluster performance [CLUSTER_ADDRESS]                                  Report information related to server load on the various nodes and usage statistics
-// devicedb cluster conf                                                           Generate a template config file for a node
-
 package main
 
 import (

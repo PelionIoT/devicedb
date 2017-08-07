@@ -13,6 +13,7 @@ import (
 var KeySnapshot = []byte{ 0 }
 var KeyHardState = []byte{ 1 }
 var KeyPrefixEntry = []byte{ 2 }
+var KeyNodeID = []byte{ 3 }
 
 func entryKey(index uint64) []byte {
     key := make([]byte, 0, len(KeyPrefixEntry) + 8)
@@ -76,6 +77,11 @@ func (raftStorage *RaftStorage) restoreMemoryStorage(s raft.MemoryStorage) {
 func (raftStorage *RaftStorage) Open() error {
     raftStorage.lock.Lock()
     defer raftStorage.lock.Unlock()
+
+    // If this storage has already been opened ignore this call to open
+    if raftStorage.isOpen {
+        return nil
+    }
 
     if err := raftStorage.storageDriver.Open(); err != nil {
         return err
@@ -245,6 +251,38 @@ func (raftStorage *RaftStorage) Snapshot() (raftpb.Snapshot, error) {
     return raftStorage.memoryStorage.Snapshot()
 }
 // END raft.Storage interface methods
+
+func (raftStorage *RaftStorage) SetNodeID(id uint64) error {
+    idBytes := make([]byte, 8)
+    binary.BigEndian.PutUint64(idBytes, id)
+
+    storageBatch := NewBatch()
+    storageBatch.Put(KeyNodeID, idBytes)
+
+    if err := raftStorage.storageDriver.Batch(storageBatch); err != nil {
+        return err
+    }
+
+    return nil
+}
+
+func (raftStorage *RaftStorage) NodeID() (uint64, error) {
+    result, err := raftStorage.storageDriver.Get([][]byte{ KeyNodeID })
+
+    if err != nil {
+        return 0, err
+    }
+
+    if result[0] == nil {
+        return 0, nil
+    }
+
+    if len(result[0]) != 8 {
+        return 0, nil
+    }
+
+    return binary.BigEndian.Uint64(result[0]), nil
+}
 
 func (raftStorage *RaftStorage) SetHardState(st raftpb.HardState) error {
     raftStorage.lock.Lock()

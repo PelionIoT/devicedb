@@ -3,7 +3,6 @@ package raft
 import (
     "github.com/gorilla/mux"
     "github.com/coreos/etcd/raft/raftpb"
-    "golang.org/x/net/context"
 
     . "devicedb/logging"
 
@@ -13,6 +12,7 @@ import (
     "bytes"
     "io"
     "io/ioutil"
+    "context"
 )
 
 type PeerAddress struct {
@@ -28,15 +28,16 @@ func (peerAddress *PeerAddress) ToHTTPURL(endpoint string) string {
 type TransportHub struct {
     peers map[uint64]PeerAddress
     httpClient *http.Client
-    raftNode *RaftNode
+    onReceiveCB func(context.Context, raftpb.Message) error
 }
 
-func NewTransportHub(raftNode *RaftNode) *TransportHub {
-    return &TransportHub{
+func NewTransportHub() *TransportHub {
+    hub := &TransportHub{
         peers: make(map[uint64]PeerAddress),
         httpClient: &http.Client{ },
-        raftNode: raftNode,
     }
+
+    return hub
 }
 
 func (hub *TransportHub) AddPeer(peerAddress PeerAddress) {
@@ -51,8 +52,8 @@ func (hub *TransportHub) UpdatePeer(peerAddress PeerAddress) {
     hub.AddPeer(peerAddress)
 }
 
-func (hub *TransportHub) Receive(ctx context.Context, msg raftpb.Message) error {
-    return hub.raftNode.Receive(ctx, msg)
+func (hub *TransportHub) OnReceive(cb func(context.Context, raftpb.Message) error) {
+    hub.onReceiveCB = cb
 }
 
 func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message) error {
@@ -95,7 +96,7 @@ func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message) error {
     return nil
 }
 
-func (hub *TransportHub) Attach(router mux.Router) {
+func (hub *TransportHub) Attach(router *mux.Router) {
     router.HandleFunc("/raftmessages", func(w http.ResponseWriter, r *http.Request) {
         raftMessage, err := ioutil.ReadAll(r.Body)
 
@@ -123,7 +124,7 @@ func (hub *TransportHub) Attach(router mux.Router) {
             return
         }
 
-        err = hub.Receive(r.Context(), msg)
+        err = hub.onReceiveCB(r.Context(), msg)
 
         if err != nil {
             Log.Warningf("POST /raftmessages: Unable to receive message")

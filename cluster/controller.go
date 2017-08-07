@@ -119,8 +119,8 @@ func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNod
 func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRemoveNodeBody) error {
     replacementNode, ok := clusterController.State.Nodes[clusterCommand.ReplacementNodeID]
 
-    if (!ok && clusterCommand.ReplacementNodeID != 0) || (ok && len(replacementNode.Tokens) != 0) {
-        // configuration change should be cancelled if the replacement node does not exist
+    if (!ok && clusterCommand.ReplacementNodeID != 0) || (ok && len(replacementNode.Tokens) != 0) || clusterCommand.ReplacementNodeID == clusterCommand.NodeID {
+        // configuration change should be cancelled if the replacement node does not exist, the node already has a token assignment or it is the node being removed
         return raft.ECancelConfChange
     }
 

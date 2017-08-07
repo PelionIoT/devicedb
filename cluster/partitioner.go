@@ -4,6 +4,10 @@ import (
     "errors"
 )
 
+const MaxPartitionCount uint64 = 65536
+const DefaultPartitionCount uint64 = 1024
+const MinPartitionCount uint64 = 64
+
 var EPreconditionFailed = errors.New("Unable to validate precondition")
 var ENoNodesAvailable = errors.New("Unable to assign tokens because there are no available nodes in the cluster")
 

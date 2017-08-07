@@ -38,7 +38,8 @@ var _ = Describe("ConfigController", func() {
                 LocalUpdates: make(chan ClusterStateDelta),
             }
 
-            addNodeContext, _ := EncodeClusterCommandBody(ClusterAddNodeBody{ NodeID: 0x1, NodeConfig: NodeConfig{ Address: PeerAddress{ NodeID: 0x1 }, Capacity: 1 } })
+            addNodeBody, _ := EncodeClusterCommandBody(ClusterAddNodeBody{ NodeID: 0x1, NodeConfig: NodeConfig{ Address: PeerAddress{ NodeID: 0x1 }, Capacity: 1 } })
+            addNodeContext, _ := EncodeClusterCommand(ClusterCommand{ Type: ClusterAddNode, Data: addNodeBody })
 
             // Create New Raft Node
             raftNode := NewRaftNode(&RaftNodeConfig{
@@ -62,20 +63,29 @@ var _ = Describe("ConfigController", func() {
             Expect(delta.Delta.(NodeAdd).NodeID).Should(Equal(uint64(0x1)))
 
             // Propose A Few Cluster Config Changes
-            Expect(configController.ProposeClusterCommand(context.TODO(), ClusterSetPartitionCountBody{ Partitions: 1024 })).Should(BeNil())
-            Expect(configController.ProposeClusterCommand(context.TODO(), ClusterSetReplicationFactorBody{ ReplicationFactor: 2 })).Should(BeNil())
+            Expect(configController.ClusterCommand(context.TODO(), ClusterSetPartitionCountBody{ Partitions: 1024 })).Should(BeNil())
 
             ownedTokens := make(map[uint64]bool)
+            done := make(chan int)
+            
+            // This needs to run in a sepearte goroutine since ClusterCommand blocks until all notifactions are sent to the local node
+            go func() {
 
-            // Wait For Changes To Commit
-            for i := uint64(0); i < 1024; i++ {
-                delta := <-clusterController.LocalUpdates
-                Expect(delta.Type).Should(Equal(DeltaNodeGainToken))
-                Expect(delta.Delta.(NodeGainToken).NodeID).Should(Equal(uint64(0x1)))
+                // Wait For Changes To Commit
+                for i := uint64(0); i < 1024; i++ {
+                    delta := <-clusterController.LocalUpdates
+                    Expect(delta.Type).Should(Equal(DeltaNodeGainToken))
+                    Expect(delta.Delta.(NodeGainToken).NodeID).Should(Equal(uint64(0x1)))
 
-                ownedTokens[delta.Delta.(NodeGainToken).Token] = true
-            }
+                    ownedTokens[delta.Delta.(NodeGainToken).Token] = true
+                }
 
+                done <- 1
+            }()
+
+            Expect(configController.ClusterCommand(context.TODO(), ClusterSetReplicationFactorBody{ ReplicationFactor: 2 })).Should(BeNil())
+
+            <-done
             // Verify changes
             Expect(len(ownedTokens)).Should(Equal(1024))
             Expect(ownedTokens).Should(Equal(clusterController.State.Nodes[1].Tokens))
@@ -141,6 +151,15 @@ var _ = Describe("ConfigController", func() {
     })
     
     Describe("Replacing a node", func() {
+        Context("The specified replacement node doesnt belong to the cluster", func() {
+        })
+
+        Context("The specified replacement node already has tokens assigned to it", func() {
+        })
+        
+        Context("The specified replacement node exists and doesnt have tokens assigned to it", func() {
+        })
+
         Specify("", func() {
             // Makes node addition proposal for new node with capacity zero so no tokens are assigned to it
             // Once it has been added make node removal proposal with flag to indicate intent to give all its tokens to the new node
@@ -149,3 +168,6 @@ var _ = Describe("ConfigController", func() {
         })
     })
 })
+
+// Node ip change?
+// should generate node id based on a name?

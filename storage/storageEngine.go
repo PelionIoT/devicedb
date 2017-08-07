@@ -122,11 +122,11 @@ func NewPrefixedStorageDriver(prefix []byte, storageDriver StorageDriver) *Prefi
 }
 
 func (psd *PrefixedStorageDriver) Open() error {
-    return psd.storageDriver.Open()
+    return nil
 }
 
 func (psd *PrefixedStorageDriver) Close() error {
-    return psd.storageDriver.Close()
+    return nil
 }
 
 func (psd *PrefixedStorageDriver) Recover() error {

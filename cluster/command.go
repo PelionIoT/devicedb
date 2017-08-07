@@ -80,7 +80,8 @@ const (
 
 type ClusterCommand struct {
     Type ClusterCommandType
-    SubmitterID uint64
+	SubmitterID uint64
+	CommandID uint64
     Data []byte
 }
 

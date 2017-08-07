@@ -40,6 +40,7 @@ const (
     eREAD_BODY = iota
     eREQUEST_QUERY = iota
     eALERT_BODY = iota
+    eNODE_CONFIG_BODY = iota
 )
 
 var (
@@ -59,4 +60,5 @@ var (
     EReadBody              = DBerror{ "Unable to read request body", eREAD_BODY }
     ERequestQuery          = DBerror{ "Invalid query parameter format", eREQUEST_QUERY }
     EAlertBody             = DBerror{ "Invalid alert body. Body must be true or false", eALERT_BODY }
+    ENodeConfigBody        = DBerror{ "Invalid node config body.", eNODE_CONFIG_BODY }
 )

@@ -5,60 +5,116 @@ package cluster
 import (
     "devicedb/raft"
     . "devicedb/logging"
+    . "devicedb/util"
 
+    raftEtc "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
 
-    "encoding/json"
     "context"
     "errors"
+    "sync"
 )
 
+var EBadContext = errors.New("The node addition or removal had an invalid context")
 var ERaftNodeStartup = errors.New("Encountered an error while starting up raft controller")
 var ERaftProtocolError = errors.New("Raft controller encountered a protocol error")
+var ECancelled = errors.New("The request was cancelled")
+var EStopped = errors.New("The server was stopped")
+
+type proposalResponse struct {
+    err error
+}
 
 type ConfigController struct {
     raftNode *raft.RaftNode
+    raftTransport *raft.TransportHub
     clusterController *ClusterController
+    requestMap *RequestMap
+    stop chan int
 }
 
-func NewConfigController(raftNode *raft.RaftNode, clusterController *ClusterController) *ConfigController {
+func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportHub, clusterController *ClusterController) *ConfigController {
     return &ConfigController{
         raftNode: raftNode,
+        raftTransport: raftTransport,
         clusterController: clusterController,
+        requestMap: NewRequestMap(),
     }
 }
 
-func (cc *ConfigController) ProposeAddNode(ctx context.Context, nodeConfig NodeConfig) error {
-    context, err := EncodeClusterCommandBody(ClusterAddNodeBody{ NodeID: nodeConfig.Address.NodeID, NodeConfig: nodeConfig })
+func (cc *ConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
+    encodedAddCommandBody, _ := EncodeClusterCommandBody(ClusterAddNodeBody{ NodeID: nodeConfig.Address.NodeID, NodeConfig: nodeConfig })
+    addCommand := ClusterCommand{ Type: ClusterAddNode, Data: encodedAddCommandBody, SubmitterID: cc.clusterController.LocalNodeID, CommandID: cc.nextCommandID() }
+    context, _ := EncodeClusterCommand(addCommand)
 
-    if err != nil {
+    respCh := cc.requestMap.MakeRequest(addCommand.CommandID)
+
+    if err := cc.raftNode.AddNode(ctx, nodeConfig.Address.NodeID, context); err != nil {
+        cc.requestMap.Respond(addCommand.CommandID, nil)
         return err
     }
 
-    return cc.raftNode.AddNode(ctx, nodeConfig.Address.NodeID, context)
+    select {
+    case resp := <-respCh:
+        return resp.(proposalResponse).err
+    case <-ctx.Done():
+        cc.requestMap.Respond(addCommand.CommandID, nil)
+        return ECancelled
+    case <-cc.stop:
+        cc.requestMap.Respond(addCommand.CommandID, nil)
+        return EStopped
+    }
 }
 
-func (cc *ConfigController) ProposeReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error {
-    context, err := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: replacedNodeID, ReplacementNodeID: replacementNodeID })
+func (cc *ConfigController) ReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error {
+    encodedRemoveCommandBody, _ := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: replacedNodeID, ReplacementNodeID: replacementNodeID })
+    replaceCommand := ClusterCommand{ Type: ClusterRemoveNode, Data: encodedRemoveCommandBody, SubmitterID: cc.clusterController.LocalNodeID, CommandID: cc.nextCommandID() }
+    context, _ := EncodeClusterCommand(replaceCommand)
 
-    if err != nil {
+    respCh := cc.requestMap.MakeRequest(replaceCommand.CommandID)
+
+    if err := cc.raftNode.RemoveNode(ctx, replacedNodeID, context); err != nil {
+        cc.requestMap.Respond(replaceCommand.CommandID, nil)
         return err
     }
 
-    return cc.raftNode.RemoveNode(ctx, replacedNodeID, context)
+    select {
+    case resp := <-respCh:
+        return resp.(proposalResponse).err
+    case <-ctx.Done():
+        cc.requestMap.Respond(replaceCommand.CommandID, nil)
+        return ECancelled
+    case <-cc.stop:
+        cc.requestMap.Respond(replaceCommand.CommandID, nil)
+        return EStopped
+    }
 }
 
-func (cc *ConfigController) ProposeRemoveNode(ctx context.Context, nodeID uint64) error {
-    context, err := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: nodeID, ReplacementNodeID: 0 })
+func (cc *ConfigController) RemoveNode(ctx context.Context, nodeID uint64) error {
+    encodedRemoveCommandBody, _ := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: nodeID, ReplacementNodeID: 0 })
+    removeCommand := ClusterCommand{ Type: ClusterRemoveNode, Data: encodedRemoveCommandBody, SubmitterID: cc.clusterController.LocalNodeID, CommandID: cc.nextCommandID() }
+    context, _ := EncodeClusterCommand(removeCommand)
 
-    if err != nil {
+    respCh := cc.requestMap.MakeRequest(removeCommand.CommandID)
+
+    if err := cc.raftNode.RemoveNode(ctx, nodeID, context); err != nil {
+        cc.requestMap.Respond(removeCommand.CommandID, nil)
         return err
     }
 
-    return cc.raftNode.RemoveNode(ctx, nodeID, context)
+    select {
+    case resp := <-respCh:
+        return resp.(proposalResponse).err
+    case <-ctx.Done():
+        cc.requestMap.Respond(removeCommand.CommandID, nil)
+        return ECancelled
+    case <-cc.stop:
+        cc.requestMap.Respond(removeCommand.CommandID, nil)
+        return EStopped
+    }
 }
 
-func (cc *ConfigController) ProposeClusterCommand(ctx context.Context, commandBody interface{}) error {
+func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody interface{}) error {
     var command ClusterCommand = ClusterCommand{
         SubmitterID: cc.clusterController.LocalNodeID,
     }
@@ -76,15 +132,66 @@ func (cc *ConfigController) ProposeClusterCommand(ctx context.Context, commandBo
         return ENoSuchCommand
     }
 
-    encodedCommandBody, _ := json.Marshal(commandBody)
+    encodedCommandBody, _ := EncodeClusterCommandBody(commandBody)
     command.Data = encodedCommandBody
-    encodedCommand, _ := json.Marshal(command)
+    command.SubmitterID = cc.clusterController.LocalNodeID
+    command.CommandID = cc.nextCommandID()
+    encodedCommand, _ := EncodeClusterCommand(command)
 
-    return cc.raftNode.Propose(ctx, encodedCommand)
+    respCh := cc.requestMap.MakeRequest(command.CommandID)
+
+    if err := cc.raftNode.Propose(ctx, encodedCommand); err != nil {
+        cc.requestMap.Respond(command.CommandID, nil)
+        return err
+    }
+
+    select {
+    case resp := <-respCh:
+        return resp.(proposalResponse).err
+    case <-ctx.Done():
+        cc.requestMap.Respond(command.CommandID, nil)
+        return ECancelled
+    case <-cc.stop:
+        cc.requestMap.Respond(command.CommandID, nil)
+        return EStopped
+    }
 }
 
 func (cc *ConfigController) Start() error {
     restored := make(chan int, 1)
+    cc.stop = make(chan int)
+
+    cc.raftTransport.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+        return cc.raftNode.Receive(ctx, msg)
+    })
+
+    cc.raftNode.OnMessages(func(messages []raftpb.Message) error {
+        var wg sync.WaitGroup
+
+        for _, message := range messages {
+            wg.Add(1)
+
+            go func(msg raftpb.Message) {
+                err := cc.raftTransport.Send(context.TODO(), msg)
+
+                if err != nil {
+                    if msg.Type == raftpb.MsgSnap {
+                        cc.raftNode.ReportSnapshot(msg.To, raftEtc.SnapshotFailure)
+                    } else {
+                        cc.raftNode.ReportUnreachable(msg.To)
+                    }
+                } else if msg.Type == raftpb.MsgSnap {
+                    cc.raftNode.ReportSnapshot(msg.To, raftEtc.SnapshotFinish)
+                }
+
+                wg.Done()
+            }(message)
+        }
+
+        wg.Wait()
+
+        return nil
+    })
 
     cc.raftNode.OnSnapshot(func(snap raftpb.Snapshot) error {
         // but this wont alert to any token gains or anything
@@ -94,7 +201,7 @@ func (cc *ConfigController) Start() error {
     cc.raftNode.OnCommittedEntry(func(entry raftpb.Entry) error {
         Log.Debugf("New entry [%d]: %v", entry.Index, entry)
 
-        var clusterCommand ClusterCommand
+        var encodedClusterCommand []byte
 
         switch entry.Type {
         case raftpb.EntryConfChange:
@@ -104,42 +211,59 @@ func (cc *ConfigController) Start() error {
                 return err
             }
 
-            switch confChange.Type {
-            case raftpb.ConfChangeAddNode:
-                commandBody, err := DecodeClusterCommandBody(ClusterCommand{ Type: ClusterAddNode, Data: confChange.Context })
-
-                if err != nil {
-                    return err
-                }
-
-                clusterCommand, err = CreateClusterCommand(ClusterAddNode, commandBody)
-
-                if err != nil {
-                    return err
-                }
-            case raftpb.ConfChangeRemoveNode:
-                commandBody, err := DecodeClusterCommandBody(ClusterCommand{ Type: ClusterRemoveNode, Data: confChange.Context })
-
-                if err != nil {
-                    return err
-                }
-
-                clusterCommand, err = CreateClusterCommand(ClusterRemoveNode, commandBody)
-
-                if err != nil {
-                    return err
-                }
-            }
-        case raftpb.EntryNormal:
-            var err error
-            clusterCommand, err = DecodeClusterCommand(entry.Data)
+            clusterCommand, err := DecodeClusterCommand(confChange.Context)
 
             if err != nil {
                 return err
             }
+
+            clusterCommandBody, err := DecodeClusterCommandBody(clusterCommand)
+
+            if err != nil {
+                return err
+            }
+
+            switch clusterCommand.Type {
+            case ClusterAddNode:
+                if clusterCommandBody.(ClusterAddNodeBody).NodeID != clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address.NodeID {
+                    return EBadContext
+                }
+
+                cc.raftTransport.AddPeer(clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address)
+            case ClusterRemoveNode:
+                cc.raftTransport.RemovePeer(raft.PeerAddress{ NodeID: clusterCommandBody.(ClusterRemoveNodeBody).NodeID })
+            default:
+                return EBadContext
+            }
+
+            encodedClusterCommand = confChange.Context
+        case raftpb.EntryNormal:
+            encodedClusterCommand = entry.Data
         }
 
-        return cc.clusterController.Step(clusterCommand)
+        clusterCommand, err := DecodeClusterCommand(encodedClusterCommand)
+
+        if err != nil {
+            return err
+        }
+
+        if err := cc.clusterController.Step(clusterCommand); err != nil {
+            if clusterCommand.SubmitterID == cc.clusterController.LocalNodeID {
+                cc.requestMap.Respond(clusterCommand.CommandID, proposalResponse{
+                    err: err,
+                })
+            }
+
+            return err
+        }
+
+        if clusterCommand.SubmitterID == cc.clusterController.LocalNodeID {
+            cc.requestMap.Respond(clusterCommand.CommandID, proposalResponse{
+                err: nil,
+            })
+        }
+
+        return nil
     })
 
     cc.raftNode.OnError(func(err error) error {
@@ -172,4 +296,9 @@ func (cc *ConfigController) Start() error {
 
 func (cc *ConfigController) Stop() {
     cc.raftNode.Stop()
+    close(cc.stop)
+}
+
+func (cc *ConfigController) nextCommandID() uint64 {
+    return UUID64()
 }
