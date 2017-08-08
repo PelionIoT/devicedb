@@ -7,7 +7,69 @@ import (
 
 var _ = Describe("Cluster Operation", func() {
     Describe("Failure Modes And Recovery", func() {
-        Context("When a dead node needs replacement", func() {
+        Context("When a node is dead and needs replacement", func() {
+            Context("The node is a primary replica owner but not holder", func() {
+                Context("RF > 1", func() {
+                    Context("The primary replica holder is still around", func() {
+                        Specify("The replacement node should start normal replica transfer procedures to get the replica data", func() {
+                            // This just resembles a normal transfer procedure
+                        })
+                    })
+
+                    Context("The primary replica holder was removed and all backup nodes were removed", func() {
+                        Specify("The replacement node should propose a holder transfer then start pushing backups to whichever nodes are the new backup nodes", func() {
+                        })
+                    })
+
+                    Context("The primary replica holder was removed but at least one backup node exists", func() {
+                        Specify("The replacement node should query each backup node to see which is most up to date and restore its state from that one", func() {
+                        })
+
+                        Specify("If a certain backup node does not contain the backup replica the replacement node thinks it does keep trying until it agrees", func() {
+                        })
+
+                        Specify("Once the replacement node has queried all backup nodes to see which one is most up to date it should restore its state from the most up to date backup", func() {
+                        })
+
+                        Specify("Once a node has successfully restored its state from a backup node it should propose a holder transfer", func() {
+                        })
+
+                        Specify("Once the holder transfer is committed and confirmed valid the node should start forwarding updates to backup nodes", func() {
+                        })
+
+                        Specify("Once the holder transfer is committed and confirmed valid the node should start accepting writes for that partition", func() {
+                        })
+                    })
+                })
+
+                Context("RF = 1", func() {
+                    Context("The primary replica holder is still around", func() {
+                        Specify("The replacement node should start normal replica transfer procedures to get the replica data", func() {
+                        })
+                    })
+
+                    Context("The primary replica holder was removed", func() {
+                        Specify("The replacement node should propose a holder transfer then accepting new updates", func() {
+                        })
+                    })
+                })
+            })
+
+            Context("The node is a primary replica holder but not owner", func() {
+                Specify("The replacement node should not be a holder for this replica", func() {
+                    // In other words the partition holder flag should be cleared once this node replaces another
+                    // for the primary replica of this partition. This lets the new owner know that it will not be able to obtain
+                    // a transfer from anyone since that data no longer exists.
+                })
+            })
+
+            Context("The node is a primary replica owner and holder", func() {
+                Specify("The replacement node should not be a holder for this replica", func() {
+                })
+
+                // This is the exact same as the first case after the holder status is reset. This node 
+                // will need to obtain data then transfer holder
+            })
         })
 
         Context("All nodes holding the replicas for a partition have been forcefully removed since they were dead", func() {
@@ -48,10 +110,6 @@ var _ = Describe("Cluster Operation", func() {
                 // it must have spoke with the last holder about the transfer, the last holder agreed to it, and the transfer was 
                 // committed to the log in an order such that nobody took ownership of the partition before the transfer was complete
             })
-        })
-
-        Context("When a node holding the primary partition replica needs replacement and the replica data has been lost", func() {
-
         })
     })
 
