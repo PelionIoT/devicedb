@@ -248,7 +248,7 @@ var clusterUsage string =
 Cluster Commands:
     start        Start a devicedb cloud node
     remove       Force a node to be removed from the cluster
-    decomission  Migrate data away from a node then remove it from the cluster
+    decommission  Migrate data away from a node then remove it from the cluster
     replace      Replace a dead node with a new node
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
@@ -309,25 +309,25 @@ func main() {
     benchmarkDB := benchmarkCommand.String("db", "", "The directory to use for the benchark test scratch space")
     benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
 
-    //clusterStartHost := clusterStartCommand.String("host", "localhost", "The hostname or ip to listen on. This is the advertised host address for this node.")
-    //clusterStartPort := clusterStartCommand.Uint("port", uint(80), "The port to bind to.")
+    clusterStartHost := clusterStartCommand.String("host", "localhost", "The hostname or ip to listen on. This is the advertised host address for this node.")
+    clusterStartPort := clusterStartCommand.Uint("port", uint(80), "The port to bind to.")
     clusterStartPartitions := clusterStartCommand.Uint64("partitions", uint64(cluster.DefaultPartitionCount), "The number of hash space partitions in the cluster. Must be a power of 2. (Only specified when starting a new cluster)")
     clusterStartReplicationFactor := clusterStartCommand.Uint64("replication_factor", uint64(3), "The number of replcas required for every database key. (Only specified when starting a new cluster)")
     clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
     clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
 
-    /*clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
+    clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
     clusterRemovePort := clusterRemoveCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
     clusterRemoveNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that should be removed from the cluster. Defaults to the ID of the node being contacted.")
 
-    clusterDecommissionHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterDecommissionPort := clusterRemoveCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
-    clusterDecommissionNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that should be decommissioned from the cluster. Defaults to the ID of the node being contacted.")
+    clusterDecommissionHost := clusterDecommissionCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
+    clusterDecommissionPort := clusterDecommissionCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
+    clusterDecommissionNodeID := clusterDecommissionCommand.Uint64("node", uint64(0), "The ID of the node that should be decommissioned from the cluster. Defaults to the ID of the node being contacted.")
 
-    clusterReplaceHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterReplacePort := clusterRemoveCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
-    clusterReplaceNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")*/
-    clusterReplaceReplacementNodeID := clusterRemoveCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
+    clusterReplaceHost := clusterReplaceCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
+    clusterReplacePort := clusterReplaceCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
+    clusterReplaceNodeID := clusterReplaceCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")
+    clusterReplaceReplacementNodeID := clusterReplaceCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
 
     if len(os.Args) < 2 {
         fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
@@ -546,23 +546,58 @@ func main() {
                 os.Exit(1)
             }
         }
+
+        // TODO start up the node
+        fmt.Fprintf(os.Stderr, "Server listening at %s on port %d\n", *clusterStartHost, *clusterStartPort)
+        os.Exit(1)
     }
 
     if clusterRemoveCommand.Parsed() {
+        fmt.Fprintf(os.Stderr, "Asking node at %s on port %d to remove node %d from the cluster\n", *clusterRemoveHost, *clusterRemovePort, *clusterRemoveNodeID)
+        os.Exit(1)
     }
 
     if clusterDecommissionCommand.Parsed() {
+        fmt.Fprintf(os.Stderr, "Asking node at %s on port %d to decommission node %d\n", *clusterDecommissionHost, *clusterDecommissionPort, *clusterDecommissionNodeID)
+        os.Exit(1)
+
     }
 
     if clusterReplaceCommand.Parsed() {
         if *clusterReplaceReplacementNodeID == 0 {
-            fmt.Fprintf(os.Stderr, "-replacement_node must be specified")
+            fmt.Fprintf(os.Stderr, "Error: -replacement_node must be specified\n")
             os.Exit(1)
         }
+
+        fmt.Fprintf(os.Stderr, "Asking node at %s on port %d to replace node %d with node %d\n", *clusterReplaceHost, *clusterReplacePort, *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
+        os.Exit(1)
     }
 
     if clusterHelpCommand.Parsed() {
+        if len(os.Args) < 4 {
+            fmt.Fprintf(os.Stderr, "Error: No cluster command specified for help\n")
+            os.Exit(1)
+        }
+        
+        var flagSet *flag.FlagSet
 
+        switch os.Args[3] {
+        case "start":
+            flagSet = clusterStartCommand
+        case "remove":
+            flagSet = clusterRemoveCommand
+        case "decommission":
+            flagSet = clusterDecommissionCommand 
+        case "replace":
+            flagSet = clusterReplaceCommand
+        default:
+            fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid cluster command.\n", os.Args[3])
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, commandUsage + "\n", "cluster " + os.Args[3])
+        flagSet.PrintDefaults()
+        os.Exit(0)
     }
 }
 
