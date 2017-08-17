@@ -238,19 +238,25 @@ var _ = Describe("Cluster Operation", func() {
         })
     })
 
-    Describe("Resizing and Rebalancing", func() {
-        Context("There are no backup nodes for this partition (replication factor = 1)", func() {
+    Describe("Adding Nodes", func() {
+        // All partition transfer cases are covered above
+    })
+
+    Describe("Removing Nodes", func() {
+        // All partition transfer cases are covered above
+        // Remove + Replace vs Remove Only
+        Specify("When a node is forcefully removed all of its tokens and mark all held partitions should be marked as not held by any node", func() {
+            Fail("Not implemented")
+        })
+    })
+
+    Describe("Decomissioning Nodes", func() {
+        Specify("Node should ensure that it has transferred away all the partition replicas that it holds", func() {
+            Fail("Not implemented")
         })
 
-        Context("There is at least one backup node for this partition (replication factor > 1 and #nodes > 1)", func() {
-            Context("All backup nodes are available", func() {
-            })
-
-            Context("Not all backup nodes are available", func() {
-                Specify("The data transfer from the backup nodes to the new owner of the primary partition replica should block until the other backup node becomes available again", func() {
-                    Fail("Not Implemented")
-                })
-            })
+        Specify("After the node has given away all its data to some other node it should remove itself from the cluster", func() {
+            Fail("Not implemented")
         })
     })
 })

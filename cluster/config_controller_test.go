@@ -52,8 +52,9 @@ var _ = Describe("ConfigController", func() {
                 },
             })
 
+            transport := NewTransportHub()
             // Pass raft node and cluster controller into new config controller
-            configController := NewConfigController(raftNode, clusterController)
+            configController := NewConfigController(raftNode, transport, clusterController)
 
             // Start Config Controller
             Expect(configController.Start()).Should(BeNil())
@@ -107,7 +108,8 @@ var _ = Describe("ConfigController", func() {
                 LocalUpdates: nil,//make(chan ClusterStateDelta),
             }
 
-            newConfigController := NewConfigController(raftNode, newClusterController)
+            newTransport := NewTransportHub()
+            newConfigController := NewConfigController(raftNode, newTransport, newClusterController)
             Expect(newConfigController.Start()).Should(BeNil())
 
             // Make Sure Current Configuration == Configuration Before Controller Was Stopped
