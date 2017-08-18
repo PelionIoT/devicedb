@@ -49,6 +49,10 @@ func NewRaftNode(config *RaftNodeConfig) *RaftNode {
     return raftNode
 }
 
+func (raftNode *RaftNode) ID() uint64 {
+    return raftNode.config.ID
+}
+
 func (raftNode *RaftNode) AddNode(ctx context.Context, nodeID uint64, context []byte) error {
     Log.Infof("Node %d proposing addition of node %d to its cluster", raftNode.config.ID, nodeID)
 
@@ -121,6 +125,8 @@ func (raftNode *RaftNode) Start() error {
         if !raftNode.config.CreateClusterIfNotExist {
             // indicates that this node should join an existing cluster
             peers = nil
+        } else {
+            Log.Infof("Creating a new single node cluster")
         }
 
         raftNode.node = raft.StartNode(config, peers)

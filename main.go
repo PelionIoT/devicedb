@@ -1,22 +1,3 @@
-// devicedb cluster start 
-//   -host <ip> (
-//   -port <port> (port to bind to. Also the advertised port for this node)
-//   -partitions <p> (only if not using -join)
-//   -replication_factor <rf> (only if not using -join)
-//   -store <store_path>  
-//   -join <seed_address>
-// devicedb cluster remove 
-//   -host <host>
-//   -port <port>
-//   -node_id <node id>
-// devicedb cluster decommission 
-//   -host <host>
-//   -port <port>
-// devicedb cluster replace 
-//   -host <host>
-//   -port <port>
-//   -node_id <node id>
-
 package main
 
 import (
@@ -526,30 +507,58 @@ func main() {
 
     if clusterStartCommand.Parsed() {
         if *clusterStartJoin != "" && !isValidJoinAddress(*clusterStartJoin) {
-            fmt.Fprintf(os.Stderr, "-join must specify a valid address of some host in an existing cluster formatted like: host:port Ex: 10.10.102.89:80.\n")
+            fmt.Fprintf(os.Stderr, "Error: -join must specify a valid address of some host in an existing cluster formatted like: host:port Ex: 10.10.102.89:80.\n")
             os.Exit(1)
         }
 
         if *clusterStartStore == "" {
-            fmt.Fprintf(os.Stderr, "-store is a required parameter of the devicedb cluster start command. It must specify a valid file system path.\n")
+            fmt.Fprintf(os.Stderr, "Error: -store is a required parameter of the devicedb cluster start command. It must specify a valid file system path.\n")
             os.Exit(1)
         }
 
         if *clusterStartJoin == "" {
             if !isValidPartitionCount(*clusterStartPartitions) {
-                fmt.Fprintf(os.Stderr, "-partitions must be a power of 2 and be in the range [%d, %d]\n", cluster.MinPartitionCount, cluster.MaxPartitionCount)
+                fmt.Fprintf(os.Stderr, "Error: -partitions must be a power of 2 and be in the range [%d, %d]\n", cluster.MinPartitionCount, cluster.MaxPartitionCount)
                 os.Exit(1)
             }
 
             if *clusterStartReplicationFactor == 0 {
-                fmt.Fprintf(os.Stderr, "-replication_factor must be a positive value")
+                fmt.Fprintf(os.Stderr, "Error: -replication_factor must be a positive value")
                 os.Exit(1)
             }
         }
 
-        // TODO start up the node
-        fmt.Fprintf(os.Stderr, "Server listening at %s on port %d\n", *clusterStartHost, *clusterStartPort)
-        os.Exit(1)
+        var seedHost string
+        var seedPort int
+
+        if *clusterStartJoin != "" {
+            seedHost, seedPort, _ = parseJoinAddress(*clusterStartJoin)
+        }
+
+        cloudServerConfig := CloudServerConfig{
+            Store: *clusterStartStore,
+            ReplicationFactor: *clusterStartReplicationFactor,
+            Partitions: *clusterStartPartitions,
+            Host: *clusterStartHost,
+            Port: int(*clusterStartPort),
+            SeedHost: seedHost,
+            SeedPort: seedPort,
+            Capacity: 1,
+        }
+
+        cloudServer, err := NewCloudServer(cloudServerConfig)
+
+        if err != nil {
+            Log.Errorf("Error: Unable to start cloud server: %v", err.Error())
+
+            os.Exit(1)
+        }
+
+        if err := cloudServer.Start(); err != nil {
+            os.Exit(1)
+        }
+
+        os.Exit(0)
     }
 
     if clusterRemoveCommand.Parsed() {

@@ -2,6 +2,7 @@ package cluster
 
 import (
     "errors"
+    "sync"
     "devicedb/raft"
 )
 
@@ -14,6 +15,26 @@ type ClusterController struct {
     State ClusterState
     PartitioningStrategy PartitioningStrategy
     LocalUpdates chan ClusterStateDelta
+    notificationsEnabled bool
+    notificationsEnabledLock sync.Mutex
+}
+
+func (clusterController *ClusterController) EnableNotifications() {
+    clusterController.notificationsEnabledLock.Lock()
+    defer clusterController.notificationsEnabledLock.Unlock()
+    clusterController.notificationsEnabled = true
+}
+
+func (clusterController *ClusterController) DisableNotifications() {
+    clusterController.notificationsEnabledLock.Lock()
+    defer clusterController.notificationsEnabledLock.Unlock()
+    clusterController.notificationsEnabled = false
+}
+
+func (clusterController *ClusterController) LocalNodeIsInCluster() bool {
+    _, ok := clusterController.State.Nodes[clusterController.LocalNodeID]
+
+    return ok
 }
 
 func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) error {
@@ -323,6 +344,13 @@ func (clusterController *ClusterController) localDiffTokensAndNotify(tokenSnapsh
 // This includes gaining or losing ownership of tokens, gaining or losing ownership of partition
 // replicas, becoming part of a cluster or being removed from a cluster
 func (clusterController *ClusterController) notifyLocalNode(deltaType ClusterStateDeltaType, delta interface{ }) {
+    clusterController.notificationsEnabledLock.Lock()
+    defer clusterController.notificationsEnabledLock.Unlock()
+
+    if !clusterController.notificationsEnabled {
+        return
+    }
+
     if clusterController.LocalUpdates != nil {
         clusterController.LocalUpdates <- ClusterStateDelta{ Type: deltaType, Delta: delta }
     }

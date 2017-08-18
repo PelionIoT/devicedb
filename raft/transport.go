@@ -41,10 +41,13 @@ type TransportHub struct {
     httpClient *http.Client
     onReceiveCB func(context.Context, raftpb.Message) error
     lock sync.Mutex
+    localPeerID uint64
+    defaultPeerAddress PeerAddress
 }
 
-func NewTransportHub() *TransportHub {
+func NewTransportHub(localPeerID uint64) *TransportHub {
     hub := &TransportHub{
+        localPeerID: localPeerID,
         peers: make(map[uint64]PeerAddress),
         httpClient: &http.Client{ 
             Timeout: time.Second * RequestTimeoutSeconds,
@@ -52,6 +55,13 @@ func NewTransportHub() *TransportHub {
     }
 
     return hub
+}
+
+func (hub *TransportHub) SetDefaultRoute(host string, port int) {
+    hub.defaultPeerAddress = PeerAddress{
+        Host: host,
+        Port: port,
+    }
 }
 
 func (hub *TransportHub) AddPeer(peerAddress PeerAddress) {
@@ -76,7 +86,7 @@ func (hub *TransportHub) OnReceive(cb func(context.Context, raftpb.Message) erro
     hub.onReceiveCB = cb
 }
 
-func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message) error {
+func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message, proxy bool) error {
     encodedMessage, err := msg.Marshal()
 
     if err != nil {
@@ -88,10 +98,20 @@ func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message) error {
     hub.lock.Unlock()
 
     if !ok {
-        return EReceiverUnknown
+        if hub.defaultPeerAddress.Host == "" {
+            return EReceiverUnknown
+        }
+
+        peerAddress = hub.defaultPeerAddress
     }
 
-    request, err := http.NewRequest("POST", peerAddress.ToHTTPURL("/raftmessages"), bytes.NewReader(encodedMessage))
+    endpointURL := peerAddress.ToHTTPURL("/raftmessages")
+
+    if proxy {
+        endpointURL += "?forwarded=true"
+    }
+
+    request, err := http.NewRequest("POST", endpointURL, bytes.NewReader(encodedMessage))
 
     if err != nil {
         return err
@@ -154,15 +174,38 @@ func (hub *TransportHub) Attach(router *mux.Router) {
             return
         }
 
-        hub.lock.Lock()
-        _, ok := hub.peers[msg.From]
-        hub.lock.Unlock()
+        if msg.To != hub.localPeerID {
+            // This node is not bound for us. Forward it to its proper destination if we know it
+            // This feature allows new nodes to use their seed node to send messages throughout the cluster before it knows the addresses of its neighboring nodes
+            query := r.URL.Query()
+            _, wasForwarded := query["forwarded"]
 
-        if !ok {
-            Log.Warningf("POST /raftmessages: Sender node (%d) is not known by this node", msg.To)
+            // This message was already proxied by the sender node. The message can only travel for
+            // one hop so we will return an error since we are not the node this is bound for
+            if wasForwarded {
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusForbidden)
+                io.WriteString(w, "\n")
 
+                return
+            }
+
+            Log.Debugf("POST /raftmessages: Destination node (%d) for message is not this node. Will attempt to proxy the message to its proper recipient", msg.To)
+            
+            err := hub.Send(r.Context(), msg, true)
+
+            Log.Warningf("POST /raftmessages: Unable to proxy message to node (%d): %v", msg.To, err.Error())
+
+            if err != nil {
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusInternalServerError)
+                io.WriteString(w, "\n")
+                
+                return
+            }
+            
             w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusForbidden)
+            w.WriteHeader(http.StatusOK)
             io.WriteString(w, "\n")
             
             return

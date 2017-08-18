@@ -90,8 +90,16 @@ var _ = Describe("Transport", func() {
 
         receiverServer = NewTestHTTPServer(ReceiverPort)
         senderServer = NewTestHTTPServer(SenderPort)
-        sender = NewTransportHub()
-        receiver = NewTransportHub()
+        sender = NewTransportHub(SenderNodeID)
+        receiver = NewTransportHub(ReceiverNodeID)
+
+        receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+            return nil
+        })
+        
+        sender.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+            return nil
+        })
 
         receiver.Attach(receiverServer.Router())
         sender.Attach(senderServer.Router())
@@ -112,7 +120,7 @@ var _ = Describe("Transport", func() {
                 Expect(sender.Send(context.TODO(), raftpb.Message{
                     From: SenderNodeID,
                     To: ReceiverNodeID,
-                })).Should(Equal(EReceiverUnknown))
+                }, false)).Should(Equal(EReceiverUnknown))
             })
         })
 
@@ -122,15 +130,6 @@ var _ = Describe("Transport", func() {
                     NodeID: ReceiverNodeID,
                     Host: "localhost",
                     Port: ReceiverPort,
-                })
-            })
-
-            Context("The sender is not known by the recipient", func() {
-                Specify("Send should return an ESenderUnknown error indicating that the receiver does not recognize our id", func() {
-                    Expect(sender.Send(context.TODO(), raftpb.Message{
-                        From: SenderNodeID,
-                        To: ReceiverNodeID,
-                    })).Should(Equal(ESenderUnknown))
                 })
             })
 
@@ -151,7 +150,7 @@ var _ = Describe("Transport", func() {
                     Expect(sender.Send(context.TODO(), raftpb.Message{
                         From: SenderNodeID,
                         To: ReceiverNodeID,
-                    })).Should(BeNil())
+                    }, false)).Should(BeNil())
                 })
 
                 Specify("Send should return an error if the receiver encountered an error processing the message and responded with an error code", func() {
@@ -162,7 +161,7 @@ var _ = Describe("Transport", func() {
                     Expect(sender.Send(context.TODO(), raftpb.Message{
                         From: SenderNodeID,
                         To: ReceiverNodeID,
-                    })).Should(Not(BeNil()))
+                    }, false)).Should(Not(BeNil()))
                 })
 
                 Specify("Send shoult time out and return an ETimeout error if the receiver does not respond within the timeout window", func() {
@@ -175,7 +174,7 @@ var _ = Describe("Transport", func() {
                     Expect(sender.Send(context.TODO(), raftpb.Message{
                         From: SenderNodeID,
                         To: ReceiverNodeID,
-                    })).Should(Equal(ETimeout))
+                    }, false)).Should(Equal(ETimeout))
                 })
             })
         })

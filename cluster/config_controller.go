@@ -31,6 +31,7 @@ type ConfigController struct {
     clusterController *ClusterController
     requestMap *RequestMap
     stop chan int
+    restartLock sync.Mutex
 }
 
 func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportHub, clusterController *ClusterController) *ConfigController {
@@ -158,8 +159,10 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
 }
 
 func (cc *ConfigController) Start() error {
+    cc.restartLock.Lock()
     restored := make(chan int, 1)
     cc.stop = make(chan int)
+    cc.restartLock.Unlock()
 
     cc.raftTransport.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
         return cc.raftNode.Receive(ctx, msg)
@@ -172,7 +175,7 @@ func (cc *ConfigController) Start() error {
             wg.Add(1)
 
             go func(msg raftpb.Message) {
-                err := cc.raftTransport.Send(context.TODO(), msg)
+                err := cc.raftTransport.Send(context.TODO(), msg, false)
 
                 if err != nil {
                     if msg.Type == raftpb.MsgSnap {
@@ -291,12 +294,21 @@ func (cc *ConfigController) Start() error {
     <-restored
 
     Log.Info("Config controller log replay complete")
+
     return nil
 }
 
 func (cc *ConfigController) Stop() {
+    cc.restartLock.Lock()
+    defer cc.restartLock.Unlock()
+
+    if cc.stop == nil {
+        return
+    }
+
     cc.raftNode.Stop()
     close(cc.stop)
+    cc.stop = nil
 }
 
 func (cc *ConfigController) nextCommandID() uint64 {
