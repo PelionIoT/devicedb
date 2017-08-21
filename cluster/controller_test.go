@@ -81,6 +81,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: nil,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterUpdateNodeBody{
                     NodeID: 1,
@@ -129,6 +130,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterUpdateNodeBody{
                     NodeID: 1,
@@ -176,6 +178,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
@@ -216,6 +219,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
@@ -266,6 +270,7 @@ var _ = Describe("Controller", func() {
                     LocalUpdates: localUpdates,
                 }
 
+                clusterController.EnableNotifications()
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
                     NodeConfig: node2,
@@ -321,6 +326,7 @@ var _ = Describe("Controller", func() {
                     PartitioningStrategy: partitioningStrategy,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
@@ -369,6 +375,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -408,6 +415,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -455,6 +463,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -543,6 +552,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 3,
@@ -592,6 +602,9 @@ var _ = Describe("Controller", func() {
                     PartitioningStrategy: partitioningStrategy,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
+
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -641,6 +654,7 @@ var _ = Describe("Controller", func() {
                     PartitioningStrategy: partitioningStrategy,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -687,6 +701,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                 }
 
+                clusterController.EnableNotifications()
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterTakePartitionReplicaBody{
                     Partition: 1,
@@ -729,6 +744,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterTakePartitionReplicaBody{
@@ -773,6 +789,7 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterTakePartitionReplicaBody{
@@ -832,6 +849,7 @@ var _ = Describe("Controller", func() {
                     LocalUpdates: localUpdates,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterSetReplicationFactorBody{
@@ -890,6 +908,7 @@ var _ = Describe("Controller", func() {
                     LocalUpdates: localUpdates,
                     PartitioningStrategy: partitioningStrategy,
                 }
+                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterSetPartitionCountBody{
@@ -974,6 +993,7 @@ var _ = Describe("Controller", func() {
                     State: originalClusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
@@ -1010,6 +1030,7 @@ var _ = Describe("Controller", func() {
                     State: originalClusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
@@ -1055,6 +1076,7 @@ var _ = Describe("Controller", func() {
                     State: originalClusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
@@ -1103,6 +1125,7 @@ var _ = Describe("Controller", func() {
                     State: originalClusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
@@ -1149,6 +1172,7 @@ var _ = Describe("Controller", func() {
                     State: originalClusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
@@ -1192,6 +1216,7 @@ var _ = Describe("Controller", func() {
                     State: originalClusterState,
                     LocalUpdates: localUpdates,
                 }
+                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 

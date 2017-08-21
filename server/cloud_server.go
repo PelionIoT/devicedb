@@ -1,3 +1,22 @@
+// Node Lifecycle
+// (Startup) -> [Joined] -> [Decommissioning] -> [Removed] -> (Shutdown)
+// Note: startup and shutdown do not necessarily correlate with actual process restarts. Startup corresponds with the time that a new node
+// is not yet joined to a cluster. Shutdown indicates the time after the node has been removed from the cluster. If a node is restarted after
+// it has been removed from the cluster it will not allow the startup to occur.
+//
+// A node in the joined state represents a node that has been added to a cluster
+// A node in the decommissioning state represents a node that has been told to gracefully remove itself from the cluster after handing off its data
+// A node in the removed state represents a node that has been removed from the cluster and can no longer accept any requests on behalf of the cluster
+// A node can skip from joined to removed if forcefully removed
+//
+// Joined -          Cluster config says I am part of the cluster and decommissioning flag has not been set
+// Decommissioning - Cluster config says I am part of the cluster and decommissioning flag has been set
+// Removed -         Cluster config says I am not part of the cluster
+//
+// Decommissioning States
+// [Decommissioning] ---proposes capacity change--> [Partition Ownership Handed Off] ---holds no more replicas---> [Data Ownership Handed Off] ----proposes removal---> [Removed from cluster]
+// Decommissioning State is not tied to raft log state. It is just a flag on a node that indicates its mode of operation
+
 package server
 
 import (
@@ -12,6 +31,7 @@ import (
     "net/http/pprof"
     "encoding/json"
     "context"
+    "sync"
 
     . "devicedb/storage"
     . "devicedb/error"
@@ -29,6 +49,62 @@ const (
 const (
     ClusterJoinRetryTimeout = 5
 )
+
+type SwappableHandler struct {
+    normalRouter *mux.Router
+    decommissioningRouter *mux.Router
+    router *mux.Router
+    swapLock sync.RWMutex
+}
+
+func NewSwappableHandler(normalRouter, decommissioningRouter *mux.Router) *SwappableHandler {
+    return &SwappableHandler{
+        normalRouter: normalRouter,
+        decommissioningRouter: decommissioningRouter,
+        router: normalRouter,
+    }
+}
+
+func (sh *SwappableHandler) SwitchToDecommissioningMode() {
+    sh.swapLock.Lock()
+    sh.router = sh.decommissioningRouter
+    sh.swapLock.Unlock()
+}
+
+func (sh *SwappableHandler) isInDecommissioningMode() {
+    return sh.router == sh.decommissioningRouter
+}
+
+func (sh *SwappableHandler) normalRouterHasMatch(req *http.Request) bool {
+    return sh.routerHasMatch(sh.normalRouter, req)
+}
+
+func (sh *SwappableHandler) decommissioningRouterHasMatch(req *http.Request) bool {
+    return sh.routerHasMatch(sh.decommissioningRouter, req)
+}
+
+func (sh *SwappableHandler) routerHasMatch(router *mux.Router, req *http.Request) bool {
+    var match mux.RouteMatch
+
+    return router.Match(req, &match)
+}
+
+func (sh *SwappableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    sh.swapLock.RLock()
+    defer sh.swapLock.RUnlock()
+
+    if sh.isInDecommissioningMode() {
+        if sh.normalRouterHasMatch() && !sh.decommissioningRouterHasMatch() {
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusConflict)
+            io.WriteString(w, "\n")
+
+            return
+        }
+    }
+
+    sh.router.ServeHTTP(w, r)
+}
 
 type CloudServerConfig struct {
     // Path to the storage directory used for database persistent files. This directory keeps track of node data and configuration. It should point to a persistent volume.
@@ -64,10 +140,11 @@ type CloudServer struct {
     interClusterClient *Client
     clusterController *ClusterController
     raftNode *RaftNode
+    raftStore *RaftStorage
     configController *ConfigController
     raftTransportHub *TransportHub
+    handler *SwappableHandler
     stop chan int
-    joinedCluster chan int
 }
 
 func NewCloudServer(serverConfig CloudServerConfig) (*CloudServer, error) {
@@ -87,7 +164,6 @@ func NewCloudServer(serverConfig CloudServerConfig) (*CloudServer, error) {
         replicationFactor: serverConfig.ReplicationFactor,
         partitions: serverConfig.Partitions,
         upgrader: upgrader,
-        joinedCluster: make(chan int),
     }
 
     server.interClusterClient = NewClient(ClientConfig{ })
@@ -119,6 +195,8 @@ func NewCloudServer(serverConfig CloudServerConfig) (*CloudServer, error) {
         return nil, err
     }
 
+    server.initializeHandler()
+
     return server, nil
 }
 
@@ -128,6 +206,8 @@ func (server *CloudServer) shouldStartNewCluster() bool {
 
 func (server *CloudServer) initializeConfigController() error {
     raftStore := NewRaftStorage(NewPrefixedStorageDriver([]byte{ raftStorePrefix }, server.storageDriver))
+
+    server.raftStore = raftStore
 
     if err := raftStore.Open(); err != nil {
         Log.Criticalf("Unable to open raft store. Reason: %v", err.Error())
@@ -186,36 +266,11 @@ func (server *CloudServer) initializeConfigController() error {
     return nil
 }
 
-func (server *CloudServer) Port() int {
-    return server.port
-}
+func (server *CloudServer) initializeHandler() {
+    normalRouter := mux.NewRouter()
+    decommissioningRouter := mux.NewRouter()
 
-func (server *CloudServer) recover() error {
-    recoverError := server.storageDriver.Recover()
-
-    if recoverError != nil {
-        Log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
-
-        return EStorage
-    }
-
-    return nil
-}
-
-// starting in different modes...
-// If starting up for the first time look at config parameters (-join vs new single node cluster, etc)
-// Ignore startup parameters if already started up before
-// If this is a new node without a cluster:
-//   Is it staged to be the only node in a single node cluster? Nothing to do. 
-//      Just start up
-//   Is it a new node waiting to join a cluster? 
-//      Until it joins a cluster successfully it can't accept any requests. It should just try to join until it is killed
-// If this is a node that already is part of a cluster:
-//   Just start up
-func (server *CloudServer) Start() error {
-    r := mux.NewRouter()
-
-    r.HandleFunc("/cluster/nodes", func(w http.ResponseWriter, r *http.Request) {
+    normalRouter.HandleFunc("/cluster/nodes", func(w http.ResponseWriter, r *http.Request) {
         // Add a node to the cluster
         body, err := ioutil.ReadAll(r.Body)
 
@@ -256,21 +311,167 @@ func (server *CloudServer) Start() error {
         io.WriteString(w, "\n")
     }).Methods("POST")
 
-    r.HandleFunc("/cluster/nodes/{nodeID}", func(w http.ResponseWriter, r *http.Request) {
+    normalRouter.HandleFunc("/cluster/nodes/{nodeID}", func(w http.ResponseWriter, r *http.Request) {
         // Remove, replace, or deccommission a node
+        query := r.URL.Query()
+        _, wasForwarded := query["forwarded"]
+        _, replace := query["replace"]
+        _, decommission := query["decommission"]
+
+        if replace && decommission {
+            Log.Warningf("DELETE /cluster/nodes/{nodeID}: Both the replace and decommission query parameters are set. This is not allowed")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        nodeID, err := strconv.ParseUint(mux.Vars(r)["nodeID"], 10, 64)
+
+        if err != nil {
+            Log.Warningf("DELETE /cluster/nodes/{nodeID}: Invalid node ID")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        if decommission {
+            if nodeID == server.clusterController.LocalNodeID {
+                if err := server.raftStore.SetDecommissioningFlag(); err != nil {
+                    Log.Warningf("DELETE /cluster/nodes/{nodeID}: Encountered an error while setting the decommissioning flag: %v", err.Error())
+                    
+                    w.Header().Set("Content-Type", "application/json; charset=utf8")
+                    w.WriteHeader(http.StatusInternalServerError)
+                    io.WriteString(w, "\n")
+                    
+                    return
+                }
+
+                go server.leaveCluster()
+
+                return
+            }
+
+            if wasForwarded {
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Received a forwarded decommission request but we're not the correct node")
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusForbidden)
+                io.WriteString(w, "\n")
+                
+                return
+            } 
+            
+            // forward the request to another node
+            peerAddress := server.raftTransportHub.PeerAddress(nodeID)
+
+            if peerAddress == nil {
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Unable to forward decommission request since this node doesn't know how to contact the decommissioned node")
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadGateway)
+                io.WriteString(w, "\n")
+                
+                return
+            }
+
+            err := server.interClusterClient.RemoveNode(r.Context(), *peerAddress, nodeID, 0, true, true)
+
+            if err != nil {
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Error forwarding decommission request: %v", err.Error())
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadGateway)
+                io.WriteString(w, "\n")
+                
+                return
+            }
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusOK)
+            io.WriteString(w, "\n")
+
+            return
+        }
+
+        var replacementNodeID uint64
+
+        if replace {
+            replacementNodeID, err = strconv.ParseUint(query["replace"][0], 10, 64)
+
+            if err != nil {
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Invalid replacement node ID")
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, "\n")
+                
+                return
+            }
+        }
+
+        if replacementNodeID != 0 {
+            err = server.configController.ReplaceNode(r.Context(), nodeID, replacementNodeID)
+        } else {
+            err = server.configController.RemoveNode(r.Context(), nodeID)
+        }
+
+        if err != nil {
+            Log.Warningf("DELETE /cluster/nodes/{nodeID}: Unable to remove node from the cluster: %v", err.Error())
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, "\n")
     }).Methods("DELETE")
 
-    server.raftTransportHub.Attach(r)
-    
-    r.HandleFunc("/debug/pprof/", pprof.Index)
-    r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-    r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-    r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-    
+    server.raftTransportHub.Attach(normalRouter)
+    server.raftTransportHub.Attach(decommissioningRouter)
+
+    normalRouter.HandleFunc("/debug/pprof/", pprof.Index)
+    normalRouter.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+    normalRouter.HandleFunc("/debug/pprof/profile", pprof.Profile)
+    normalRouter.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+    decommissioningRouter.HandleFunc("/debug/pprof/", pprof.Index)
+    decommissioningRouter.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+    decommissioningRouter.HandleFunc("/debug/pprof/profile", pprof.Profile)
+    decommissioningRouter.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+
+    server.handler := NewSwappableHandler(normalRouter, decommissioningRouter)
+}
+
+func (server *CloudServer) Port() int {
+    return server.port
+}
+
+func (server *CloudServer) recover() error {
+    recoverError := server.storageDriver.Recover()
+
+    if recoverError != nil {
+        Log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
+
+        return EStorage
+    }
+
+    return nil
+}
+
+func (server *CloudServer) Start() error {
     server.stop = make(chan int)
 
     server.httpServer = &http.Server{
-        Handler: r,
+        Handler: server.handler,
         WriteTimeout: 15 * time.Second,
         ReadTimeout: 15 * time.Second,
     }
@@ -283,7 +484,7 @@ func (server *CloudServer) Start() error {
     if err != nil {
         Log.Errorf("Error listening on port %d: %v", server.port, err.Error())
         
-        server.Stop()
+        server.stop()
         
         return err
     }
@@ -315,8 +516,6 @@ func (server *CloudServer) Start() error {
     // is happening
     server.clusterController.DisableNotifications()
 
-    go server.consumeClusterUpdates()
-
     // Replay config log to restore node config state
     if err := server.configController.Start(); err != nil {
         Log.Errorf("Node %d unable to start: %v", server.clusterController.LocalNodeID, err.Error())
@@ -324,13 +523,39 @@ func (server *CloudServer) Start() error {
         return err
     }
 
+    decommission, err := server.raftStore.IsDecommissioning()
+
+    if err != nil {
+        Log.Errorf("Node %d unable to start because it was unable to check its decommissioning state: %v", server.clusterController.LocalNodeID, err.Error())
+
+        server.stop()
+
+        return err
+    }
+
+    if server.clusterController.LocalNodeWasRemovedFromCluster() {
+        Log.Errorf("Node %d was removed from a cluster. It cannot be restarted.")
+
+        server.stop()
+
+        return nil
+    }
+
+    if decommission {
+        Log.Infof("Local node (id = %d) will resume decommissioning process", server.clusterController.LocalNodeID)
+        server.handler.SwitchToDecommissioningMode()
+        server.decommission <- 1
+    } else if !server.clusterController.LocalNodeIsInCluster() && !server.shouldStartNewCluster() {
+        Log.Infof("Local node (id = %d) will attempt to join an existing cluster using the seed node at %s:%d", server.clusterController.LocalNodeID, server.seedHost, server.seedPort)
+        server.join <- 1
+    }
+
     server.clusterController.EnableNotifications()
 
-    if !server.clusterController.LocalNodeIsInCluster() && !server.shouldStartNewCluster() {
-        // This node isn't yet part of a cluster and is set to join an existing cluster
-        Log.Infof("Local node (id = %d) will attempt to join an existing cluster using the seed node at %s:%d", server.clusterController.LocalNodeID, server.seedHost, server.seedPort)
-        go server.joinCluster()
-    }
+    go func() {
+        server.run()
+        server.stop()
+    }()
 
     Log.Infof("Node %d listening on port %d", server.clusterController.LocalNodeID, server.port)
 
@@ -339,6 +564,37 @@ func (server *CloudServer) Start() error {
     Log.Errorf("Node %d server shutting down. Reason: %v", server.clusterController.LocalNodeID, err)
 
     return err
+}
+
+func (server *CloudServer) run() {
+    for {
+        select {
+            case delta := <-server.clusterController.LocalUpdates:
+                switch delta.Type {
+                case DeltaNodeRemove:
+                    Log.Infof("This node (id = %d) was removed from its cluster. It will now shut down...", server.clusterController.LocalNodeID)
+                    return
+                case DeltaNodeGainPartitionReplica:
+                case DeltaNodeLosePartitionReplica:
+                case DeltaNodeGainToken:
+                case DeltaNodeLoseToken:
+                }
+            case <-server.join:
+                server.joinCluster()
+            case <-server.decommission:
+                if err := server.raftStore.SetDecommissioningFlag(); err != nil {
+                    Log.Errorf("Unable to start decommissioning: Encountered an error while setting the decommissioning flag: %v", err.Error())
+
+                    break
+                }
+
+                server.handler.SwitchToDecommissioningMode()
+                server.leaveCluster()
+                return
+            case <-server.stop:
+                return
+        }
+    }
 }
 
 func (server *CloudServer) joinCluster() {
@@ -365,9 +621,12 @@ func (server *CloudServer) joinCluster() {
         go func() {
             for {
                 select {
-                case <-server.joinedCluster:
-                    cancel()
-                    return
+                case delta := <-server.clusterController.LocalUpdates:
+                    if delta.Type == DeltaNodeAdd {
+                        Log.Infof("This node (id = %d) was added to a cluster.", server.clusterController.LocalNodeID)
+                        cancel()
+                        return
+                    }
                 case <-ctx.Done():
                     return
                 case <-server.stop:
@@ -384,24 +643,21 @@ func (server *CloudServer) joinCluster() {
         cancel()
 
         if err == nil {
-            // Wait for this node to catch up in the raft config logs
-            select {
-            case <-server.joinedCluster:
-                return
-            case <-server.stop:
-                return
-            }
+            return
         }
 
         Log.Errorf("Local node (id = %d) encountered an error while trying to join cluster: %v", server.clusterController.LocalNodeID, err.Error())
         Log.Infof("Local node (id = %d) will try to join the cluster again in %d seconds", server.clusterController.LocalNodeID, ClusterJoinRetryTimeout)
 
         select {
-        case <-server.joinedCluster:
+        case delta := <-server.clusterController.LocalUpdates:
             // The node has been added to the cluster. The AddNode() request may
             // have been successfully submitted but the response just didn't make
             // it to this node, but it worked. No need to retry joining
-            return
+            if delta.Type == DeltaNodeAdd {
+                Log.Infof("This node (id = %d) was added to a cluster.", server.clusterController.LocalNodeID)
+                return
+            }
         case <-server.stop:
             return
         case <-time.After(time.Second * ClusterJoinRetryTimeout):
@@ -410,35 +666,155 @@ func (server *CloudServer) joinCluster() {
     }
 }
 
-func (server *CloudServer) consumeClusterUpdates() {
+func (server *CloudServer) leaveCluster() {
+    localNodeConfig := server.clusterController.NodeConfig(server.clusterController.LocalNodeID)
+
+    if !server.clusterController.LocalNodeIsInCluster() {
+        if !server.clusterController.LocalNodeWasRemovedFromCluster() {
+            // This condition indicates that the node was never added to a cluster in the first place
+            // or if it was, the node itself never received the log commit that added this node to the
+            // cluster. Either way, the node should be taken out of decommissioning mode
+        }
+    }
+
+    // Propose change capacity to zero
+    newNodeConfig := *localNodeConfig
+    newNodeConfig.Capacity = 0
+
     for {
-        select {
-            case delta := <-server.clusterController.LocalUpdates:
-                switch delta.Type {
-                case DeltaNodeAdd:
-                    Log.Infof("This node (id = %d) was added to a cluster.", server.clusterController.LocalNodeID)
-                    close(server.joinedCluster)
-                case DeltaNodeRemove:
-                    Log.Infof("This node (id = %d) was removed from its cluster. It will now shut down...", server.clusterController.LocalNodeID)
-                    server.Stop()
-                case DeltaNodeGainPartitionReplica:
-                case DeltaNodeLosePartitionReplica:
-                case DeltaNodeGainToken:
-                case DeltaNodeLoseToken:
+        ctx, cancel := context.WithCancel(context.Background())
+
+        // run a goroutine in the background to
+        // cancel running add node request when
+        // this node is shut down
+        go func() {
+            for {
+                select {
+                case delta := <-server.clusterController.LocalUpdates:
+                    if delta.Type == DeltaNodeRemove {
+                        Log.Infof("This node (id = %d) was removed from the cluster before it could be fully decommissioned. It will shut down now.", server.clusterController.LocalNodeID)
+                        cancel()
+                        return
+                    }
+                case <-ctx.Done():
+                    return
+                case <-server.stop:
+                    cancel()
+                    return
                 }
-            case <-server.stop:
+            }
+        }()
+
+        Log.Infof("Local node (id = %d) is decommissioning: Trying to give up its partitions to other cluster members", server.clusterController.LocalNodeID)
+        err := server.configController.ClusterCommand(ctx, ClusterUpdateNodeBody{ NodeID: server.clusterController.LocalNodeID, NodeConfig: newNodeConfig })
+
+        // Cancel to ensure the goroutine gets cleaned up
+        cancel()
+
+        if err == nil {
+            break
+        }
+
+        Log.Errorf("Local node (id = %d) encountered an error while trying to decommission itself: %v", server.clusterController.LocalNodeID, err.Error())
+        Log.Infof("Local node (id = %d) will try to decommission itself again in %d seconds", server.clusterController.LocalNodeID, ClusterJoinRetryTimeout)
+
+        select {
+        case delta := <-server.clusterController.LocalUpdates:
+            if delta.Type == DeltaNodeRemove {
+                Log.Infof("This node (id = %d) was removed from the cluster before it could be fully decommissioned. It will shut down now.", server.clusterController.LocalNodeID)
                 return
+            }
+        case <-server.stop:
+            return
+        case <-time.After(time.Second * ClusterJoinRetryTimeout):
+            continue
+        }
+    }
+
+    Log.Infof("Local node (id = %d) is decommissioning: Successfully relinquished its partitions and will now wait for its data to be transferred to other nodes.", server.clusterController.LocalNodeID)
+
+    originalReplicaCount := server.clusterController.PartitionReplicaCount(server.clusterController.LocalNodeID)
+
+    // Wait until we lose all partition replicas
+    for server.clusterController.PartitionReplicaCount(server.clusterController.LocalNodeID) != 0 {
+        select {
+        case delta := <-server.clusterController.LocalUpdates:
+            if delta.Type == DeltaNodeLosePartitionReplica {
+                remainingReplicas := server.clusterController.PartitionReplicaCount(server.clusterController.LocalNodeID)
+                deltaBody := delta.Delta.(NodeLosePartitionReplica)
+
+                Log.Infof("Local node (id = %d) successfully transferred partition replica %d-%d. Transferred (%d/%d)", server.clusterController.LocalNodeID, deltaBody.Partition, deltaBody.Replica, remainingReplicas, originalReplicaCount)
+            }
+        case <-server.stop:
+            return
+        }
+    }
+
+    Log.Infof("Local node (id = %d) is decommissioning: Successfully transferred all data to other nodes and will now remove itself from the cluster.", server.clusterController.LocalNodeID)
+
+    // Propose removal of this node from the cluster
+    for {
+        ctx, cancel := context.WithCancel(context.Background())
+
+        // run a goroutine in the background to
+        // cancel running add node request when
+        // this node is shut down
+        go func() {
+            for {
+                select {
+                case delta := <-server.clusterController.LocalUpdates:
+                    if delta.Type == DeltaNodeRemove {
+                        Log.Infof("This node (id = %d) was removed from the cluster. It will shut down now.", server.clusterController.LocalNodeID)
+                        cancel()
+                        return
+                    }
+                case <-ctx.Done():
+                    return
+                case <-server.stop:
+                    cancel()
+                    return
+                }
+            }
+        }()
+
+        Log.Infof("Local node (id = %d) is trying to remove itself from the cluster.", server.clusterController.LocalNodeID)
+        err := server.configController.RemoveNode(ctx, server.clusterController.LocalNodeID)
+
+        // Cancel to ensure the goroutine gets cleaned up
+        cancel()
+
+        if err == nil {
+            break
+        }
+
+        Log.Errorf("Local node (id = %d) encountered an error while trying to remove itself from the cluster: %v", server.clusterController.LocalNodeID, err.Error())
+        Log.Infof("Local node (id = %d) will try to remove itself from the cluster again in %d seconds", server.clusterController.LocalNodeID, ClusterJoinRetryTimeout)
+
+        select {
+        case delta := <-server.clusterController.LocalUpdates:
+            if delta.Type == DeltaNodeRemove {
+                Log.Infof("This node (id = %d) was removed from the cluster. It will shut down now.", server.clusterController.LocalNodeID)
+                return
+            }
+        case <-server.stop:
+            return
+        case <-time.After(time.Second * ClusterJoinRetryTimeout):
+            continue
         }
     }
 }
 
-func (server *CloudServer) Stop() error {
+func (server *CloudServer) stop() {
     if server.listener != nil {
         server.listener.Close()
     }
     
     server.configController.Stop()
     server.storageDriver.Close()
+}
+
+func (server *CloudServer) Stop() error {
+    server.stop()
     close(server.stop)
     
     return nil

@@ -14,6 +14,7 @@ import (
     . "github.com/onsi/gomega"
 
     "golang.org/x/net/context"
+    "sync"
 )
 
 var _ = Describe("Node", func() {
@@ -35,6 +36,7 @@ var _ = Describe("Node", func() {
             2: node2,
         }
 
+        var nodeEntriesMapMutex sync.Mutex
         nodeEntriesMap := map[uint64][]raftpb.Entry{
             1: []raftpb.Entry{ },
             2: []raftpb.Entry{ },
@@ -51,7 +53,12 @@ var _ = Describe("Node", func() {
             })
 
             node.OnCommittedEntry(func(entry raftpb.Entry) error {
+                // Locks serialize access to this map to avoid nodes calling their
+                // OnCommittedEntry function concurrently and causing a go panic
+                // due to concurrent map writes
+                nodeEntriesMapMutex.Lock()
                 nodeEntriesMap[id] = append(nodeEntriesMap[id], entry)
+                nodeEntriesMapMutex.Unlock()
 
                 if entry.Type == raftpb.EntryConfChange {
                     var confChange raftpb.ConfChange
@@ -118,6 +125,8 @@ var _ = Describe("Node", func() {
             3: node3,
         }
 
+        var nodeEntriesMapMutex sync.Mutex
+
         nodeEntriesMap := map[uint64][]raftpb.Entry{
             1: []raftpb.Entry{ },
             2: []raftpb.Entry{ },
@@ -135,7 +144,12 @@ var _ = Describe("Node", func() {
             })
 
             node.OnCommittedEntry(func(entry raftpb.Entry) error {
+                // Locks serialize access to this map to avoid nodes calling their
+                // OnCommittedEntry function concurrently and causing a go panic
+                // due to concurrent map writes
+                nodeEntriesMapMutex.Lock()
                 nodeEntriesMap[id] = append(nodeEntriesMap[id], entry)
+                nodeEntriesMapMutex.Unlock()
 
                 return nil
             })

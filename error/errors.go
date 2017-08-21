@@ -41,6 +41,7 @@ const (
     eREQUEST_QUERY = iota
     eALERT_BODY = iota
     eNODE_CONFIG_BODY = iota
+    eNODE_DECOMMISSIONING = iota
 )
 
 var (
@@ -61,4 +62,5 @@ var (
     ERequestQuery          = DBerror{ "Invalid query parameter format", eREQUEST_QUERY }
     EAlertBody             = DBerror{ "Invalid alert body. Body must be true or false", eALERT_BODY }
     ENodeConfigBody        = DBerror{ "Invalid node config body.", eNODE_CONFIG_BODY }
+    ENodeDecommissioning   = DBerror{ "This node is in the process of leaving the cluster.", eNODE_DECOMMISSIONING }
 )

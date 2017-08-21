@@ -14,6 +14,7 @@ var KeySnapshot = []byte{ 0 }
 var KeyHardState = []byte{ 1 }
 var KeyPrefixEntry = []byte{ 2 }
 var KeyNodeID = []byte{ 3 }
+var KeyIsDecommissioning = []byte{ 4 }
 
 func entryKey(index uint64) []byte {
     key := make([]byte, 0, len(KeyPrefixEntry) + 8)
@@ -56,6 +57,7 @@ type RaftStorage struct {
     storageDriver StorageDriver
     lock sync.Mutex
     memoryStorage *raft.MemoryStorage
+    decommissioning *bool
 }
 
 func NewRaftStorage(storageDriver StorageDriver) *RaftStorage {
@@ -199,6 +201,7 @@ func (raftStorage *RaftStorage) Close() error {
 
     raftStorage.isOpen = false
     raftStorage.isEmpty = true
+    raftStorage.decommissioning = nil
     raftStorage.memoryStorage = raft.NewMemoryStorage()
 
     return raftStorage.storageDriver.Close()
@@ -251,6 +254,48 @@ func (raftStorage *RaftStorage) Snapshot() (raftpb.Snapshot, error) {
     return raftStorage.memoryStorage.Snapshot()
 }
 // END raft.Storage interface methods
+
+func (raftStorage *RaftStorage) SetDecommissioningFlag() error {
+    raftStorage.lock.Lock()
+    defer raftStorage.lock.Unlock()
+
+    storageBatch := NewBatch()
+    storageBatch.Put(KeyIsDecommissioning, []byte{ })
+
+    if err := raftStorage.storageDriver.Batch(storageBatch); err != nil {
+        return err
+    }
+
+    var t bool = true
+    raftStorage.decommissioning = &t
+
+    return nil
+}
+
+func (raftStorage *RaftStorage) IsDecommissioning() (bool, error) {
+    raftStorage.lock.Lock()
+    defer raftStorage.lock.Unlock()
+
+    if raftStorage.decommissioning != nil {
+        return *raftStorage.decommissioning, nil
+    }
+
+    result, err := raftStorage.storageDriver.Get([][]byte{ KeyIsDecommissioning })
+
+    if err != nil {
+        return false, err
+    }
+
+    var b bool
+
+    if result[0] != nil {
+        b = true
+    }
+
+    raftStorage.decommissioning = &b
+
+    return *raftStorage.decommissioning, nil
+}
 
 func (raftStorage *RaftStorage) SetNodeID(id uint64) error {
     idBytes := make([]byte, 8)

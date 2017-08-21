@@ -59,6 +59,34 @@ var _ = Describe("Storage", func() {
         raftStorage.Close()
     })
 
+    Describe("Setting and querying decommissioning flag", func() {
+        Specify("Decommissioning flag should not be raised if SetDecommissioningFlag has never been called", func() {
+            Expect(raftStorage.Open()).Should(BeNil())
+            isDecommissioning, err := raftStorage.IsDecommissioning()
+            Expect(err).Should(BeNil())
+            Expect(isDecommissioning).Should(BeFalse())
+        })
+
+        Specify("Decommissioning flag should always be raised once SetDecommissioningFlag is called even after restart", func() {
+            Expect(raftStorage.Open()).Should(BeNil())
+            isDecommissioning, err := raftStorage.IsDecommissioning()
+            Expect(err).Should(BeNil())
+            Expect(isDecommissioning).Should(BeFalse())
+            Expect(raftStorage.SetDecommissioningFlag()).Should(BeNil())
+            isDecommissioning, err = raftStorage.IsDecommissioning()
+            Expect(err).Should(BeNil())
+            Expect(isDecommissioning).Should(BeTrue())
+            raftStorage.Close()
+            isDecommissioning, err = raftStorage.IsDecommissioning()
+            Expect(err).Should(Not(BeNil()))
+            Expect(isDecommissioning).Should(BeFalse())
+            raftStorage.Open()
+            isDecommissioning, err = raftStorage.IsDecommissioning()
+            Expect(err).Should(BeNil())
+            Expect(isDecommissioning).Should(BeTrue())
+        })
+    })
+
     Describe("#Open", func() {
         It("if opening for the first time there should be no entries, the snapshot should be empty, and the hard state should be empty", func() {
             Expect(raftStorage.Open()).Should(BeNil())

@@ -20,6 +20,7 @@ var (
     PortBase = 9000
     SenderNodeID = uint64(1)
     ReceiverNodeID = uint64(2)
+    ThirdNodeID = uint64(3)
 )
 
 type TestHTTPServer struct {
@@ -80,8 +81,23 @@ var _ = Describe("Transport", func() {
     var SenderPort int
     var receiverServer *TestHTTPServer
     var senderServer *TestHTTPServer
+    var thirdNodeServer *TestHTTPServer
     var sender *TransportHub
     var receiver *TransportHub
+    var thirdNode *TransportHub
+
+    BeforeSuite(func() {
+        thirdNodeServer = NewTestHTTPServer(PortBase - 1)
+        thirdNode = NewTransportHub(ThirdNodeID)
+
+        thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+            return nil
+        })
+
+        thirdNode.Attach(thirdNodeServer.Router())
+        thirdNodeServer.Start()
+        <-time.After(time.Millisecond * 200)
+    })
 
     BeforeEach(func() {
         PortIndex += 1
@@ -116,11 +132,79 @@ var _ = Describe("Transport", func() {
 
     Describe("Sending a message", func() {
         Context("The recipient is not known by the sender", func() {
-            It("Send should result in an error", func() {
-                Expect(sender.Send(context.TODO(), raftpb.Message{
-                    From: SenderNodeID,
-                    To: ReceiverNodeID,
-                }, false)).Should(Equal(EReceiverUnknown))
+            Context("The default route is not set", func() {
+                It("Send should result in an EReceiverUnknown error", func() {
+                    Expect(sender.Send(context.TODO(), raftpb.Message{
+                        From: SenderNodeID,
+                        To: ReceiverNodeID,
+                    }, false)).Should(Equal(EReceiverUnknown))
+                })
+            })
+
+            Context("The default route is set", func() {
+                Context("The default route node is not reachable", func() {
+                    Specify("Send should return an error", func() {
+                        // Nothing should ever have been set up on PortBase
+                        sender.SetDefaultRoute("localhost", PortBase)
+
+                        Expect(sender.Send(context.TODO(), raftpb.Message{
+                            From: SenderNodeID,
+                            To: ReceiverNodeID,
+                        }, false)).Should(Not(BeNil()))
+                    })
+                })
+
+                Context("The default route node is reachable", func() {
+                    BeforeEach(func() {
+                        sender.SetDefaultRoute("localhost", ReceiverPort)
+                    })
+
+                    Context("The default route node knows the recipient", func() {
+                        BeforeEach(func() {
+                            receiver.AddPeer(PeerAddress{
+                                NodeID: ThirdNodeID,
+                                Host: "localhost",
+                                Port: PortBase - 1,
+                            })
+                        })
+
+                        Specify("The default route node should forward the message to the recipient", func() {
+                            var receivedMessageOnThirdNodeServer bool
+
+                            thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+                                receivedMessageOnThirdNodeServer = true
+
+                                return nil
+                            })
+
+                            Expect(sender.Send(context.TODO(), raftpb.Message{
+                                From: SenderNodeID,
+                                To: ThirdNodeID,
+                            }, false)).Should(BeNil())
+
+                            Expect(receivedMessageOnThirdNodeServer).Should(BeTrue())
+                        })
+                    })
+
+                    Context("The default route node does not know the recipient", func() {
+                        Specify("Send should return an error", func() {
+                            var receivedMessageOnThirdNodeServer bool
+
+                            thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+                                receivedMessageOnThirdNodeServer = true
+
+                                return nil
+                            })
+
+                            Expect(sender.Send(context.TODO(), raftpb.Message{
+                                From: SenderNodeID,
+                                To: ThirdNodeID,
+                            }, false)).Should(Not(BeNil()))
+
+                            Expect(receivedMessageOnThirdNodeServer).Should(BeFalse())
+                        })
+                    })
+                })
             })
         })
 

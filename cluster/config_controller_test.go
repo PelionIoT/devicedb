@@ -52,13 +52,14 @@ var _ = Describe("ConfigController", func() {
                 },
             })
 
-            transport := NewTransportHub()
+            transport := NewTransportHub(0x1)
             // Pass raft node and cluster controller into new config controller
             configController := NewConfigController(raftNode, transport, clusterController)
 
             // Start Config Controller
             Expect(configController.Start()).Should(BeNil())
             // Wait for node to be added to single-node cluster
+            clusterController.EnableNotifications()
             delta := <-clusterController.LocalUpdates
             Expect(delta.Type).Should(Equal(DeltaNodeAdd))
             Expect(delta.Delta.(NodeAdd).NodeID).Should(Equal(uint64(0x1)))
@@ -108,7 +109,7 @@ var _ = Describe("ConfigController", func() {
                 LocalUpdates: nil,//make(chan ClusterStateDelta),
             }
 
-            newTransport := NewTransportHub()
+            newTransport := NewTransportHub(0x1)
             newConfigController := NewConfigController(raftNode, newTransport, newClusterController)
             Expect(newConfigController.Start()).Should(BeNil())
 

@@ -64,6 +64,19 @@ func (hub *TransportHub) SetDefaultRoute(host string, port int) {
     }
 }
 
+func (hub *TransportHub) PeerAddress(nodeID uint64) *PeerAddress {
+    hub.lock.Lock()
+    defer hub.lock.Unlock()
+    
+    peerAddress, ok := hub.peers[nodeID]
+
+    if !ok {
+        return nil
+    }
+
+    return &peerAddress
+}
+
 func (hub *TransportHub) AddPeer(peerAddress PeerAddress) {
     hub.lock.Lock()
     defer hub.lock.Unlock()
@@ -175,6 +188,7 @@ func (hub *TransportHub) Attach(router *mux.Router) {
         }
 
         if msg.To != hub.localPeerID {
+            Log.Infof("This message isn't bound for us. Need to forward")
             // This node is not bound for us. Forward it to its proper destination if we know it
             // This feature allows new nodes to use their seed node to send messages throughout the cluster before it knows the addresses of its neighboring nodes
             query := r.URL.Query()
@@ -194,9 +208,9 @@ func (hub *TransportHub) Attach(router *mux.Router) {
             
             err := hub.Send(r.Context(), msg, true)
 
-            Log.Warningf("POST /raftmessages: Unable to proxy message to node (%d): %v", msg.To, err.Error())
-
             if err != nil {
+                Log.Warningf("POST /raftmessages: Unable to proxy message to node (%d): %v", msg.To, err.Error())
+                
                 w.Header().Set("Content-Type", "application/json; charset=utf8")
                 w.WriteHeader(http.StatusInternalServerError)
                 io.WriteString(w, "\n")

@@ -9,6 +9,7 @@ import (
     "time"
     "strings"
     "context"
+    "fmt"
 
     . "devicedb/raft"
     . "devicedb/cluster"
@@ -107,6 +108,43 @@ func (client *Client) AddNode(ctx context.Context, memberAddress PeerAddress, ne
 //
 // Return Values:
 //   EClientTimeout: The request to the node timed out
-func (client *Client) RemoveNode(ctx context.Context, member PeerAddress, nodeID uint64) error {
-    return nil
+func (client *Client) RemoveNode(ctx context.Context, memberAddress PeerAddress, nodeID uint64, replacementNodeID uint64, decommission, forwarded bool) error {
+    var queryString = ""
+
+    endpoint := memberAddress.ToHTTPURL("/cluster/nodes/" + fmt.Sprintf("%d", nodeID))
+
+    if forwarded {
+        queryString += "forwarded=true&"
+    }
+
+    if decommission {
+        queryString += "decommission=true&"
+    }
+
+    if replacementNodeID != 0 {
+        queryString += fmt.Sprintf("replace=%d&", replacementNodeID)
+    }
+
+    if len(queryString) != 0 {
+        // take off the last &
+        queryString = queryString[:len(queryString) - 1]
+    }
+
+    endpoint += "?" + queryString
+
+    _, err := client.sendRequest(ctx, "DELETE", endpoint, []byte{ })
+    
+    return err
+}
+
+func (client *Client) DecommissionNode(ctx context.Context, memberAddress PeerAddress, nodeID uint64) error {
+    return client.RemoveNode(ctx, memberAddress, nodeID, 0, true, false)
+}
+
+func (client *Client) ForceRemoveNode(ctx context.Context, memberAddress PeerAddress, nodeID uint64) error {
+    return client.RemoveNode(ctx, memberAddress, nodeID, 0, false, false)
+}
+
+func (client *Client) ReplaceNode(ctx context.Context, memberAddress PeerAddress, nodeID uint64, replacementNodeID uint64) error {
+    return client.RemoveNode(ctx, memberAddress, nodeID, replacementNodeID, false, false)
 }

@@ -32,6 +32,9 @@ type ConfigController struct {
     requestMap *RequestMap
     stop chan int
     restartLock sync.Mutex
+    lock sync.Mutex
+    pendingProposals map[uint64]func()
+    proposalsCancelled bool
 }
 
 func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportHub, clusterController *ClusterController) *ConfigController {
@@ -40,17 +43,48 @@ func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportH
         raftTransport: raftTransport,
         clusterController: clusterController,
         requestMap: NewRequestMap(),
+        pendingProposals: make(map[uint64]func()),
     }
+}
+
+func (cc *ConfigController) CancelProposals() {
+    // Cancels all current proposals and prevents any future ones from being made, causing them all to return ECancelled
+    cc.lock.Lock()
+    defer cc.lock.Unlock()
+
+    cc.proposalsCancelled = true
+
+    for _, cancel := range cc.pendingProposals {
+        cancel()
+    }
+}
+
+func (cc *ConfigController) unregisterProposal(id uint64) {
+    cc.lock.Lock()
+    defer cc.lock.Unlock()
+
+    delete(cc.pendingProposals, id)
 }
 
 func (cc *ConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
     encodedAddCommandBody, _ := EncodeClusterCommandBody(ClusterAddNodeBody{ NodeID: nodeConfig.Address.NodeID, NodeConfig: nodeConfig })
     addCommand := ClusterCommand{ Type: ClusterAddNode, Data: encodedAddCommandBody, SubmitterID: cc.clusterController.LocalNodeID, CommandID: cc.nextCommandID() }
-    context, _ := EncodeClusterCommand(addCommand)
+    addContext, _ := EncodeClusterCommand(addCommand)
+
+    cc.lock.Lock()
+    if cc.proposalsCancelled {
+        cc.lock.Unlock()
+        return ECancelled
+    }
+
+    ctx, cancel := context.WithCancel(ctx)
+    cc.pendingProposals[addCommand.CommandID] = cancel
+    defer cc.unregisterProposal(addCommand.CommandID)
+    cc.lock.Unlock()
 
     respCh := cc.requestMap.MakeRequest(addCommand.CommandID)
 
-    if err := cc.raftNode.AddNode(ctx, nodeConfig.Address.NodeID, context); err != nil {
+    if err := cc.raftNode.AddNode(ctx, nodeConfig.Address.NodeID, addContext); err != nil {
         cc.requestMap.Respond(addCommand.CommandID, nil)
         return err
     }
@@ -70,11 +104,22 @@ func (cc *ConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) 
 func (cc *ConfigController) ReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error {
     encodedRemoveCommandBody, _ := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: replacedNodeID, ReplacementNodeID: replacementNodeID })
     replaceCommand := ClusterCommand{ Type: ClusterRemoveNode, Data: encodedRemoveCommandBody, SubmitterID: cc.clusterController.LocalNodeID, CommandID: cc.nextCommandID() }
-    context, _ := EncodeClusterCommand(replaceCommand)
+    replaceContext, _ := EncodeClusterCommand(replaceCommand)
+
+    cc.lock.Lock()
+    if cc.proposalsCancelled {
+        cc.lock.Unlock()
+        return ECancelled
+    }
+
+    ctx, cancel := context.WithCancel(ctx)
+    cc.pendingProposals[replaceCommand.CommandID] = cancel
+    defer cc.unregisterProposal(replaceCommand.CommandID)
+    cc.lock.Unlock()
 
     respCh := cc.requestMap.MakeRequest(replaceCommand.CommandID)
 
-    if err := cc.raftNode.RemoveNode(ctx, replacedNodeID, context); err != nil {
+    if err := cc.raftNode.RemoveNode(ctx, replacedNodeID, replaceContext); err != nil {
         cc.requestMap.Respond(replaceCommand.CommandID, nil)
         return err
     }
@@ -94,11 +139,22 @@ func (cc *ConfigController) ReplaceNode(ctx context.Context, replacedNodeID uint
 func (cc *ConfigController) RemoveNode(ctx context.Context, nodeID uint64) error {
     encodedRemoveCommandBody, _ := EncodeClusterCommandBody(ClusterRemoveNodeBody{ NodeID: nodeID, ReplacementNodeID: 0 })
     removeCommand := ClusterCommand{ Type: ClusterRemoveNode, Data: encodedRemoveCommandBody, SubmitterID: cc.clusterController.LocalNodeID, CommandID: cc.nextCommandID() }
-    context, _ := EncodeClusterCommand(removeCommand)
+    removeContext, _ := EncodeClusterCommand(removeCommand)
+
+    cc.lock.Lock()
+    if cc.proposalsCancelled {
+        cc.lock.Unlock()
+        return ECancelled
+    }
+
+    ctx, cancel := context.WithCancel(ctx)
+    cc.pendingProposals[removeCommand.CommandID] = cancel
+    defer cc.unregisterProposal(removeCommand.CommandID)
+    cc.lock.Unlock()
 
     respCh := cc.requestMap.MakeRequest(removeCommand.CommandID)
 
-    if err := cc.raftNode.RemoveNode(ctx, nodeID, context); err != nil {
+    if err := cc.raftNode.RemoveNode(ctx, nodeID, removeContext); err != nil {
         cc.requestMap.Respond(removeCommand.CommandID, nil)
         return err
     }
@@ -138,6 +194,17 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
     command.SubmitterID = cc.clusterController.LocalNodeID
     command.CommandID = cc.nextCommandID()
     encodedCommand, _ := EncodeClusterCommand(command)
+
+    cc.lock.Lock()
+    if cc.proposalsCancelled {
+        cc.lock.Unlock()
+        return ECancelled
+    }
+
+    ctx, cancel := context.WithCancel(ctx)
+    cc.pendingProposals[command.CommandID] = cancel
+    defer cc.unregisterProposal(command.CommandID)
+    cc.lock.Unlock()
 
     respCh := cc.requestMap.MakeRequest(command.CommandID)
 

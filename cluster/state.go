@@ -69,6 +69,9 @@ func (nodeConfig *NodeConfig) takeToken(token uint64) {
 }
 
 type ClusterState struct {
+    // A set of nodes IDs of nodes that were previously cluster members
+    // but were since removed
+    RemovedNodes map[uint64]bool
     // Ring members and their configuration
     Nodes map[uint64]*NodeConfig
     // A mapping between tokens and the node that owns them
@@ -120,6 +123,7 @@ func (clusterState *ClusterState) RemoveNode(node uint64) {
     }
     
     delete(clusterState.Nodes, node)
+    clusterState.RemovedNodes[node] = true
 }
 
 // change the owner of a token
