@@ -35,7 +35,7 @@ type ConfigController struct {
     lock sync.Mutex
     pendingProposals map[uint64]func()
     proposalsCancelled bool
-    advance chan int
+    onLocalUpdatesCB func([]ClusterStateDelta)
 }
 
 func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportHub, clusterController *ClusterController) *ConfigController {
@@ -45,7 +45,6 @@ func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportH
         clusterController: clusterController,
         requestMap: NewRequestMap(),
         pendingProposals: make(map[uint64]func()),
-        advance: make(chan int, 1),
     }
 }
 
@@ -227,16 +226,14 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
     }
 }
 
-func (cc *ConfigController) Advance() {
-    select {
-        case cc.advance <- 1:
-        default:
-    }
+func (cc *ConfigController) OnLocalUpdates(cb func(deltas []ClusterStateDelta)) {
+    cc.onLocalUpdatesCB = cb
 }
 
 func (cc *ConfigController) Start() error {
     cc.restartLock.Lock()
     restored := make(chan int, 1)
+    replayDone := false
     cc.stop = make(chan int)
     cc.restartLock.Unlock()
     cc.clusterController.DisableNotifications()
@@ -279,8 +276,6 @@ func (cc *ConfigController) Start() error {
     })
 
     cc.raftNode.OnCommittedEntry(func(entry raftpb.Entry) error {
-        <-cc.advance
-
         Log.Debugf("New entry at node %d [%d]: %v", cc.clusterController.LocalNodeID, entry.Index, entry)
 
         var encodedClusterCommand []byte
@@ -328,8 +323,10 @@ func (cc *ConfigController) Start() error {
                 return err
             }
         }
+        
+        localUpdates, err := cc.clusterController.Step(clusterCommand)
 
-        if err := cc.clusterController.Step(clusterCommand); err != nil {
+        if err != nil {
             if clusterCommand.SubmitterID == cc.clusterController.LocalNodeID {
                 cc.requestMap.Respond(clusterCommand.CommandID, proposalResponse{
                     err: err,
@@ -355,6 +352,12 @@ func (cc *ConfigController) Start() error {
             })
         }
 
+        if replayDone {
+            if cc.onLocalUpdatesCB != nil && len(localUpdates) > 0 {
+                cc.onLocalUpdatesCB(localUpdates)
+            }
+        }
+
         return nil
     })
 
@@ -367,7 +370,8 @@ func (cc *ConfigController) Start() error {
 
     cc.raftNode.OnReplayDone(func() error {
         Log.Debug("OnReplayDone() called")
-        cc.clusterController.EnableNotifications()
+        // cc.clusterController.EnableNotifications()
+        replayDone = true
         restored <- 1
 
         return nil

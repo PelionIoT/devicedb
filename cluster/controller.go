@@ -35,12 +35,13 @@ func (clusterController *ClusterController) DisableNotifications() {
     clusterController.notificationsEnabled = false
 }
 
-func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) error {
+func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) ([]ClusterStateDelta, error) {
     body, err := DecodeClusterCommandBody(clusterCommand)
 
     if err != nil {
-        return ECouldNotParseCommand
+        return nil, ECouldNotParseCommand
     }
+
 
     clusterController.stateUpdateLock.Lock()
     clusterController.nextDeltaSet = []ClusterStateDelta{ }
@@ -59,11 +60,10 @@ func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) 
     case ClusterSetPartitionCount:
         err = clusterController.SetPartitionCount(body.(ClusterSetPartitionCountBody))
     default:
-        return ENoSuchCommand
+        return nil, ENoSuchCommand
     }
 
     clusterController.stateUpdateLock.Unlock()
-
     clusterController.notificationsEnabledLock.Lock()
 
     if clusterController.notificationsEnabled {
@@ -72,7 +72,11 @@ func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) 
 
     clusterController.notificationsEnabledLock.Unlock()
 
-    return err
+    return clusterController.nextDeltaSet, err
+}
+
+func (clusterController *ClusterController) Deltas() []ClusterStateDelta {
+    return clusterController.nextDeltaSet
 }
 
 // Apply a snapshot to the state and notify on the local updates channel of any relevant
@@ -107,8 +111,6 @@ func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
 }
 
 func (clusterController *ClusterController) UpdateNodeConfig(clusterCommand ClusterUpdateNodeBody) error {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
     currentNodeConfig, ok := clusterController.State.Nodes[clusterCommand.NodeID]
 
     if !ok {
@@ -135,9 +137,6 @@ func (clusterController *ClusterController) UpdateNodeConfig(clusterCommand Clus
 }
 
 func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNodeBody) error {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
-
     // If a node already exists with this node ID then this request should be ignored
     if _, ok := clusterController.State.Nodes[clusterCommand.NodeID]; ok {
         Log.Warningf("Ignoring request to add a node whose id = %d because a node with that ID already exists in the cluster", clusterCommand.NodeID)
@@ -174,8 +173,6 @@ func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNod
 }
 
 func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRemoveNodeBody) error {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
     replacementNode, ok := clusterController.State.Nodes[clusterCommand.ReplacementNodeID]
 
     if (!ok && clusterCommand.ReplacementNodeID != 0) || (ok && len(replacementNode.Tokens) != 0) || clusterCommand.ReplacementNodeID == clusterCommand.NodeID {
@@ -207,8 +204,6 @@ func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRem
 }
 
 func (clusterController *ClusterController) TakePartitionReplica(clusterCommand ClusterTakePartitionReplicaBody) error {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
     localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
 
     if err := clusterController.State.AssignPartitionReplica(clusterCommand.Partition, clusterCommand.Replica, clusterCommand.NodeID); err != nil {
@@ -279,8 +274,6 @@ func (clusterController *ClusterController) localDiffPartitionReplicasAndNotify(
 }
 
 func (clusterController *ClusterController) SetReplicationFactor(clusterCommand ClusterSetReplicationFactorBody) error {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
     if clusterController.State.ClusterSettings.ReplicationFactor != 0 {
         // The replication factor has already been set and cannot be changed
         return nil
@@ -293,8 +286,6 @@ func (clusterController *ClusterController) SetReplicationFactor(clusterCommand 
 }
 
 func (clusterController *ClusterController) SetPartitionCount(clusterCommand ClusterSetPartitionCountBody) error {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
     if clusterController.State.ClusterSettings.Partitions != 0 {
         // The partition count has already been set and cannot be changed
         return nil
@@ -307,9 +298,6 @@ func (clusterController *ClusterController) SetPartitionCount(clusterCommand Clu
 }
 
 func (clusterController *ClusterController) LocalNodeConfig() *NodeConfig {
-    clusterController.stateUpdateLock.Lock()
-    defer clusterController.stateUpdateLock.Unlock()
-
     return clusterController.State.Nodes[clusterController.LocalNodeID]
 }
 

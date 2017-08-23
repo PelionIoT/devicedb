@@ -35,7 +35,7 @@ var _ = Describe("ConfigController", func() {
                     Nodes: make(map[uint64]*NodeConfig),
                 },
                 PartitioningStrategy: &SimplePartitioningStrategy{ },
-                LocalUpdates: make(chan ClusterStateDelta),
+                LocalUpdates: make(chan []ClusterStateDelta),
             }
 
             addNodeBody, _ := EncodeClusterCommandBody(ClusterAddNodeBody{ NodeID: 0x1, NodeConfig: NodeConfig{ Address: PeerAddress{ NodeID: 0x1 }, Capacity: 1 } })
@@ -56,38 +56,39 @@ var _ = Describe("ConfigController", func() {
             // Pass raft node and cluster controller into new config controller
             configController := NewConfigController(raftNode, transport, clusterController)
 
+            receivedDeltas := make(chan int)
+            configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
+                Expect(len(deltas)).Should(Equal(1))
+                Expect(deltas[0].Type).Should(Equal(DeltaNodeAdd))
+                Expect(deltas[0].Delta.(NodeAdd).NodeID).Should(Equal(uint64(0x1)))
+                receivedDeltas <- 1
+            })
+
             // Start Config Controller
             Expect(configController.Start()).Should(BeNil())
             // Wait for node to be added to single-node cluster
-            clusterController.EnableNotifications()
-            delta := <-clusterController.LocalUpdates
-            Expect(delta.Type).Should(Equal(DeltaNodeAdd))
-            Expect(delta.Delta.(NodeAdd).NodeID).Should(Equal(uint64(0x1)))
-
-            // Propose A Few Cluster Config Changes
-            Expect(configController.ClusterCommand(context.TODO(), ClusterSetPartitionCountBody{ Partitions: 1024 })).Should(BeNil())
+            <-receivedDeltas
 
             ownedTokens := make(map[uint64]bool)
-            done := make(chan int)
-            
-            // This needs to run in a sepearte goroutine since ClusterCommand blocks until all notifactions are sent to the local node
-            go func() {
 
-                // Wait For Changes To Commit
-                for i := uint64(0); i < 1024; i++ {
-                    delta := <-clusterController.LocalUpdates
+            configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
+                Expect(len(deltas)).Should(Equal(1024))
+
+                for _, delta := range deltas {
                     Expect(delta.Type).Should(Equal(DeltaNodeGainToken))
                     Expect(delta.Delta.(NodeGainToken).NodeID).Should(Equal(uint64(0x1)))
-
                     ownedTokens[delta.Delta.(NodeGainToken).Token] = true
                 }
 
-                done <- 1
-            }()
+                receivedDeltas <- 1
+            })
 
+            // Propose A Few Cluster Config Changes
+            Expect(configController.ClusterCommand(context.TODO(), ClusterSetPartitionCountBody{ Partitions: 1024 })).Should(BeNil())
             Expect(configController.ClusterCommand(context.TODO(), ClusterSetReplicationFactorBody{ ReplicationFactor: 2 })).Should(BeNil())
 
-            <-done
+            <-receivedDeltas
+
             // Verify changes
             Expect(len(ownedTokens)).Should(Equal(1024))
             Expect(ownedTokens).Should(Equal(clusterController.State.Nodes[1].Tokens))

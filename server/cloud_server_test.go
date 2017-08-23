@@ -239,5 +239,81 @@ var _ = Describe("CloudServer", func() {
                 })
             })
         })
+
+        Context("When that node was already removed from its cluster", func() {
+            Specify("should result in the server immediately stopping itself", func() {
+                config0 := defaultServerConfig
+                config1 := defaultServerConfig
+                config0.NodeID = 1
+                config1.NodeID = 2
+                config0.Store = "/tmp/testdb-" + RandomString()
+                config1.Store = "/tmp/testdb-" + RandomString()
+                config1.Port = 8181
+                config1.SeedHost = config0.Host
+                config1.SeedPort = config0.Port
+                server0, err := NewCloudServer(config0)
+                Expect(err).Should(BeNil())
+                server1, err := NewCloudServer(config1)
+                Expect(err).Should(BeNil())
+                join0 := make(chan int)
+                join1 := make(chan int)
+                stop1 := make(chan int)
+
+                Expect(server0.ClusterController().LocalNodeID).Should(Equal(uint64(1)))
+                Expect(server1.ClusterController().LocalNodeID).Should(Equal(uint64(2)))
+
+                server0.OnJoinCluster(func() {
+                    join0 <- 1
+                })
+
+                server1.OnJoinCluster(func() {
+                    join1 <- 1
+                })
+
+                go func() {
+                    server0.Start()
+                }()
+
+                <-join0
+
+                go func() {
+                    server1.Start()
+                }()
+
+                <-join1
+                <-time.After(time.Second)
+
+                Expect(server0.ClusterController().LocalNodeIsInCluster()).Should(BeTrue())
+                Expect(server1.ClusterController().LocalNodeIsInCluster()).Should(BeTrue())
+                Expect(server0.ClusterController().ClusterNodes()).Should(Equal(server1.ClusterController().ClusterNodes()))
+                Expect(server0.ClusterController().ClusterNodes()).Should(Equal(map[uint64]bool{ server0.ClusterController().LocalNodeID: true, server1.ClusterController().LocalNodeID: true }))
+                
+                client := NewClient(ClientConfig{ })
+                Expect(client.ForceRemoveNode(context.TODO(), PeerAddress{ Host: config0.Host, Port: config0.Port }, config1.NodeID)).Should(BeNil())
+                <-time.After(time.Second)
+
+                Expect(server0.ClusterController().LocalNodeIsInCluster()).Should(BeTrue())
+                Expect(server1.ClusterController().LocalNodeIsInCluster()).Should(BeFalse())
+                Expect(server1.ClusterController().LocalNodeWasRemovedFromCluster()).Should(BeTrue())
+                Expect(server0.ClusterController().ClusterNodes()).Should(Equal(server1.ClusterController().ClusterNodes()))
+                Expect(server0.ClusterController().ClusterNodes()).Should(Equal(map[uint64]bool{ server0.ClusterController().LocalNodeID: true }))
+
+                go func() {
+                    server1.Start()
+                    stop1 <- 1
+                }()
+
+                // Server 1 should stop because it has been removed from the cluster
+                <-stop1
+                
+                server0.Stop()
+                server1.Stop()
+            })
+        })
+    })
+
+    Describe("Decommissioning a node", func() {
+        Context("That node is the only node in the cluster", func() {
+        })
     })
 })

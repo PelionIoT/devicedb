@@ -27,9 +27,10 @@ func (ps *testPartitioningStrategy) AssignTokens(nodes []NodeConfig, currentToke
 }
 
 // drains the channel without expecting a set order
-func expectTokenLosses(ch <-chan ClusterStateDelta, deltas map[uint64]ClusterStateDelta) {
+func expectTokenLosses(actualDeltas []ClusterStateDelta, deltas map[uint64]ClusterStateDelta) {
     for len(deltas) != 0 {
-        nextDelta := <-ch
+        nextDelta := actualDeltas[0]
+        actualDeltas = actualDeltas[1:]
         expectedDelta, ok := deltas[nextDelta.Delta.(NodeLoseToken).Token]
 
         Expect(ok).Should(BeTrue())
@@ -40,9 +41,10 @@ func expectTokenLosses(ch <-chan ClusterStateDelta, deltas map[uint64]ClusterSta
 }
 
 // drains the channel without expecting a set order
-func expectTokenGains(ch <-chan ClusterStateDelta, deltas map[uint64]ClusterStateDelta) {
+func expectTokenGains(actualDeltas []ClusterStateDelta, deltas map[uint64]ClusterStateDelta) {
     for len(deltas) != 0 {
-        nextDelta := <-ch
+        nextDelta := actualDeltas[0]
+        actualDeltas = actualDeltas[1:]
         expectedDelta, ok := deltas[nextDelta.Delta.(NodeGainToken).Token]
 
         Expect(ok).Should(BeTrue())
@@ -81,7 +83,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: nil,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterUpdateNodeBody{
                     NodeID: 1,
@@ -130,7 +131,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterUpdateNodeBody{
                     NodeID: 1,
@@ -178,7 +178,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
@@ -219,7 +218,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
@@ -262,15 +260,12 @@ var _ = Describe("Controller", func() {
                         []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
                     },
                 }
-                localUpdates := make(chan ClusterStateDelta, 3) // make this a buffered node so the call to AddNode() doesn't block
                 clusterController := &ClusterController{
                     LocalNodeID: 2, // set this to 2 so the added node is this node
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
-                    LocalUpdates: localUpdates,
                 }
 
-                clusterController.EnableNotifications()
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
                     NodeConfig: node2,
@@ -282,9 +277,9 @@ var _ = Describe("Controller", func() {
                 Expect(clusterController.State.Nodes[1].Capacity).Should(Equal(uint64(1)))
                 Expect(clusterController.State.Nodes[2].Capacity).Should(Equal(uint64(1)))
                 Expect(partitioningStrategy.calls).Should(Equal(1))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 2, NodeConfig: node2 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 2, NodeConfig: node2 } }))
 
-                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{ 
+                expectTokenGains(clusterController.Deltas()[1:], map[uint64]ClusterStateDelta{
                     2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
                 })
@@ -319,14 +314,11 @@ var _ = Describe("Controller", func() {
                         []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
                     },
                 }
-                localUpdates := make(chan ClusterStateDelta, 2) // make this a buffered node so the call to AddNode() doesn't block
                 clusterController := &ClusterController{
                     LocalNodeID: 1, // set this to 2 so the added node is this node
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterAddNodeBody{
                     NodeID: 2,
@@ -339,7 +331,7 @@ var _ = Describe("Controller", func() {
                 Expect(clusterController.State.Nodes[2].Capacity).Should(Equal(uint64(1)))
                 Expect(partitioningStrategy.calls).Should(Equal(1))
 
-                expectTokenLosses(localUpdates, map[uint64]ClusterStateDelta{ 
+                expectTokenLosses(clusterController.Deltas(), map[uint64]ClusterStateDelta{
                     2: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 3 } },
                 })
@@ -375,7 +367,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -415,7 +406,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -463,7 +453,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -552,7 +541,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 3,
@@ -595,16 +583,11 @@ var _ = Describe("Controller", func() {
                         []uint64{ 1, 1, 1, 1 }, // this is the new token assignment that will happen
                     },
                 }
-                localUpdates := make(chan ClusterStateDelta, 3) // make this a buffered node so the call to RemoveNode() doesn't block
                 clusterController := &ClusterController{
                     LocalNodeID: 2, // set this to 2 so the added node is this node
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
-
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -614,7 +597,7 @@ var _ = Describe("Controller", func() {
 
                 Expect(partitioningStrategy.calls).Should(Equal(1))
                 // Note: no token remove notifications are sent if the node is being removed, although it has lost ownership of all tokens implicitly
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeRemove, Delta: NodeRemove{ NodeID: 2 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeRemove, Delta: NodeRemove{ NodeID: 2 } }))
             })
 
             It("should trigger a token gain notification it is not the local node being and the local node is gaining some of the removed nodes tokens", func() {
@@ -647,14 +630,11 @@ var _ = Describe("Controller", func() {
                         []uint64{ 1, 1, 1, 1 }, // this is the new token assignment that will happen
                     },
                 }
-                localUpdates := make(chan ClusterStateDelta, 3) // make this a buffered node so the call to RemoveNode() doesn't block
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: clusterState,
                     PartitioningStrategy: partitioningStrategy,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 clusterCommand := ClusterRemoveNodeBody{
                     NodeID: 2,
@@ -664,7 +644,7 @@ var _ = Describe("Controller", func() {
 
                 Expect(partitioningStrategy.calls).Should(Equal(1))
 
-                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{ 
+                expectTokenGains(clusterController.Deltas(), map[uint64]ClusterStateDelta{ 
                     2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 3 } },
                 })
@@ -701,7 +681,6 @@ var _ = Describe("Controller", func() {
                     State: clusterState,
                 }
 
-                clusterController.EnableNotifications()
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterTakePartitionReplicaBody{
                     Partition: 1,
@@ -738,13 +717,10 @@ var _ = Describe("Controller", func() {
                     },
                     Tokens: []uint64{ 1, 1, 2, 2 },
                 }
-                localUpdates := make(chan ClusterStateDelta, 1) // make this a buffered node so the call to RemoveNode() doesn't block
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: clusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterTakePartitionReplicaBody{
@@ -756,7 +732,7 @@ var _ = Describe("Controller", func() {
                 clusterController.TakePartitionReplica(clusterCommand)
                 Expect(clusterController.State.Nodes[1].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ }))
                 Expect(clusterController.State.Nodes[2].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ 1: { 0: true } }))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
             })
 
             It("should provide a notification that the local node has gained a partition replica if it is the one taking it", func() {
@@ -783,13 +759,10 @@ var _ = Describe("Controller", func() {
                     },
                     Tokens: []uint64{ 1, 1, 2, 2 },
                 }
-                localUpdates := make(chan ClusterStateDelta, 1) // make this a buffered node so the call to RemoveNode() doesn't block
                 clusterController := &ClusterController{
                     LocalNodeID: 2,
                     State: clusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterTakePartitionReplicaBody{
@@ -801,7 +774,7 @@ var _ = Describe("Controller", func() {
                 clusterController.TakePartitionReplica(clusterCommand)
                 Expect(clusterController.State.Nodes[1].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ }))
                 Expect(clusterController.State.Nodes[2].PartitionReplicas).Should(Equal(map[uint64]map[uint64]bool{ 1: { 0: true } }))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ NodeID: 2, Partition: 1, Replica: 0 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ NodeID: 2, Partition: 1, Replica: 0 } }))
             })
         })
 
@@ -837,7 +810,6 @@ var _ = Describe("Controller", func() {
                     },
                     ClusterSettings: ClusterSettings{ Partitions: 4 },
                 }
-                localUpdates := make(chan ClusterStateDelta, 2) // make this a buffered node so the call to RemoveNode() doesn't block
                 partitioningStrategy := &testPartitioningStrategy{ 
                     results: [][]uint64{
                         []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
@@ -846,10 +818,8 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 2,
                     State: clusterState,
-                    LocalUpdates: localUpdates,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterSetReplicationFactorBody{
@@ -857,7 +827,7 @@ var _ = Describe("Controller", func() {
                 }
 
                 clusterController.SetReplicationFactor(clusterCommand)
-                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{
+                expectTokenGains(clusterController.Deltas(), map[uint64]ClusterStateDelta{
                     2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
                 })
@@ -896,7 +866,6 @@ var _ = Describe("Controller", func() {
                     },
                     ClusterSettings: ClusterSettings{ ReplicationFactor: 2 },
                 }
-                localUpdates := make(chan ClusterStateDelta, 2) // make this a buffered node so the call to RemoveNode() doesn't block
                 partitioningStrategy := &testPartitioningStrategy{ 
                     results: [][]uint64{
                         []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
@@ -905,10 +874,8 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 2,
                     State: clusterState,
-                    LocalUpdates: localUpdates,
                     PartitioningStrategy: partitioningStrategy,
                 }
-                clusterController.EnableNotifications()
 
                 // moves partition 1 replica 0 from node 1 to node 2
                 clusterCommand := ClusterSetPartitionCountBody{
@@ -916,7 +883,7 @@ var _ = Describe("Controller", func() {
                 }
 
                 clusterController.SetPartitionCount(clusterCommand)
-                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{
+                expectTokenGains(clusterController.Deltas(), map[uint64]ClusterStateDelta{
                     2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
                 })
@@ -952,11 +919,9 @@ var _ = Describe("Controller", func() {
                 snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
                 originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
 
-                localUpdates := make(chan ClusterStateDelta, 100) // gives this channel enough room so applying the snapshot doesnt block
                 clusterController := &ClusterController{
                     LocalNodeID: 2,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -987,20 +952,17 @@ var _ = Describe("Controller", func() {
                 snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
                 originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
 
-                localUpdates := make(chan ClusterStateDelta, 1)
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
                 Expect(clusterController.State).Should(Equal(originalClusterState))
                 Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeRemove, Delta: NodeRemove{ NodeID: 1 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeRemove, Delta: NodeRemove{ NodeID: 1 } }))
             })
 
             It("should notify the node that it has been added to the cluster if the first snapshot doesnt have the node in it and the next one does", func() {
@@ -1024,20 +986,17 @@ var _ = Describe("Controller", func() {
                 snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
                 originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
 
-                localUpdates := make(chan ClusterStateDelta, 1)
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
                 Expect(clusterController.State).Should(Equal(originalClusterState))
                 Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 1, NodeConfig: node1 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 1, NodeConfig: node1 } }))
             })
 
             It("should notify the node of tokens that it has gained ownership of if the node does not originally own it but the snapshot gives it ownership", func() {
@@ -1070,20 +1029,17 @@ var _ = Describe("Controller", func() {
                 originalClusterState.Tokens = []uint64{ 1, 1, 2, 2 }
                 snapshotClusterState.Tokens = []uint64{ 1, 1, 1, 1 }
 
-                localUpdates := make(chan ClusterStateDelta, 2)
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
                 Expect(clusterController.State).Should(Equal(originalClusterState))
                 Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
-                expectTokenGains(localUpdates, map[uint64]ClusterStateDelta{
+                expectTokenGains(clusterController.Deltas(), map[uint64]ClusterStateDelta{
                     2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 3 } },
                 })
@@ -1091,7 +1047,7 @@ var _ = Describe("Controller", func() {
 
             It("should notify the node of tokens that it has lost ownership of if the node originally owns it but the snapshot takes its ownership away", func() {
                 node1 := NodeConfig{
-                    Capacity: 1, 
+                    Capacity: 1,
                     Address: PeerAddress{ NodeID: 1 },
                     Tokens: map[uint64]bool{ 0: true, 1: true, 2: true, 3: true },
                     PartitionReplicas: map[uint64]map[uint64]bool{ },
@@ -1119,20 +1075,17 @@ var _ = Describe("Controller", func() {
                 originalClusterState.Tokens = []uint64{ 1, 1, 1, 1 }
                 snapshotClusterState.Tokens = []uint64{ 1, 1, 2, 2 }
 
-                localUpdates := make(chan ClusterStateDelta, 2)
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
                 Expect(clusterController.State).Should(Equal(originalClusterState))
                 Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
-                expectTokenLosses(localUpdates, map[uint64]ClusterStateDelta{
+                expectTokenLosses(clusterController.Deltas(), map[uint64]ClusterStateDelta{
                     2: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 2 } },
                     3: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 3 } },
                 })
@@ -1166,20 +1119,17 @@ var _ = Describe("Controller", func() {
                 snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
                 originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
 
-                localUpdates := make(chan ClusterStateDelta, 2)
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
                 Expect(clusterController.State).Should(Equal(originalClusterState))
                 Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
             })
 
             It("should notify the node of partition replicas that it has lost ownership of if the node originally owns it but the snapshot takes its ownership away", func() {
@@ -1210,20 +1160,17 @@ var _ = Describe("Controller", func() {
                 snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
                 originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
 
-                localUpdates := make(chan ClusterStateDelta, 2)
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
-                    LocalUpdates: localUpdates,
                 }
-                clusterController.EnableNotifications()
 
                 snap, _ := snapshotClusterState.Snapshot()
 
                 Expect(clusterController.State).Should(Equal(originalClusterState))
                 Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
-                Expect(<-localUpdates).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
             })
         })
     })
