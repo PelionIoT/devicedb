@@ -42,6 +42,8 @@ const (
     eALERT_BODY = iota
     eNODE_CONFIG_BODY = iota
     eNODE_DECOMMISSIONING = iota
+    ePROPOSAL_ERROR = iota
+    eDUPLICATE_NODE_ID = iota
 )
 
 var (
@@ -63,4 +65,6 @@ var (
     EAlertBody             = DBerror{ "Invalid alert body. Body must be true or false", eALERT_BODY }
     ENodeConfigBody        = DBerror{ "Invalid node config body.", eNODE_CONFIG_BODY }
     ENodeDecommissioning   = DBerror{ "This node is in the process of leaving the cluster.", eNODE_DECOMMISSIONING }
+    EDuplicateNodeID       = DBerror{ "The ID the node is using was already used by a cluster member at some point.", eDUPLICATE_NODE_ID }
+    EProposalError         = DBerror{ "An error occurred while proposing cluster configuration change.", ePROPOSAL_ERROR }
 )

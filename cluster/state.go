@@ -123,6 +123,11 @@ func (clusterState *ClusterState) RemoveNode(node uint64) {
     }
     
     delete(clusterState.Nodes, node)
+
+    if clusterState.RemovedNodes == nil {
+        clusterState.RemovedNodes = make(map[uint64]bool)
+    }
+    
     clusterState.RemovedNodes[node] = true
 }
 

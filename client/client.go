@@ -12,6 +12,7 @@ import (
     "fmt"
 
     . "devicedb/raft"
+    . "devicedb/error"
     . "devicedb/cluster"
 )
 
@@ -98,6 +99,16 @@ func (client *Client) sendRequest(ctx context.Context, httpVerb string, endpoint
 func (client *Client) AddNode(ctx context.Context, memberAddress PeerAddress, newMemberConfig NodeConfig) error {
     encodedNodeConfig, _ := json.Marshal(newMemberConfig)
     _, err := client.sendRequest(ctx, "POST", memberAddress.ToHTTPURL("/cluster/nodes"), encodedNodeConfig)
+
+    if _, ok := err.(*ErrorStatusCode); ok {
+        var dbError DBerror
+
+        parseErr := json.Unmarshal([]byte(err.(*ErrorStatusCode).Message), &dbError)
+
+        if parseErr == nil {
+            return dbError
+        }
+    }
 
     return err
 }

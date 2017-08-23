@@ -237,26 +237,28 @@ var _ = Describe("Cluster Operation", func() {
             Expect(true).Should(BeTrue())
         })
     })
-
-    Describe("Adding Nodes", func() {
-        // All partition transfer cases are covered above
-    })
-
-    Describe("Removing Nodes", func() {
-        // All partition transfer cases are covered above
-        // Remove + Replace vs Remove Only
-        Specify("When a node is forcefully removed all of its tokens and mark all held partitions should be marked as not held by any node", func() {
-            Fail("Not implemented")
-        })
-    })
-
-    Describe("Decomissioning Nodes", func() {
-        Specify("Node should ensure that it has transferred away all the partition replicas that it holds", func() {
-            Fail("Not implemented")
+   
+    Describe("Cluster Membership", func() {
+        Describe("Adding Nodes", func() {
+            // All partition transfer cases are covered above
         })
 
-        Specify("After the node has given away all its data to some other node it should remove itself from the cluster", func() {
-            Fail("Not implemented")
+        Describe("Removing Nodes", func() {
+            // All partition transfer cases are covered above
+            // Remove + Replace vs Remove Only
+            Specify("When a node is forcefully removed all of its tokens and mark all held partitions should be marked as not held by any node", func() {
+                Fail("Not implemented")
+            })
+        })
+
+        Describe("Decomissioning Nodes", func() {
+            Specify("Node should ensure that it has transferred away all the partition replicas that it holds", func() {
+                Fail("Not implemented")
+            })
+
+            Specify("After the node has given away all its data to some other node it should remove itself from the cluster", func() {
+                Fail("Not implemented")
+            })
         })
     })
 })

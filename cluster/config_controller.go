@@ -35,6 +35,7 @@ type ConfigController struct {
     lock sync.Mutex
     pendingProposals map[uint64]func()
     proposalsCancelled bool
+    advance chan int
 }
 
 func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportHub, clusterController *ClusterController) *ConfigController {
@@ -44,6 +45,7 @@ func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportH
         clusterController: clusterController,
         requestMap: NewRequestMap(),
         pendingProposals: make(map[uint64]func()),
+        advance: make(chan int, 1),
     }
 }
 
@@ -225,11 +227,19 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
     }
 }
 
+func (cc *ConfigController) Advance() {
+    select {
+        case cc.advance <- 1:
+        default:
+    }
+}
+
 func (cc *ConfigController) Start() error {
     cc.restartLock.Lock()
     restored := make(chan int, 1)
     cc.stop = make(chan int)
     cc.restartLock.Unlock()
+    cc.clusterController.DisableNotifications()
 
     cc.raftTransport.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
         return cc.raftNode.Receive(ctx, msg)
@@ -269,25 +279,30 @@ func (cc *ConfigController) Start() error {
     })
 
     cc.raftNode.OnCommittedEntry(func(entry raftpb.Entry) error {
-        Log.Debugf("New entry [%d]: %v", entry.Index, entry)
+        <-cc.advance
+
+        Log.Debugf("New entry at node %d [%d]: %v", cc.clusterController.LocalNodeID, entry.Index, entry)
 
         var encodedClusterCommand []byte
+        var clusterCommand ClusterCommand
+        var clusterCommandBody interface{}
 
         switch entry.Type {
         case raftpb.EntryConfChange:
             var confChange raftpb.ConfChange
+            var err error
 
             if err := confChange.Unmarshal(entry.Data); err != nil {
                 return err
             }
 
-            clusterCommand, err := DecodeClusterCommand(confChange.Context)
+            clusterCommand, err = DecodeClusterCommand(confChange.Context)
 
             if err != nil {
                 return err
             }
 
-            clusterCommandBody, err := DecodeClusterCommandBody(clusterCommand)
+            clusterCommandBody, err = DecodeClusterCommandBody(clusterCommand)
 
             if err != nil {
                 return err
@@ -298,23 +313,20 @@ func (cc *ConfigController) Start() error {
                 if clusterCommandBody.(ClusterAddNodeBody).NodeID != clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address.NodeID {
                     return EBadContext
                 }
-
-                cc.raftTransport.AddPeer(clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address)
             case ClusterRemoveNode:
-                cc.raftTransport.RemovePeer(raft.PeerAddress{ NodeID: clusterCommandBody.(ClusterRemoveNodeBody).NodeID })
             default:
                 return EBadContext
             }
 
             encodedClusterCommand = confChange.Context
         case raftpb.EntryNormal:
+            var err error
             encodedClusterCommand = entry.Data
-        }
+            clusterCommand, err = DecodeClusterCommand(encodedClusterCommand)
 
-        clusterCommand, err := DecodeClusterCommand(encodedClusterCommand)
-
-        if err != nil {
-            return err
+            if err != nil {
+                return err
+            }
         }
 
         if err := cc.clusterController.Step(clusterCommand); err != nil {
@@ -325,6 +337,16 @@ func (cc *ConfigController) Start() error {
             }
 
             return err
+        }
+
+        // Only update transport if the cluster config was updated
+        if entry.Type == raftpb.EntryConfChange {
+            switch clusterCommand.Type {
+            case ClusterAddNode:
+                cc.raftTransport.AddPeer(clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address)
+            case ClusterRemoveNode:
+                cc.raftTransport.RemovePeer(raft.PeerAddress{ NodeID: clusterCommandBody.(ClusterRemoveNodeBody).NodeID })
+            }
         }
 
         if clusterCommand.SubmitterID == cc.clusterController.LocalNodeID {
@@ -345,6 +367,7 @@ func (cc *ConfigController) Start() error {
 
     cc.raftNode.OnReplayDone(func() error {
         Log.Debug("OnReplayDone() called")
+        cc.clusterController.EnableNotifications()
         restored <- 1
 
         return nil

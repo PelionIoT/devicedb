@@ -10,13 +10,16 @@ import (
     "errors"
     "time"
     "sync"
+    "context"
 
+    . "devicedb/client"
     . "devicedb/server"
     . "devicedb/version"
     . "devicedb/compatibility"
     . "devicedb/shared"
     . "devicedb/logging"
     . "devicedb/util"
+    . "devicedb/raft"
 )
 
 var templateConfig string =
@@ -562,8 +565,19 @@ func main() {
     }
 
     if clusterRemoveCommand.Parsed() {
-        fmt.Fprintf(os.Stderr, "Asking node at %s on port %d to remove node %d from the cluster\n", *clusterRemoveHost, *clusterRemovePort, *clusterRemoveNodeID)
-        os.Exit(1)
+        fmt.Fprintf(os.Stderr, "Removing node %d from the cluster...\n", *clusterRemoveNodeID)
+        client := NewClient(ClientConfig{ })
+        err := client.ForceRemoveNode(context.TODO(), PeerAddress{ Host: *clusterRemoveHost, Port: int(*clusterRemovePort) }, *clusterRemoveNodeID)
+
+        if err != nil {
+            Log.Errorf("Error: Unable to remove node %d from the cluster: %v", *clusterRemoveNodeID, err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Removed node %d from the cluster.\n", *clusterRemoveNodeID)
+
+        os.Exit(0)
     }
 
     if clusterDecommissionCommand.Parsed() {
