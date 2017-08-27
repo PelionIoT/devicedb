@@ -29,7 +29,7 @@ type CloudBucketProxyFactory struct {
     SitePool SitePool
 }
 
-func (bucketProxyFactory *BucketProxyFactory) CreateBucketProxy(nodeID uint64, siteID string, bucketName string) BucketProxy {
+func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(nodeID uint64, siteID string, bucketName string) BucketProxy {
     if bucketProxyFactory.ClusterController.LocalNodeID == nodeID {
         return &LocalBucketProxy{
             bucket: bucketProxyFactory.SitePool.Acquire(siteID).Buckets().Get(bucketName),
@@ -51,21 +51,30 @@ type LocalBucketProxy struct {
 }
 
 func (localBucketProxy *LocalBucketProxy) Name() string {
+    return localBucketProxy.bucket.Name()
 }
 
 func (localBucketProxy *LocalBucketProxy) MerkleTree() MerkleTreeProxy {
+    return &LocalMerkleTreeProxy{
+        merkleTree: localBucketProxy.bucket.MerkleTree(),
+    }
 }
 
 func (localBucketProxy *LocalBucketProxy) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
+    return localBucketProxy.bucket.GetSyncChildren(nodeID)
 }
 
 type RemoteBucketProxy struct {
+    bucketName string
 }
 
 func (remoteBucketProxy *RemoteBucketProxy) Name() string {
+    return remoteBucketProxy.bucketName
 }
 
 func (remoteBucketProxy *RemoteBucketProxy) MerkleTree() MerkleTreeProxy {
+    return &RemoteMerkleTreeProxy{
+    }
 }
 
 func (remoteBucketProxy *RemoteBucketProxy) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {

@@ -45,11 +45,12 @@ func (relaySiteFactory *RelaySiteFactory) CreateSite(siteID string) Site {
 }
 
 type CloudSiteFactory struct {
+    NodeID string
     MerkleDepth uint8
     StorageDriver StorageDriver
 }
 
-func (cloudSiteFactory *CloudSiteFactory) siteBucketStorageDriver(siteID string, bucketPrefix []byte) []byte {
+func (cloudSiteFactory *CloudSiteFactory) siteBucketStorageDriver(siteID string, bucketPrefix []byte) StorageDriver {
     return NewPrefixedStorageDriver(cloudSiteFactory.siteBucketPrefix(siteID, bucketPrefix), cloudSiteFactory.StorageDriver)
 }
 
@@ -65,10 +66,10 @@ func (cloudSiteFactory *CloudSiteFactory) siteBucketPrefix(siteID string, bucket
 func (cloudSiteFactory *CloudSiteFactory) CreateSite(siteID string) Site {
     bucketList := NewBucketList()
 
-    defaultBucket, _ := NewDefaultBucket(relaySiteFactory.RelayID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ defaultNodePrefix }), relaySiteFactory.MerkleDepth)
-    cloudBucket, _ := NewCloudBucket(relaySiteFactory.RelayID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ cloudNodePrefix }), relaySiteFactory.MerkleDepth, CloudMode)
-    lwwBucket, _ := NewLWWBucket(relaySiteFactory.RelayID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ lwwNodePrefix }), relaySiteFactory.MerkleDepth)
-    localBucket, _ := NewLocalBucket(relaySiteFactory.RelayID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ localNodePrefix }), MerkleMinDepth)
+    defaultBucket, _ := NewDefaultBucket(cloudSiteFactory.NodeID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ defaultNodePrefix }), cloudSiteFactory.MerkleDepth)
+    cloudBucket, _ := NewCloudBucket(cloudSiteFactory.NodeID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ cloudNodePrefix }), cloudSiteFactory.MerkleDepth, CloudMode)
+    lwwBucket, _ := NewLWWBucket(cloudSiteFactory.NodeID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ lwwNodePrefix }), cloudSiteFactory.MerkleDepth)
+    localBucket, _ := NewLocalBucket(cloudSiteFactory.NodeID, cloudSiteFactory.siteBucketStorageDriver(siteID, []byte{ localNodePrefix }), MerkleMinDepth)
     
     bucketList.AddBucket(defaultBucket)
     bucketList.AddBucket(lwwBucket)

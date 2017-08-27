@@ -25,7 +25,7 @@ const MerkleMaxDepth uint8 = 28 // 4GB
 type MerkleTree struct {
     depth uint8
     nodes []Hash
-    updateLock sync.Mutex
+    lock sync.Mutex
 }
 
 func NewMerkleTree(depth uint8) (*MerkleTree, error) {
@@ -35,19 +35,30 @@ func NewMerkleTree(depth uint8) (*MerkleTree, error) {
     
     nodes := make([]Hash, uint32(math.Pow(float64(2), float64(depth))))
     
-    var updateLock sync.Mutex
-    return &MerkleTree{depth, nodes, updateLock}, nil
+    return &MerkleTree{
+        depth: depth, 
+        nodes: nodes,
+    }, nil
 }
 
 func (tree *MerkleTree) RootHash() Hash {
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
+
     return tree.nodes[1 << (tree.depth - 1)]
 }
 
 func (tree *MerkleTree) RangeHash(rangeMin uint32, rangeMax uint32) Hash {
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
+
     return tree.nodes[rangeMin + (rangeMax - rangeMin)/2]
 }
 
 func (tree *MerkleTree) NodeHash(node uint32) Hash {
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
+
     if node >= uint32(len(tree.nodes)) {
         return Hash{}
     }
@@ -121,9 +132,8 @@ func (tree *MerkleTree) RightChild(node uint32) uint32 {
 
 // this
 func (tree *MerkleTree) UpdateLeafHash(nodeID uint32, hash Hash) {
-    tree.updateLock.Lock()
-    
-    defer tree.updateLock.Unlock()
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
     
     if !tree.IsLeaf(nodeID) {
         return
@@ -149,9 +159,8 @@ func (tree *MerkleTree) IsLeaf(nodeID uint32) bool {
 }
 
 func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[string]Hash) {
-    tree.updateLock.Lock()
-    
-    defer tree.updateLock.Unlock()
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
     
     modifiedNodes := make(map[uint32]bool)
     objectHashes := make(map[uint32]map[string]Hash)
@@ -196,9 +205,8 @@ func (tree *MerkleTree) Update(update *Update) (map[uint32]bool, map[uint32]map[
 }
 
 func (tree *MerkleTree) UndoUpdate(update *Update) {
-    tree.updateLock.Lock()
-    
-    defer tree.updateLock.Unlock()
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
     
     nodeQueue := NewQueue(uint32(update.Size()))
     
@@ -232,9 +240,8 @@ func (tree *MerkleTree) UndoUpdate(update *Update) {
 }
 
 func (tree *MerkleTree) PreviewUpdate(update *Update) (map[uint32]Hash, map[uint32]map[string]Hash) {
-    tree.updateLock.Lock()
-    
-    defer tree.updateLock.Unlock()
+    tree.lock.Lock()
+    defer tree.lock.Unlock()
 
     leafHashes := make(map[uint32]Hash)
     objectHashes := make(map[uint32]map[string]Hash)

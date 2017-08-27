@@ -3,8 +3,6 @@ package site
 import (
     "sync"
 
-    . "devicedb/bucket"
-    . "devicedb/bucket/builtin"
 )
 
 type SitePool interface {
@@ -25,7 +23,7 @@ func (relayNodeSitePool *RelayNodeSitePool) Acquire(siteID string) Site {
     return relayNodeSitePool.Site
 }
 
-func (relayNodeBucketPool *RelayNodeBucketPool) Release(siteID string) {
+func (relayNodeSitePool *RelayNodeSitePool) Release(siteID string) {
     // Do nothing. Relay bucket pool does no lifecycle management
     // for buckets.
 }

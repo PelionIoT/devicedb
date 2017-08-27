@@ -2,14 +2,10 @@ package site
 
 import (
     . "devicedb/bucket"
-    . "devicedb/storage"
 )
 
 type Site interface {
     Buckets() *BucketList
-}
-
-func New(nodeID string, storageDriver StorageDriver, merkleDepth uint32) Site {
 }
 
 type RelaySiteReplica struct {
