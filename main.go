@@ -20,6 +20,9 @@ import (
     . "devicedb/logging"
     . "devicedb/util"
     . "devicedb/raft"
+    . "devicedb/merkle"
+    . "devicedb/bucket"
+    . "devicedb/data"
 )
 
 var templateConfig string =
@@ -230,10 +233,10 @@ var clusterUsage string =
 `Usage: devicedb cluster <cluster_command> <arguments>
 
 Cluster Commands:
-    start        Start a devicedb cloud node
-    remove       Force a node to be removed from the cluster
+    start         Start a devicedb cloud node
+    remove        Force a node to be removed from the cluster
     decommission  Migrate data away from a node then remove it from the cluster
-    replace      Replace a dead node with a new node
+    replace       Replace a dead node with a new node
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
 `
@@ -658,14 +661,14 @@ func benchmarkSequentialReads(benchmarkMagnitude int, server *Server) error {
         key := []byte("keyBench1" + RandomString())
         updateBatch := NewUpdateBatch()
         updateBatch.Put(key, []byte(RandomString() + RandomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        _, err := server.Buckets().Get("default").Node.Batch(updateBatch)
+        _, err := server.Buckets().Get("default").Batch(updateBatch)
         
         if err != nil {
             return err
         }
     }
     
-    iter, err := server.Buckets().Get("default").Node.GetMatches([][]byte{ []byte("key") })
+    iter, err := server.Buckets().Get("default").GetMatches([][]byte{ []byte("key") })
     
     if err != nil {
         return err
@@ -699,7 +702,7 @@ func benchmarkRandomReads(benchmarkMagnitude int, server *Server) error {
         key := []byte("keyBench2" + RandomString())
         updateBatch := NewUpdateBatch()
         updateBatch.Put(key, []byte(RandomString() + RandomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        _, err := server.Buckets().Get("default").Node.Batch(updateBatch)
+        _, err := server.Buckets().Get("default").Batch(updateBatch)
         
         if err != nil {
             return err
@@ -711,7 +714,7 @@ func benchmarkRandomReads(benchmarkMagnitude int, server *Server) error {
     start := time.Now()
     
     for _, key := range keys {
-        _, err := server.Buckets().Get("default").Node.Get([][]byte{ []byte(key) })
+        _, err := server.Buckets().Get("default").Get([][]byte{ []byte(key) })
         
         if err != nil {
             return err
@@ -742,7 +745,7 @@ func benchmarkWrites(benchmarkMagnitude int, server *Server) error {
         batchWaits.Add(1)
         
         go func() {
-            _, e := server.Buckets().Get("default").Node.Batch(updateBatch)
+            _, e := server.Buckets().Get("default").Batch(updateBatch)
             
             if e != nil {
                 err = e

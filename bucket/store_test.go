@@ -1,19 +1,19 @@
-package shared_test
+package bucket_test
 
 import (
-    . "devicedb/shared"
+    . "devicedb/bucket"
     . "devicedb/error"
     . "devicedb/storage"
+    . "devicedb/merkle"
+    . "devicedb/data"
 
     . "github.com/onsi/ginkgo"
-    . "github.com/onsi/gomega" 
+    . "github.com/onsi/gomega"
 
     "time"
     "crypto/rand"
     "encoding/binary"
     "fmt"
-    "testing"
-    "sync"
 )
 
 func randomString() string {
@@ -30,44 +30,45 @@ func makeNewStorageDriver() StorageDriver {
     return NewLevelDBStorageDriver("/tmp/testdb-" + randomString(), nil)
 }
 
-var _ = Describe("Node", func() {
-    makeNode := func(nodeID string) *Node {
+var _ = Describe("Store", func() {
+    makeStore := func(nodeID string) *Store {
         storageEngine := makeNewStorageDriver()
         storageEngine.Open()
         defer storageEngine.Close()
-        node, _ := NewNode(nodeID, storageEngine, MerkleMinDepth, nil)
+        store := &Store{ }
+        store.Initialize(nodeID, storageEngine, MerkleMinDepth, nil)
         
-        return node
+        return store
     }
         
     Describe("#Get", func() {
         It("should return EEmpty if the keys slice is nil", func() {
-            node := makeNode("nodeA")
-            ss, err := node.Get(nil)
+            store := makeStore("nodeA")
+            ss, err := store.Get(nil)
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EEmpty if the keys slice is empty", func() {
-            node := makeNode("nodeA")
-            ss, err := node.Get([][]byte{ })
+            store := makeStore("nodeA")
+            ss, err := store.Get([][]byte{ })
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EEmpty if the keys slice contains a nil key", func() {
-            node := makeNode("nodeA")
-            ss, err := node.Get([][]byte{ nil })
+            store := makeStore("nodeA")
+            ss, err := store.Get([][]byte{ nil })
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EEmpty if the keys slice contains an empty key", func() {
-            node := makeNode("nodeA")
-            ss, err := node.Get([][]byte{ []byte{ } })
+            store := makeStore("nodeA")
+            ss, err := store.Get([][]byte{ []byte{ } })
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
@@ -75,18 +76,18 @@ var _ = Describe("Node", func() {
         
         It("should return ELength if the keys slice contains a key that is too long", func() {
             longKey := [MAX_SORTING_KEY_LENGTH+1]byte{ }
-            node := makeNode("nodeA")
-            ss, err := node.Get([][]byte{ longKey[:] })
+            store := makeStore("nodeA")
+            ss, err := store.Get([][]byte{ longKey[:] })
             
             Expect(err.(DBerror).Code()).Should(Equal(ELength.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EStorage if a storage driver error occurs", func() {
-            node := makeNode("nodeA")
-            ss, err := node.Get([][]byte{ []byte{ 0 } })
+            store := makeStore("nodeA")
+            ss, err := store.Get([][]byte{ []byte{ 0 } })
             
-            // will cause an error because the storage driver was closed at the end of makeNode()
+            // will cause an error because the storage driver was closed at the end of makeStore()
             Expect(err.(DBerror).Code()).Should(Equal(EStorage.Code()))
             Expect(ss).Should(BeNil())
         })
@@ -104,17 +105,18 @@ var _ = Describe("Node", func() {
             storageEngine := makeNewStorageDriver()
             storageEngine.Open()
             defer storageEngine.Close()
-            
-            node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+           
+            store := &Store{}
+            store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
             batch := NewBatch()
             batch.Put(encodePartitionDataKey([]byte("sorting1")), []byte("value123"))
             err := storageEngine.Batch(batch)
             
             Expect(err).Should(BeNil())
             
-            ss, err := node.Get([][]byte{ []byte("sorting1") })
+            ss, err := store.Get([][]byte{ []byte("sorting1") })
             
-            // will cause an error because the storage driver was closed at the end of makeNode()
+            // will cause an error because the storage driver was closed at the end of makeStore()
             Expect(err.(DBerror).Code()).Should(Equal(EStorage.Code()))
             Expect(ss).Should(BeNil())
         })
@@ -122,32 +124,32 @@ var _ = Describe("Node", func() {
     
     Describe("#GetMatches", func() {
         It("should return EEmpty if the keys slice is nil", func() {
-            node := makeNode("nodeA")
-            ss, err := node.GetMatches(nil)
+            store := makeStore("nodeA")
+            ss, err := store.GetMatches(nil)
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EEmpty if the keys slice is empty", func() {
-            node := makeNode("nodeA")
-            ss, err := node.GetMatches([][]byte{ })
+            store := makeStore("nodeA")
+            ss, err := store.GetMatches([][]byte{ })
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EEmpty if the keys slice contains a nil key", func() {
-            node := makeNode("nodeA")
-            ss, err := node.GetMatches([][]byte{ nil })
+            store := makeStore("nodeA")
+            ss, err := store.GetMatches([][]byte{ nil })
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EEmpty if the keys slice contains an empty key", func() {
-            node := makeNode("nodeA")
-            ss, err := node.GetMatches([][]byte{ []byte{ } })
+            store := makeStore("nodeA")
+            ss, err := store.GetMatches([][]byte{ []byte{ } })
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
@@ -155,18 +157,18 @@ var _ = Describe("Node", func() {
         
         It("should return ELength if the keys slice contains a key that is too long", func() {
             longKey := [MAX_SORTING_KEY_LENGTH+1]byte{ }
-            node := makeNode("nodeA")
-            ss, err := node.GetMatches([][]byte{ longKey[:] })
+            store := makeStore("nodeA")
+            ss, err := store.GetMatches([][]byte{ longKey[:] })
             
             Expect(err.(DBerror).Code()).Should(Equal(ELength.Code()))
             Expect(ss).Should(BeNil())
         })
         
         It("should return EStorage if a storage driver error occurs", func() {
-            node := makeNode("nodeA")
-            ss, err := node.GetMatches([][]byte{ []byte{ 0 } })
+            store := makeStore("nodeA")
+            ss, err := store.GetMatches([][]byte{ []byte{ 0 } })
             
-            // will cause an error because the storage driver was closed at the end of makeNode()
+            // will cause an error because the storage driver was closed at the end of makeStore()
             Expect(err.(DBerror).Code()).Should(Equal(EStorage.Code()))
             Expect(ss).Should(BeNil())
         })
@@ -185,16 +187,17 @@ var _ = Describe("Node", func() {
             storageEngine.Open()
             defer storageEngine.Close()
             
-            node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+            store := &Store{}
+            store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
             batch := NewBatch()
             batch.Put(encodePartitionDataKey([]byte("sorting1")), []byte("value123"))
             err := storageEngine.Batch(batch)
             
             Expect(err).Should(BeNil())
             
-            ss, err := node.GetMatches([][]byte{ []byte("sorting1") })
+            ss, err := store.GetMatches([][]byte{ []byte("sorting1") })
             
-            // will cause an error because the storage driver was closed at the end of makeNode()
+            // will cause an error because the storage driver was closed at the end of makeStore()
             Expect(err).Should(BeNil())
             Expect(ss).Should(Not(BeNil()))
             
@@ -206,8 +209,8 @@ var _ = Describe("Node", func() {
     
     Describe("#Batch", func() {
         It("should return EEmpty if the batch is nil", func() {
-            node := makeNode("nodeA")
-            ss, err := node.Batch(nil)
+            store := makeStore("nodeA")
+            ss, err := store.Batch(nil)
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
             Expect(ss).Should(BeNil())
@@ -234,8 +237,8 @@ var _ = Describe("Node", func() {
             updateBatch := NewUpdateBatch()
             updateBatch.Put(key, []byte("hello"), NewDVV(NewDot("", 0), map[string]uint64{ }))
         
-            node := makeNode("nodeA")
-            ss, err := node.Batch(updateBatch)
+            store := makeStore("nodeA")
+            ss, err := store.Batch(updateBatch)
         
             // storage driver should be closed at this point
             Expect(err.(DBerror).Code()).Should(Equal(EStorage.Code()))
@@ -256,7 +259,8 @@ var _ = Describe("Node", func() {
             storageEngine.Open()
             defer storageEngine.Close()
             
-            node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+            store := &Store{}
+            store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
             batch := NewBatch()
             batch.Put(encodePartitionDataKey([]byte("sorting1")), []byte("value123"))
             err := storageEngine.Batch(batch)
@@ -266,9 +270,9 @@ var _ = Describe("Node", func() {
             updateBatch := NewUpdateBatch()
             updateBatch.Put([]byte("sorting1"), []byte("value123"), NewDVV(NewDot("", 0), map[string]uint64{ }))
             
-            ss, err := node.Batch(updateBatch)
+            ss, err := store.Batch(updateBatch)
             
-            // will cause an error because the storage driver was closed at the end of makeNode()
+            // will cause an error because the storage driver was closed at the end of makeStore()
             Expect(err.(DBerror).Code()).Should(Equal(EStorage.Code()))
             Expect(ss).Should(BeNil())
         })
@@ -276,8 +280,8 @@ var _ = Describe("Node", func() {
     
     Describe("#Merge", func() {
         It("should return EEmpty if the sibling sets map is nil", func() {
-            node := makeNode("nodeA")
-            err := node.Merge(nil)
+            store := makeStore("nodeA")
+            err := store.Merge(nil)
             
             Expect(err.(DBerror).Code()).Should(Equal(EEmpty.Code()))
         })
@@ -289,16 +293,17 @@ var _ = Describe("Node", func() {
             storageEngine.Open()
             defer storageEngine.Close()
             
-            node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+            store := &Store{}
+            store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
             updateBatch := NewUpdateBatch()
             updateBatch.Put([]byte("keyA"), []byte("value123"), NewDVV(NewDot("", 0), map[string]uint64{ }))
             updateBatch.Put([]byte("keyB"), []byte("value456"), NewDVV(NewDot("", 0), map[string]uint64{ }))
             
-            _, err := node.Batch(updateBatch)
+            _, err := store.Batch(updateBatch)
             
             Expect(err).Should(BeNil())
             
-            values, err := node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+            values, err := store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
     
             Expect(err).Should(BeNil())
             Expect(values[0].Value()).Should(Equal([]byte("value123")))
@@ -306,52 +311,52 @@ var _ = Describe("Node", func() {
             Expect(values[1].Value()).Should(Equal([]byte("value456")))
             Expect(values[1].IsTombstoneSet()).Should(BeFalse())
             
-            err = node.Forget([][]byte{ []byte("keyA") })
+            err = store.Forget([][]byte{ []byte("keyA") })
 
             Expect(err).Should(BeNil())
             
-            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+            values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
     
             Expect(err).Should(BeNil())
             Expect(values[0]).Should(BeNil())
             Expect(values[1].Value()).Should(Equal([]byte("value456")))
             Expect(values[1].IsTombstoneSet()).Should(BeFalse())
-            Expect(node.MerkleTree().RootHash()).Should(Equal(values[1].Hash([]byte("keyB"))))
+            Expect(store.MerkleTree().RootHash()).Should(Equal(values[1].Hash([]byte("keyB"))))
 
             // test idempotence
-            err = node.Forget([][]byte{ []byte("keyA") })
+            err = store.Forget([][]byte{ []byte("keyA") })
 
             Expect(err).Should(BeNil())
             
-            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+            values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
     
             Expect(err).Should(BeNil())
             Expect(values[0]).Should(BeNil())
             Expect(values[1].Value()).Should(Equal([]byte("value456")))
             Expect(values[1].IsTombstoneSet()).Should(BeFalse())
-            Expect(node.MerkleTree().RootHash()).Should(Equal(values[1].Hash([]byte("keyB"))))
+            Expect(store.MerkleTree().RootHash()).Should(Equal(values[1].Hash([]byte("keyB"))))
 
-            err = node.Forget([][]byte{ []byte("keyB") })
+            err = store.Forget([][]byte{ []byte("keyB") })
 
             Expect(err).Should(BeNil())
             
-            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+            values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
     
             Expect(err).Should(BeNil())
             Expect(values[0]).Should(BeNil())
             Expect(values[1]).Should(BeNil())
-            Expect(node.MerkleTree().RootHash()).Should(Equal(Hash{ }))
+            Expect(store.MerkleTree().RootHash()).Should(Equal(Hash{ }))
 
-            err = node.Forget([][]byte{ []byte("keyB") })
+            err = store.Forget([][]byte{ []byte("keyB") })
 
             Expect(err).Should(BeNil())
             
-            values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+            values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
     
             Expect(err).Should(BeNil())
             Expect(values[0]).Should(BeNil())
             Expect(values[1]).Should(BeNil())
-            Expect(node.MerkleTree().RootHash()).Should(Equal(Hash{ }))
+            Expect(store.MerkleTree().RootHash()).Should(Equal(Hash{ }))
 
         })
     })
@@ -363,16 +368,17 @@ var _ = Describe("Node", func() {
                 storageEngine.Open()
                 defer storageEngine.Close()
                 
-                node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+                store := &Store{}
+                store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
                 updateBatch := NewUpdateBatch()
                 updateBatch.Put([]byte("keyA"), []byte("value123"), NewDVV(NewDot("", 0), map[string]uint64{ }))
                 updateBatch.Put([]byte("keyB"), []byte("value456"), NewDVV(NewDot("", 0), map[string]uint64{ }))
                 
-                ss, err := node.Batch(updateBatch)
+                ss, err := store.Batch(updateBatch)
                 
                 Expect(err).Should(BeNil())
                 
-                values, err := node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+                values, err := store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
         
                 Expect(err).Should(BeNil())
                 Expect(values[0].Value()).Should(Equal([]byte("value123")))
@@ -383,12 +389,12 @@ var _ = Describe("Node", func() {
                 updateBatch = NewUpdateBatch()
                 updateBatch.Delete([]byte("keyA"), NewDVV(NewDot("", 0), map[string]uint64{ }))
                 
-                ss, err = node.Batch(updateBatch)
+                ss, err = store.Batch(updateBatch)
                 
                 Expect(err).Should(BeNil())
                 Expect(ss["keyA"].Value()).Should(BeNil())
                 
-                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+                values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
         
                 Expect(err).Should(BeNil())
                 Expect(values[0].Value()).Should(BeNil())
@@ -397,11 +403,11 @@ var _ = Describe("Node", func() {
                 Expect(values[1].IsTombstoneSet()).Should(BeFalse())
                 
                 time.Sleep(time.Second * time.Duration(2))
-                err = node.GarbageCollect(1000)
+                err = store.GarbageCollect(1000)
                 
                 Expect(err).Should(BeNil())
                 
-                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+                values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
         
                 Expect(err).Should(BeNil())
                 Expect(values[0]).Should(BeNil())
@@ -411,15 +417,15 @@ var _ = Describe("Node", func() {
                 updateBatch.Delete([]byte("keyA"), NewDVV(NewDot("", 0), map[string]uint64{ }))
                 updateBatch.Delete([]byte("keyB"), NewDVV(NewDot("", 0), map[string]uint64{ }))
             
-                _, err = node.Batch(updateBatch)
+                _, err = store.Batch(updateBatch)
                 
                 Expect(err).Should(BeNil())
                 
-                err = node.GarbageCollect(1000)
+                err = store.GarbageCollect(1000)
                 
                 Expect(err).Should(BeNil())
                 
-                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+                values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
         
                 Expect(err).Should(BeNil())
                 Expect(values[0]).Should(BeNil())
@@ -428,11 +434,11 @@ var _ = Describe("Node", func() {
                 
                 time.Sleep(time.Second * time.Duration(2))
                 
-                err = node.GarbageCollect(1000)
+                err = store.GarbageCollect(1000)
                 
                 Expect(err).Should(BeNil())
                 
-                values, err = node.Get([][]byte{ []byte("keyA"), []byte("keyB") })
+                values, err = store.Get([][]byte{ []byte("keyA"), []byte("keyB") })
         
                 Expect(err).Should(BeNil())
                 Expect(values[0]).Should(BeNil())
@@ -444,14 +450,15 @@ var _ = Describe("Node", func() {
     Context("a key does not exist in the node", func() {
         var (
             storageEngine StorageDriver
-            node *Node
+            store *Store
         )
         
         BeforeEach(func() {
             storageEngine = makeNewStorageDriver()
             storageEngine.Open()
             
-            node, _ = NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+            store = &Store{}
+            store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
         })
         
         AfterEach(func() {
@@ -460,7 +467,7 @@ var _ = Describe("Node", func() {
         
         It("should report nil as the value at that key when queried", func() {
             key := []byte(randomString())
-            values, err := node.Get([][]byte{ key })
+            values, err := store.Get([][]byte{ key })
         
             Expect(len(values)).Should(Equal(1))
             Expect(values[0]).Should(BeNil())
@@ -469,7 +476,7 @@ var _ = Describe("Node", func() {
         
         It("should not iterate over that key when queried with an iterator", func() {
             key := []byte(randomString())
-            iter, err := node.GetMatches([][]byte{ key })
+            iter, err := store.GetMatches([][]byte{ key })
         
             Expect(iter).Should(Not(BeNil()))
             Expect(err).Should(BeNil())
@@ -480,7 +487,7 @@ var _ = Describe("Node", func() {
     Context("a key exists in the node", func() {
         var (
             storageEngine StorageDriver
-            node *Node
+            store *Store
             key []byte
         )
         
@@ -488,12 +495,13 @@ var _ = Describe("Node", func() {
             storageEngine = makeNewStorageDriver()
             storageEngine.Open()
             
-            node, _ = NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
+            store = &Store{}
+            store.Initialize("nodeA", storageEngine, MerkleMinDepth, nil)
             
             key = []byte(randomString())
             updateBatch := NewUpdateBatch()
             updateBatch.Put(key, []byte("hello"), NewDVV(NewDot("", 0), map[string]uint64{ }))
-            node.Batch(updateBatch)
+            store.Batch(updateBatch)
         })
         
         AfterEach(func() {
@@ -501,7 +509,7 @@ var _ = Describe("Node", func() {
         })
         
         It("should contain a sibling set for that key when queried", func() {
-            values, err := node.Get([][]byte{ key })
+            values, err := store.Get([][]byte{ key })
         
             Expect(err).Should(BeNil())
             Expect(len(values)).Should(Equal(1))
@@ -512,7 +520,7 @@ var _ = Describe("Node", func() {
                 Expect(string(sibling.Value())).Should(Equal("hello"))
             }
             
-            iter, err := node.GetMatches([][]byte{ key })
+            iter, err := store.GetMatches([][]byte{ key })
             
             Expect(err).Should(BeNil())
             Expect(iter.Next()).Should(BeTrue())
@@ -532,11 +540,11 @@ var _ = Describe("Node", func() {
         It("should remove all siblings from a sibling set when deleting that key with an empty context", func() {
             updateBatch := NewUpdateBatch()
             updateBatch.Delete(key, NewDVV(NewDot("", 0), map[string]uint64{ }))
-            _, err := node.Batch(updateBatch)
+            _, err := store.Batch(updateBatch)
             
             Expect(err).Should(BeNil())
             
-            values, err := node.Get([][]byte{ key })
+            values, err := store.Get([][]byte{ key })
         
             Expect(err).Should(BeNil())
             Expect(len(values)).Should(Equal(1))
@@ -548,11 +556,11 @@ var _ = Describe("Node", func() {
         It("should add new siblings to a sibling set when putting that key with a parallel context", func() {
             updateBatch := NewUpdateBatch()
             updateBatch.Put(key, []byte("hello1"), NewDVV(NewDot("", 0), map[string]uint64{ "nodeA": 0 }))
-            _, err := node.Batch(updateBatch)
+            _, err := store.Batch(updateBatch)
             
             Expect(err).Should(BeNil())
             
-            values, err := node.Get([][]byte{ key })
+            values, err := store.Get([][]byte{ key })
         
             Expect(err).Should(BeNil())
             Expect(len(values)).Should(Equal(1))
@@ -565,77 +573,3 @@ var _ = Describe("Node", func() {
         })
     })
 })
-
-func BenchmarkSingleThreadBatches(b *testing.B) {
-    storageEngine := makeNewStorageDriver()
-    storageEngine.Open()
-    defer storageEngine.Close()
-
-    node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
-
-    c := 0
-    fmt.Println("start 1")
-    for i := 0; i < b.N; i += 1 {
-        c += 1
-        key := []byte(randomString())
-        updateBatch := NewUpdateBatch()
-        updateBatch.Put(key, []byte("hello"), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        node.Batch(updateBatch)
-    }
-    
-    fmt.Println("1", c)
-}
-
-func BenchmarkSerializedBatches(b *testing.B) {
-    storageEngine := makeNewStorageDriver()
-    storageEngine.Open()
-    defer storageEngine.Close()
-
-    node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
-
-    var wg sync.WaitGroup
-
-    c := 0
-    fmt.Println("start 2")
-    for i := 0; i < b.N; i += 1 {
-        c += 1
-        key := []byte(randomString())
-        updateBatch := NewUpdateBatch()
-        updateBatch.Put(key, []byte("hello"), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        wg.Add(1)
-        go func() {
-            node.Batch(updateBatch)
-            wg.Done()
-        }()
-    }
-    
-    wg.Wait()
-    fmt.Println("2", c)
-}
-
-func BenchmarkParallelBatches(b *testing.B) {
-    storageEngine := makeNewStorageDriver()
-    storageEngine.Open()
-    defer storageEngine.Close()
-
-    node, _ := NewNode("nodeA", storageEngine, MerkleMinDepth, nil)
-
-    var wg sync.WaitGroup
-        
-    c := 0
-    fmt.Println("start 3")
-    for i := 0; i < b.N; i += 1 {
-        c += 1
-        key := []byte(randomString())
-        updateBatch := NewUpdateBatch()
-        updateBatch.Put(key, []byte("hello"), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        wg.Add(1)
-        go func() {
-            node.Batch(updateBatch)
-            wg.Done()
-        }()
-    }
-    
-    wg.Wait()
-    fmt.Println("3", c)
-}

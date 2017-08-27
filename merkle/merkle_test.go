@@ -1,7 +1,8 @@
-package shared_test
+package merkle_test
 
 import (
-    . "devicedb/shared"
+    . "devicedb/data"
+    . "devicedb/merkle"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

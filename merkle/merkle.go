@@ -5,7 +5,7 @@
 // 19      |   8388608  bytes  (8192  KiB) (8  MiB)
 // 20      |   16777216 bytes  (16384 KiB) (16 MiB)
 
-package shared
+package merkle
 
 import (
     "math"
@@ -13,6 +13,8 @@ import (
     "unsafe"
     "strconv"
     "sync"
+
+    . "devicedb/data"
 )
 
 // MerkleMaxDepth should never exceed 32

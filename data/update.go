@@ -1,4 +1,4 @@
-package shared
+package data
 
 type Diff struct {
     key string

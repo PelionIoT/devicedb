@@ -9,7 +9,8 @@ import (
     "bufio"
     
     . "devicedb/server"
-    . "devicedb/shared"
+    . "devicedb/data"
+    . "devicedb/bucket"
     . "devicedb/error"
     . "devicedb/util"
 
@@ -139,7 +140,8 @@ var _ = Describe("Server", func() {
             resp, err = http.Post(url("/default/values", server), "application/json", buffer(`{ "0": "key1" }`))
                 
             Expect(err).Should(BeNil())
-            
+           
+            fmt.Printf("BODY: %v\n", resp.Body)
             decoder = json.NewDecoder(resp.Body)
             err = decoder.Decode(&dberr)
             

@@ -81,6 +81,72 @@ type ClusterState struct {
     // Global cluster settings that must be initialized before the cluster is
     // initialized
     ClusterSettings ClusterSettings
+    Sites map[string]bool
+    Relays map[string]string
+}
+
+func (clusterState *ClusterState) SiteExists(siteID string) bool {
+    if clusterState.Sites == nil {
+        return false
+    }
+
+    _, ok := clusterState.Sites[siteID]
+
+    return ok
+}
+
+func (clusterState *ClusterState) AddSite(siteID string) {
+    if clusterState.Sites == nil {
+        clusterState.Sites = make(map[string]bool)
+    }
+
+    clusterState.Sites[siteID] = true
+}
+
+func (clusterState *ClusterState) RemoveSite(siteID string) {
+    if clusterState.Sites == nil {
+        return
+    }
+
+    for relayID, relaysSiteID := range clusterState.Relays {
+        if siteID == relaysSiteID {
+            clusterState.Relays[relayID] = ""
+        }
+    }
+
+    delete(clusterState.Sites, siteID)
+}
+
+func (clusterState *ClusterState) AddRelay(relayID string) {
+    if clusterState.Relays == nil {
+        clusterState.Relays = make(map[string]string)
+    }
+
+    clusterState.Relays[relayID] = ""
+}
+
+func (clusterState *ClusterState) RemoveRelay(relayID string) {
+    if clusterState.Relays == nil {
+        return
+    }
+
+    delete(clusterState.Relays, relayID)
+}
+
+func (clusterState *ClusterState) MoveRelay(relayID, siteID string) {
+    if clusterState.Relays == nil || clusterState.Sites == nil {
+        return
+    }
+
+    if _, ok := clusterState.Relays[relayID]; !ok {
+        return
+    }
+
+    if _, ok := clusterState.Sites[siteID]; !ok {
+        return
+    }
+
+    clusterState.Relays[relayID] = siteID
 }
 
 func (clusterState *ClusterState) AddNode(nodeConfig NodeConfig) {

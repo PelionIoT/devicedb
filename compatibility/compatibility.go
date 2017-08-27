@@ -12,7 +12,10 @@ import (
     . "devicedb/shared"
     . "devicedb/storage"
     . "devicedb/logging"
-    . "devicedb/server"
+    . "devicedb/data"
+    . "devicedb/bucket"
+    . "devicedb/merkle"
+    . "devicedb/bucket/builtin"
 )
 
 func SiblingToNormalizedJSON(sibling *Sibling) string {
@@ -106,15 +109,15 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
     
     defer legacyDatabaseDriver.Close()
     
-    defaultNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 0 }, newDBStorageDriver), serverConfig.MerkleDepth, nil)
-    cloudNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 1 }, newDBStorageDriver), serverConfig.MerkleDepth, nil) 
-    lwwNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 2 }, newDBStorageDriver), serverConfig.MerkleDepth, LastWriterWins)
-    localNode, _ := NewNode("", NewPrefixedStorageDriver([]byte{ 3 }, newDBStorageDriver), MerkleMinDepth, nil)
+    defaultBucket, _ := NewDefaultBucket("", NewPrefixedStorageDriver([]byte{ 0 }, newDBStorageDriver), serverConfig.MerkleDepth)
+    cloudBucket, _ := NewCloudBucket("", NewPrefixedStorageDriver([]byte{ 1 }, newDBStorageDriver), serverConfig.MerkleDepth, RelayMode)
+    lwwBucket, _ := NewLWWBucket("", NewPrefixedStorageDriver([]byte{ 2 }, newDBStorageDriver), serverConfig.MerkleDepth)
+    localBucket, _ := NewLocalBucket("", NewPrefixedStorageDriver([]byte{ 3 }, newDBStorageDriver), MerkleMinDepth)
     
-    bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
-    bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
-    bucketList.AddBucket("cloud", cloudNode, &Cloud{ }, &Cloud{ })
-    bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
+    bucketList.AddBucket(defaultBucket)
+    bucketList.AddBucket(cloudBucket)
+    bucketList.AddBucket(lwwBucket)
+    bucketList.AddBucket(localBucket)
     
     iter, err := legacyDatabaseDriver.GetMatches([][]byte{ []byte(bucketDataPrefix) })
     
@@ -148,7 +151,7 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
             continue
         }
         
-        node := bucketList.Get(newBucketName).Node
+        bucket := bucketList.Get(newBucketName)
         siblingSet, err := DecodeLegacySiblingSet(value, legacyBucketName == "lww")
         
         if err != nil {
@@ -158,7 +161,7 @@ func UpgradeLegacyDatabase(legacyDatabasePath string, serverConfig YAMLServerCon
         }
     
         nonPrefixedKey := string(key)[len(legacyBucketName) + 1:]
-        err = node.Merge(map[string]*SiblingSet{
+        err = bucket.Merge(map[string]*SiblingSet{
             nonPrefixedKey: siblingSet,
         })
         

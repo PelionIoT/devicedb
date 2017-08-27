@@ -1,6 +1,13 @@
-package shared
+package strategies
 
-func LastWriterWins(siblingSet *SiblingSet) *SiblingSet {
+import (
+    . "devicedb/data"
+)
+
+type LastWriterWins struct {
+}
+
+func (lww *LastWriterWins) ResolveConflicts(siblingSet *SiblingSet) *SiblingSet {
     var newestSibling *Sibling
     
     for sibling := range siblingSet.Iter() {

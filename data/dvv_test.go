@@ -1,7 +1,7 @@
-package shared_test
+package data_test
 
 import (
-    . "devicedb/shared"
+    . "devicedb/data"
     
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

@@ -68,6 +68,7 @@ type ClusterCommandType int
 //   2) A partition is unlocked at at most one node at a time
 //
 // 
+// 
 
 const (
     ClusterUpdateNode ClusterCommandType = iota
@@ -76,6 +77,12 @@ const (
     ClusterTakePartitionReplica ClusterCommandType = iota
     ClusterSetReplicationFactor ClusterCommandType = iota
     ClusterSetPartitionCount ClusterCommandType = iota
+
+    ClusterAddSite ClusterCommandType = iota
+    ClusterRemoveSite ClusterCommandType = iota
+    ClusterAddRelay ClusterCommandType = iota
+    ClusterRemoveRelay ClusterCommandType = iota
+    ClusterMoveRelay ClusterCommandType = iota
 )
 
 type ClusterCommand struct {
@@ -112,6 +119,27 @@ type ClusterSetReplicationFactorBody struct {
 
 type ClusterSetPartitionCountBody struct {
     Partitions uint64
+}
+
+type ClusterAddSiteBody struct {
+    SiteID string
+}
+
+type ClusterRemoveSiteBody struct {
+    SiteID string
+}
+
+type ClusterAddRelayBody struct {
+    RelayID string
+}
+
+type ClusterRemoveRelayBody struct {
+    RelayID string
+}
+
+type ClusterMoveRelayBody struct {
+    RelayID string
+    SiteID string
 }
 
 func EncodeClusterCommand(command ClusterCommand) ([]byte, error) {
@@ -166,6 +194,26 @@ func CreateClusterCommand(commandType ClusterCommandType, body interface{}) (Clu
         }
     case ClusterSetPartitionCount:
         if _, ok := body.(ClusterSetPartitionCountBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterAddSite:
+        if _, ok := body.(ClusterAddSiteBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterRemoveSite:
+        if _, ok := body.(ClusterRemoveSiteBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterAddRelay:
+        if _, ok := body.(ClusterAddRelayBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterRemoveRelay:
+        if _, ok := body.(ClusterRemoveRelayBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterMoveRelay:
+        if _, ok := body.(ClusterMoveRelayBody); !ok {
             return ClusterCommand{}, ECouldNotParseCommand
         }
     default:

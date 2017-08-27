@@ -4,8 +4,9 @@ import (
     "encoding/json"
     "encoding/base64"
 
-    . "devicedb/shared"
+    . "devicedb/data"
     . "devicedb/error"
+    . "devicedb/bucket"
     . "devicedb/logging"
 )
 

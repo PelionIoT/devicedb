@@ -10,26 +10,27 @@ import (
     
     . "devicedb/server"
     . "devicedb/util"
-    . "devicedb/shared"
+    . "devicedb/bucket"
+    . "devicedb/data"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
 )
 
 func loadCerts(id string) (*tls.Config, *tls.Config, error) {
-    clientCertificate, err := tls.LoadX509KeyPair("./test_certs/" + id + ".client.cert.pem", "./test_certs/" + id + ".client.key.pem")
+    clientCertificate, err := tls.LoadX509KeyPair("../test_certs/" + id + ".client.cert.pem", "../test_certs/" + id + ".client.key.pem")
     
     if err != nil {
         return nil, nil, err
     }
     
-    serverCertificate, err := tls.LoadX509KeyPair("./test_certs/" + id + ".server.cert.pem", "./test_certs/" + id + ".server.key.pem")
+    serverCertificate, err := tls.LoadX509KeyPair("../test_certs/" + id + ".server.cert.pem", "../test_certs/" + id + ".server.key.pem")
     
     if err != nil {
         return nil, nil, err
     }
     
-    rootCAChain, err := ioutil.ReadFile("./test_certs/ca-chain.cert.pem")
+    rootCAChain, err := ioutil.ReadFile("../test_certs/ca-chain.cert.pem")
     
     if err != nil {
         return nil, nil, err
@@ -137,7 +138,7 @@ var _ = Describe("Hub", func() {
                     time.Sleep(time.Second * 1)
                     updateBatch := NewUpdateBatch()
                     updateBatch.Put([]byte(RandomString()), []byte(RandomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
-                    responderServer.Buckets().Get("default").Node.Batch(updateBatch)
+                    responderServer.Buckets().Get("default").Batch(updateBatch)
                 }
             }()
             

@@ -4,6 +4,7 @@ import (
     "time"
 
     . "devicedb/logging"
+    . "devicedb/bucket"
 )
 
 type GarbageCollector struct {
@@ -32,7 +33,7 @@ func (garbageCollector *GarbageCollector) Start() {
             case <-time.After(garbageCollector.gcInterval):
                 for _, bucket := range garbageCollector.buckets.All() {
                     Log.Infof("Performing garbage collection sweep on %s bucket", bucket.Name)
-                    bucket.Node.GarbageCollect(garbageCollector.gcPurgeAge)
+                    bucket.GarbageCollect(garbageCollector.gcPurgeAge)
                 }
             }
         }

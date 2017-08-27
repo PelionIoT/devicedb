@@ -15,7 +15,8 @@ import (
     "io/ioutil"
     "bytes"
 
-    . "devicedb/shared"
+    . "devicedb/bucket"
+    . "devicedb/data"
     . "devicedb/historian"
     . "devicedb/logging"
 )
@@ -993,7 +994,7 @@ func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) erro
     s.responderSessionsMap[peerID] = make(map[uint]*SyncSession)
 
     for _, bucket := range s.buckets.Incoming(peerID) {
-        s.pushSyncBucketQueue(peerID, bucket.Name)
+        s.pushSyncBucketQueue(peerID, bucket.Name())
     }
     
     return nil
@@ -1042,7 +1043,7 @@ func (s *SyncController) addResponderSession(peerID string, sessionID uint, buck
         Log.Errorf("Unable to add responder session %d for peer %s because %s is not a valid bucket name", sessionID, peerID, bucketName)
         
         return false
-    } else if !s.buckets.Get(bucketName).ReplicationStrategy.ShouldReplicateOutgoing(peerID) {
+    } else if !s.buckets.Get(bucketName).ShouldReplicateOutgoing(peerID) {
         Log.Errorf("Unable to add responder session %d for peer %s because bucket %s does not allow outgoing messages to this peer", sessionID, peerID, bucketName)
         
         return false
@@ -1096,7 +1097,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
         Log.Errorf("Unable to add initiator session %d for peer %s because %s is not a valid bucket name", sessionID, peerID, bucketName)
         
         return false
-    } else if !s.buckets.Get(bucketName).ReplicationStrategy.ShouldReplicateIncoming(peerID) {
+    } else if !s.buckets.Get(bucketName).ShouldReplicateIncoming(peerID) {
         Log.Errorf("Unable to add responder session %d for peer %s because bucket %s does not allow incoming messages from this peer", sessionID, peerID, bucketName)
         
         return false
@@ -1116,7 +1117,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     newInitiatorSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
-        sessionState: NewInitiatorSyncSession(sessionID, bucket, s.explorationPathLimit, bucket.ReplicationStrategy.ShouldReplicateOutgoing(peerID)),
+        sessionState: NewInitiatorSyncSession(sessionID, bucket, s.explorationPathLimit, bucket.ShouldReplicateOutgoing(peerID)),
         waitGroup: s.waitGroups[peerID],
         peerID: peerID,
         sessionID: sessionID,
@@ -1166,7 +1167,7 @@ func (s *SyncController) removeInitiatorSession(initiatorSession *SyncSession) {
     s.mapMutex.Lock()
     
     if _, ok := s.initiatorSessionsMap[initiatorSession.peerID]; ok {
-        s.pushSyncBucketQueue(initiatorSession.peerID, initiatorSession.sessionState.(*InitiatorSyncSession).bucket.Name)
+        s.pushSyncBucketQueue(initiatorSession.peerID, initiatorSession.sessionState.(*InitiatorSyncSession).bucket.Name())
         delete(s.initiatorSessionsMap[initiatorSession.peerID], initiatorSession.sessionID)
     }
     
@@ -1248,7 +1249,7 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
             return
         }
         
-        if !s.buckets.Get(pushMessage.Bucket).ReplicationStrategy.ShouldReplicateIncoming(nodeID) {
+        if !s.buckets.Get(pushMessage.Bucket).ShouldReplicateIncoming(nodeID) {
             Log.Errorf("Ignoring push message from %s because this node does not accept incoming pushes from bucket %s from that node", nodeID, pushMessage.Bucket)
             
             return
@@ -1257,7 +1258,7 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
         key := pushMessage.Key
         value := pushMessage.Value
         bucket := s.buckets.Get(pushMessage.Bucket)
-        err := bucket.Node.Merge(map[string]*SiblingSet{ key: value })
+        err := bucket.Merge(map[string]*SiblingSet{ key: value })
         
         if err != nil {
             Log.Errorf("Unable to merge object from peer %s into key %s in bucket %s: %v", nodeID, key, pushMessage.Bucket, err)
@@ -1367,7 +1368,7 @@ func (s *SyncController) StartInitiatorSessions() {
     
             s.mapMutex.RUnlock()
             
-            if s.addInitiatorSession(peerID, s.nextSessionID, bucket.Name) {
+            if s.addInitiatorSession(peerID, s.nextSessionID, bucket.Name()) {
                 s.nextSessionID += 1
             } else {
             }
@@ -1405,7 +1406,7 @@ func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, 
     }
     
     for peerID, w := range s.peers {
-        if !s.buckets.Get(bucket).ReplicationStrategy.ShouldReplicateOutgoing(peerID) {
+        if !s.buckets.Get(bucket).ShouldReplicateOutgoing(peerID) {
             continue
         }
         

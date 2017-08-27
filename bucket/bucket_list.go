@@ -1,4 +1,4 @@
-package shared
+package bucket
 
 // each namespace in the database has two main factors that differentiate it from other namespaces or buckets
 // 1) Replication strategy
@@ -9,22 +9,6 @@ package shared
 // 2) Conflict resolution strategy
 //        . whether or not to merge conflicting siblings
 //        . the way in which conflicting sibilngs are merged into one sibling
-type ReplicationStrategy interface {
-    ShouldReplicateOutgoing(peerID string) bool
-    ShouldReplicateIncoming(peerID string) bool
-}
-
-type PermissionStrategy interface {
-    ShouldAcceptWrites(clientID string) bool
-    ShouldAcceptReads(clientID string) bool
-}
-
-type Bucket struct {
-    Name string
-    Node *Node
-    ReplicationStrategy ReplicationStrategy
-    PermissionStrategy PermissionStrategy
-}
 
 type BucketList struct {
     buckets map[string]Bucket
@@ -34,8 +18,8 @@ func NewBucketList() *BucketList {
     return &BucketList{ make(map[string]Bucket) }
 }
 
-func (bucketList *BucketList) AddBucket(name string, node *Node, replicationStrategy ReplicationStrategy, permissionStrategy PermissionStrategy) *BucketList {
-    bucketList.buckets[name] = Bucket{ name, node, replicationStrategy, permissionStrategy }
+func (bucketList *BucketList) AddBucket(bucket Bucket) *BucketList {
+    bucketList.buckets[bucket.Name()] = bucket
     
     return bucketList
 }
@@ -44,7 +28,7 @@ func (bucketList *BucketList) Outgoing(peerID string) []Bucket {
     buckets := make([]Bucket, 0, len(bucketList.buckets))
     
     for _, bucket := range bucketList.buckets {
-        if bucket.ReplicationStrategy.ShouldReplicateOutgoing(peerID) {
+        if bucket.ShouldReplicateOutgoing(peerID) {
             buckets = append(buckets, bucket)
         }
     }
@@ -56,7 +40,7 @@ func (bucketList *BucketList) Incoming(peerID string) []Bucket {
     buckets := make([]Bucket, 0, len(bucketList.buckets))
     
     for _, bucket := range bucketList.buckets {
-        if bucket.ReplicationStrategy.ShouldReplicateIncoming(peerID) {
+        if bucket.ShouldReplicateIncoming(peerID) {
             buckets = append(buckets, bucket)
         }
     }

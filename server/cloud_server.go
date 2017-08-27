@@ -526,7 +526,7 @@ func (server *CloudServer) Start() error {
     var err error
 
     listener, err = net.Listen("tcp", "0.0.0.0:" + strconv.Itoa(server.Port()))
-    
+
     if err != nil {
         Log.Errorf("Error listening on port %d: %v", server.port, err.Error())
         
@@ -596,6 +596,14 @@ func (server *CloudServer) Start() error {
         server.join <- 1
     }
 
+    if server.shouldStartNewCluster() && !server.clusterController.ClusterIsInitialized() {
+        if err := server.initCluster(); err != nil {
+            server.shutdown()
+
+            return err
+        }
+    }
+
     go func() {
         server.run()
         server.shutdown()
@@ -661,6 +669,38 @@ func (server *CloudServer) run() {
                 return
         }
     }
+}
+
+func (server *CloudServer) initCluster() error {
+    ctx, cancel := context.WithCancel(context.Background())
+
+    go func() {
+        select {
+        case <-ctx.Done():
+            return
+        case <-server.stop:
+            cancel()
+            return
+        }
+    }()
+
+    Log.Infof("Initializing cluster settings (replication_factor = %d, partitions = %d)", server.replicationFactor, server.partitions)
+
+    if err := server.configController.ClusterCommand(ctx, ClusterSetReplicationFactorBody{ ReplicationFactor: server.replicationFactor }); err != nil {
+        Log.Criticalf("Local node (id = %d) was unable to initialize the replication factor of the new cluster: %v", server.clusterController.LocalNodeID, err.Error())
+
+        return err
+    }
+
+    if err := server.configController.ClusterCommand(ctx, ClusterSetPartitionCountBody{ Partitions: server.partitions }); err != nil {
+        Log.Criticalf("Local node (id = %d) was unable to initialize the partition count factor of the new cluster: %v", server.clusterController.LocalNodeID, err.Error())
+
+        return err
+    }
+
+    Log.Infof("Cluster initialization complete!")
+
+    return nil
 }
 
 func (server *CloudServer) joinCluster() error {

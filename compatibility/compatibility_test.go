@@ -2,7 +2,7 @@ package compatibility_test
 
 import (
     . "devicedb/compatibility"
-    . "devicedb/shared"
+    . "devicedb/data"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

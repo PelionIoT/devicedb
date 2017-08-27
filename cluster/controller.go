@@ -10,6 +10,7 @@ import (
 
 var ENoSuchCommand = errors.New("The cluster command type is not supported")
 var ENoSuchNode = errors.New("The node specified in the update does not exist")
+var ENoSuchSite = errors.New("The specified site does not exist")
 var ECouldNotParseCommand = errors.New("The cluster command data was not properly formatted. Unable to parse it.")
 
 type ClusterController struct {
@@ -59,6 +60,16 @@ func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) 
         err = clusterController.SetReplicationFactor(body.(ClusterSetReplicationFactorBody))
     case ClusterSetPartitionCount:
         err = clusterController.SetPartitionCount(body.(ClusterSetPartitionCountBody))
+    case ClusterAddSite:
+        err = clusterController.AddSite(body.(ClusterAddSiteBody))
+    case ClusterRemoveSite:
+        err = clusterController.RemoveSite(body.(ClusterRemoveSiteBody))
+    case ClusterAddRelay:
+        err = clusterController.AddRelay(body.(ClusterAddRelayBody))
+    case ClusterRemoveRelay:
+        err = clusterController.RemoveRelay(body.(ClusterRemoveRelayBody))
+    case ClusterMoveRelay:
+        err = clusterController.MoveRelay(body.(ClusterMoveRelayBody))
     default:
         return nil, ENoSuchCommand
     }
@@ -297,7 +308,51 @@ func (clusterController *ClusterController) SetPartitionCount(clusterCommand Clu
     return nil
 }
 
+func (clusterController *ClusterController) AddSite(clusterCommand ClusterAddSiteBody) error {
+    clusterController.State.AddSite(clusterCommand.SiteID)
+
+    return nil
+}
+
+func (clusterController *ClusterController) RemoveSite(clusterCommand ClusterRemoveSiteBody) error {
+    clusterController.State.RemoveSite(clusterCommand.SiteID)
+
+    return nil
+}
+
+func (clusterController *ClusterController) AddRelay(clusterCommand ClusterAddRelayBody) error {
+    clusterController.State.AddRelay(clusterCommand.RelayID)
+
+    return nil
+}
+
+func (clusterController *ClusterController) RemoveRelay(clusterCommand ClusterRemoveRelayBody) error {
+    clusterController.State.RemoveRelay(clusterCommand.RelayID)
+
+    return nil
+}
+
+func (clusterController *ClusterController) MoveRelay(clusterCommand ClusterMoveRelayBody) error {
+    if clusterController.State.SiteExists(clusterCommand.SiteID) {
+        return ENoSuchSite
+    }
+
+    clusterController.State.MoveRelay(clusterCommand.RelayID, clusterCommand.SiteID)
+
+    return nil
+}
+
+func (clusterController *ClusterController) ClusterIsInitialized() bool {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    return clusterController.State.ClusterSettings.AreInitialized()
+}
+
 func (clusterController *ClusterController) LocalNodeConfig() *NodeConfig {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
     return clusterController.State.Nodes[clusterController.LocalNodeID]
 }
 

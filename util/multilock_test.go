@@ -1,4 +1,4 @@
-package shared_test
+package util_test
 
 import (
     "sync"

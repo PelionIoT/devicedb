@@ -1,4 +1,5 @@
-package shared
+
+package bucket
 
 import (
     "io"
@@ -10,7 +11,12 @@ import (
 
     . "devicedb/storage"
     . "devicedb/error"
+    . "devicedb/data"
     . "devicedb/logging"
+    . "devicedb/merkle"
+    . "devicedb/util"
+    . "devicedb/resolver"
+    . "devicedb/resolver/strategies"
 )
 
 const MAX_SORTING_KEY_LENGTH = 255
@@ -94,65 +100,69 @@ func encodeMetadataKey(k []byte) []byte {
     return result
 }
 
-type Node struct {
-    id string
+type Store struct {
+    nodeID string
     storageDriver StorageDriver
     merkleTree *MerkleTree
     multiLock *MultiLock
     merkleLock *MultiLock
-    resolveConflicts ConflictResolutionStrategy
+    conflictResolver ConflictResolver
 }
 
-func NewNode(id string, storageDriver StorageDriver, merkleDepth uint8, resolveConflicts ConflictResolutionStrategy) (*Node, error) {
-    if resolveConflicts == nil {
-        resolveConflicts = Default
+func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkleDepth uint8, conflictResolver ConflictResolver) error {
+    if conflictResolver == nil {
+        conflictResolver = &MultiValue{}
     }
-    
-    node := Node{ id, storageDriver, nil, NewMultiLock(), NewMultiLock(), resolveConflicts }
-    node.merkleTree, _ = NewMerkleTree(merkleDepth)
+
+    store.nodeID = nodeID
+    store.storageDriver = storageDriver
+    store.multiLock = NewMultiLock()
+    store.merkleLock = NewMultiLock()
+    store.conflictResolver = conflictResolver
+    store.merkleTree, _ = NewMerkleTree(merkleDepth)
     
     var err error
-    dbMerkleDepth, err := node.getNodeMetadata()
+    dbMerkleDepth, err := store.getStoreMetadata()
     
     if err != nil {
-        Log.Errorf("Error retrieving database metadata for node %s: %v", id, err)
+        Log.Errorf("Error retrieving database metadata for node %s: %v", nodeID, err)
         
-        return nil, err
+        return err
     }
     
     if dbMerkleDepth != merkleDepth {
-        Log.Debugf("Initializing node %s rebuilding merkle leafs with depth %d", id, merkleDepth)
+        Log.Debugf("Initializing node %s rebuilding merkle leafs with depth %d", nodeID, merkleDepth)
         
-        err = node.RebuildMerkleLeafs()
+        err = store.RebuildMerkleLeafs()
         
         if err != nil {
-            Log.Errorf("Error rebuilding merkle leafs for node %s: %v", id, err)
+            Log.Errorf("Error rebuilding merkle leafs for node %s: %v", nodeID, err)
             
-            return nil, err
+            return err
         }
         
-        err = node.RecordNodeMetadata()
+        err = store.RecordMetadata()
         
         if err != nil {
-            Log.Errorf("Error recording merkle depth metadata for node %s: %v", id, err)
+            Log.Errorf("Error recording merkle depth metadata for node %s: %v", nodeID, err)
             
-            return nil, err
+            return err
         }
     }
     
-    err = node.initializeMerkleTree()
+    err = store.initializeMerkleTree()
     
     if err != nil {
-        Log.Errorf("Error initializing node %s: %v", id, err)
+        Log.Errorf("Error initializing node %s: %v", nodeID, err)
         
-        return nil, err
+        return err
     }
     
-    return &node, nil
+    return nil
 }
 
-func (node *Node) initializeMerkleTree() error {
-    iter, err := node.storageDriver.GetMatches([][]byte{ MASTER_MERKLE_TREE_PREFIX })
+func (store *Store) initializeMerkleTree() error {
+    iter, err := store.storageDriver.GetMatches([][]byte{ MASTER_MERKLE_TREE_PREFIX })
     
     if err != nil {
         return err
@@ -169,7 +179,7 @@ func (node *Node) initializeMerkleTree() error {
             return err
         }
         
-        if !node.merkleTree.IsLeaf(nodeID) {
+        if !store.merkleTree.IsLeaf(nodeID) {
             return errors.New("Invalid leaf node in master merkle keys")
         }
         
@@ -178,7 +188,7 @@ func (node *Node) initializeMerkleTree() error {
         low := binary.BigEndian.Uint64(value[8:])
         hash = hash.SetLow(low).SetHigh(high)
     
-        node.merkleTree.UpdateLeafHash(nodeID, hash)
+        store.merkleTree.UpdateLeafHash(nodeID, hash)
     }
     
     if iter.Error() != nil {
@@ -188,8 +198,8 @@ func (node *Node) initializeMerkleTree() error {
     return nil
 }
 
-func (node *Node) getNodeMetadata() (uint8, error) {
-    values, err := node.storageDriver.Get([][]byte{ encodeMetadataKey([]byte("merkleDepth")) })
+func (store *Store) getStoreMetadata() (uint8, error) {
+    values, err := store.storageDriver.Get([][]byte{ encodeMetadataKey([]byte("merkleDepth")) })
     
     if err != nil {
         return 0, err
@@ -202,12 +212,12 @@ func (node *Node) getNodeMetadata() (uint8, error) {
     return uint8(values[0][0]), nil
 }
 
-func (node *Node) RecordNodeMetadata() error {
+func (store *Store) RecordMetadata() error {
     batch := NewBatch()
     
-    batch.Put(encodeMetadataKey([]byte("merkleDepth")), []byte{ byte(node.merkleTree.Depth()) })
+    batch.Put(encodeMetadataKey([]byte("merkleDepth")), []byte{ byte(store.merkleTree.Depth()) })
     
-    err := node.storageDriver.Batch(batch)
+    err := store.storageDriver.Batch(batch)
     
     if err != nil {
         return err
@@ -216,9 +226,9 @@ func (node *Node) RecordNodeMetadata() error {
     return nil
 }
 
-func (node *Node) RebuildMerkleLeafs() error {
+func (store *Store) RebuildMerkleLeafs() error {
     // Delete all keys starting with MASTER_MERKLE_TREE_PREFIX or PARTITION_MERKLE_LEAF_PREFIX
-    iter, err := node.storageDriver.GetMatches([][]byte{ MASTER_MERKLE_TREE_PREFIX, PARTITION_MERKLE_LEAF_PREFIX })
+    iter, err := store.storageDriver.GetMatches([][]byte{ MASTER_MERKLE_TREE_PREFIX, PARTITION_MERKLE_LEAF_PREFIX })
     
     if err != nil {
         return err
@@ -229,7 +239,7 @@ func (node *Node) RebuildMerkleLeafs() error {
     for iter.Next() {
         batch := NewBatch()
         batch.Delete(iter.Key())
-        err := node.storageDriver.Batch(batch)
+        err := store.storageDriver.Batch(batch)
         
         if err != nil {
             return err
@@ -243,14 +253,14 @@ func (node *Node) RebuildMerkleLeafs() error {
     iter.Release()
 
     // Scan through all the keys in this node and rebuild the merkle tree
-    merkleTree, _ := NewMerkleTree(node.merkleTree.Depth())
-    iter, err = node.storageDriver.GetMatches([][]byte{ PARTITION_DATA_PREFIX })
+    merkleTree, _ := NewMerkleTree(store.merkleTree.Depth())
+    iter, err = store.storageDriver.GetMatches([][]byte{ PARTITION_DATA_PREFIX })
     
     if err != nil {
         return err
     }
     
-    siblingSetIterator := NewSiblingSetIterator(iter)
+    siblingSetIterator := NewBasicSiblingSetIterator(iter)
     
     defer siblingSetIterator.Release()
     
@@ -268,7 +278,7 @@ func (node *Node) RebuildMerkleLeafs() error {
             }
         }
         
-        err := node.storageDriver.Batch(batch)
+        err := store.storageDriver.Batch(batch)
         
         if err != nil {
             return err
@@ -282,7 +292,7 @@ func (node *Node) RebuildMerkleLeafs() error {
             leafHash := merkleTree.NodeHash(leafID).Bytes()
             batch.Put(encodeMerkleLeafKey(leafID), leafHash[:])
             
-            err := node.storageDriver.Batch(batch)
+            err := store.storageDriver.Batch(batch)
             
             if err != nil {
                 return err
@@ -293,16 +303,12 @@ func (node *Node) RebuildMerkleLeafs() error {
     return siblingSetIterator.Error()
 }
 
-func (node *Node) MerkleTree() *MerkleTree {
-    return node.merkleTree
+func (store *Store) MerkleTree() *MerkleTree {
+    return store.merkleTree
 }
 
-func (node *Node) ID() string {
-    return node.id
-}
-
-func (node *Node) GarbageCollect(tombstonePurgeAge uint64) error {
-    iter, err := node.storageDriver.GetMatches([][]byte{ PARTITION_DATA_PREFIX })
+func (store *Store) GarbageCollect(tombstonePurgeAge uint64) error {
+    iter, err := store.storageDriver.GetMatches([][]byte{ PARTITION_DATA_PREFIX })
     
     if err != nil {
         Log.Errorf("Garbage collection error: %s", err.Error())
@@ -311,7 +317,7 @@ func (node *Node) GarbageCollect(tombstonePurgeAge uint64) error {
     }
     
     now := NanoToMilli(uint64(time.Now().UnixNano()))
-    siblingSetIterator := NewSiblingSetIterator(iter)
+    siblingSetIterator := NewBasicSiblingSetIterator(iter)
     defer siblingSetIterator.Release()
     
     if tombstonePurgeAge > now {
@@ -327,12 +333,12 @@ func (node *Node) GarbageCollect(tombstonePurgeAge uint64) error {
             continue
         }
         
-        node.lock([][]byte{ key })
+        store.lock([][]byte{ key })
         
         func() {
             // the key must be re-queried because at the time of iteration we did not have a lock
             // on the key in order to update it
-            siblingSets, err := node.Get([][]byte{ key })
+            siblingSets, err := store.Get([][]byte{ key })
             
             if err != nil {
                 return
@@ -349,16 +355,16 @@ func (node *Node) GarbageCollect(tombstonePurgeAge uint64) error {
             }
         
             Log.Debugf("GC: Purge tombstone at key %s. It is older than %d milliseconds", string(key), tombstonePurgeAge)
-            leafID := node.merkleTree.LeafNode(key)
+            leafID := store.merkleTree.LeafNode(key)
             
             batch := NewBatch()
             batch.Delete(encodePartitionMerkleLeafKey(leafID, key))
             batch.Delete(encodePartitionDataKey(key))
         
-            err = node.storageDriver.Batch(batch)
+            err = store.storageDriver.Batch(batch)
         }()
         
-        node.unlock([][]byte{ key }, false)
+        store.unlock([][]byte{ key }, false)
         
         if err != nil {
             Log.Errorf("Garbage collection error: %s", err.Error())
@@ -376,7 +382,7 @@ func (node *Node) GarbageCollect(tombstonePurgeAge uint64) error {
     return nil
 }
 
-func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
+func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
     if len(keys) == 0 {
         Log.Warningf("Passed empty keys parameter in Get(%v)", keys)
         
@@ -400,7 +406,7 @@ func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
     }
     
     // use storage driver
-    values, err := node.storageDriver.Get(keys)
+    values, err := store.storageDriver.Get(keys)
     
     if err != nil {
         Log.Errorf("Storage driver error in Get(%v): %s", keys, err.Error())
@@ -433,7 +439,7 @@ func (node *Node) Get(keys [][]byte) ([]*SiblingSet, error) {
     return siblingSetList, nil
 }
 
-func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
+func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
     if len(keys) == 0 {
         Log.Warningf("Passed empty keys parameter in GetMatches(%v)", keys)
         
@@ -456,7 +462,7 @@ func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
         keys[i] = encodePartitionDataKey(keys[i])
     }
     
-    iter, err := node.storageDriver.GetMatches(keys)
+    iter, err := store.storageDriver.GetMatches(keys)
     
     if err != nil {
         Log.Errorf("Storage driver error in GetMatches(%v): %s", keys, err.Error())
@@ -464,18 +470,18 @@ func (node *Node) GetMatches(keys [][]byte) (*SiblingSetIterator, error) {
         return nil, EStorage
     }
     
-    return NewSiblingSetIterator(iter), nil
+    return NewBasicSiblingSetIterator(iter), nil
 }
 
-func (node *Node) GetSyncChildren(nodeID uint32) (*MerkleChildrenIterator, error) {
-    if nodeID >= node.merkleTree.NodeLimit() {
+func (store *Store) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
+    if nodeID >= store.merkleTree.NodeLimit() {
         return nil, EMerkleRange
     }
     
-    min := encodePartitionMerkleLeafKey(node.merkleTree.SubRangeMin(nodeID), []byte{})
-    max := encodePartitionMerkleLeafKey(node.merkleTree.SubRangeMax(nodeID), []byte{})
+    min := encodePartitionMerkleLeafKey(store.merkleTree.SubRangeMin(nodeID), []byte{})
+    max := encodePartitionMerkleLeafKey(store.merkleTree.SubRangeMax(nodeID), []byte{})
     
-    iter, err := node.storageDriver.GetRange(min, max)
+    iter, err := store.storageDriver.GetRange(min, max)
     
     if err != nil {
         Log.Errorf("Storage driver error in GetSyncChildren(%v): %s", nodeID, err.Error())
@@ -483,23 +489,23 @@ func (node *Node) GetSyncChildren(nodeID uint32) (*MerkleChildrenIterator, error
         return nil, EStorage
     }
 
-    return NewMerkleChildrenIterator(iter, node.storageDriver), nil
+    return NewMerkleChildrenIterator(iter, store.storageDriver), nil
 }
 
-func (node *Node) Forget(keys [][]byte) error {
+func (store *Store) Forget(keys [][]byte) error {
     for _, key := range keys {
         if key == nil {
             continue
         }
 
-        node.lock([][]byte{ key })
+        store.lock([][]byte{ key })
         
-        siblingSets, err := node.Get([][]byte{ key })
+        siblingSets, err := store.Get([][]byte{ key })
         
         if err != nil {
             Log.Errorf("Unable to forget key %s due to storage error: %v", string(key), err)
 
-            node.unlock([][]byte{ key }, false)
+            store.unlock([][]byte{ key }, false)
 
             return EStorage
         }
@@ -507,15 +513,15 @@ func (node *Node) Forget(keys [][]byte) error {
         siblingSet := siblingSets[0]
         
         if siblingSet == nil {
-            node.unlock([][]byte{ key }, false)
+            store.unlock([][]byte{ key }, false)
 
             continue
         }
 
         // Update merkle tree to reflect deletion
-        leafID := node.merkleTree.LeafNode(key)
-        newLeafHash := node.merkleTree.NodeHash(leafID).Xor(siblingSet.Hash(key))
-        node.merkleTree.UpdateLeafHash(leafID, newLeafHash)
+        leafID := store.merkleTree.LeafNode(key)
+        newLeafHash := store.merkleTree.NodeHash(leafID).Xor(siblingSet.Hash(key))
+        store.merkleTree.UpdateLeafHash(leafID, newLeafHash)
 
         batch := NewBatch()
         batch.Delete(encodePartitionMerkleLeafKey(leafID, key))
@@ -523,9 +529,9 @@ func (node *Node) Forget(keys [][]byte) error {
         leafHashBytes := newLeafHash.Bytes()
         batch.Put(encodeMerkleLeafKey(leafID), leafHashBytes[:])
     
-        err = node.storageDriver.Batch(batch)
+        err = store.storageDriver.Batch(batch)
         
-        node.unlock([][]byte{ key }, false)
+        store.unlock([][]byte{ key }, false)
         
         if err != nil {
             Log.Errorf("Unable to forget key %s due to storage error: %v", string(key), err.Error())
@@ -539,7 +545,7 @@ func (node *Node) Forget(keys [][]byte) error {
     return nil
 }
 
-func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
+func (store *Store) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     siblingSetMap := map[string]*SiblingSet{ }
     
     // db objects
@@ -547,7 +553,7 @@ func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
         keys[i] = encodePartitionDataKey(keys[i])
     }
     
-    values, err := node.storageDriver.Get(keys)
+    values, err := store.storageDriver.Get(keys)
     
     if err != nil {
         Log.Errorf("Storage driver error in updateInit(%v): %s", keys, err.Error())
@@ -580,7 +586,7 @@ func (node *Node) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     return siblingSetMap, nil
 }
 
-func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
+func (store *Store) batch(update *Update, merkleTree *MerkleTree) *Batch {
     _, leafNodes := merkleTree.Update(update)
     batch := NewBatch()
 
@@ -605,7 +611,7 @@ func (node *Node) batch(update *Update, merkleTree *MerkleTree) *Batch {
     return batch
 }
 
-func (node *Node) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibling {
+func (store *Store) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibling {
     if o.IsDelete() {
         if oldestTombstone == nil {
             return NewSibling(c, nil, NanoToMilli(uint64(time.Now().UnixNano())))
@@ -617,7 +623,7 @@ func (node *Node) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibli
     }
 }
 
-func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
+func (store *Store) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     if batch == nil {
         Log.Warningf("Passed nil batch parameter in Batch(%v)", batch)
         
@@ -633,11 +639,11 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
         keys = append(keys, keyBytes)
     }
     
-    node.lock(keys)
-    defer node.unlock(keys, true)
+    store.lock(keys)
+    defer store.unlock(keys, true)
 
-    merkleTree := node.merkleTree
-    siblingSets, err := node.updateInit(keys)
+    merkleTree := store.merkleTree
+    siblingSets, err := store.updateInit(keys)
     
     //return nil, nil
     if err != nil {
@@ -660,30 +666,30 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
             updateContext = siblingSet.Join()
         }
         
-        updateClock := siblingSet.Event(updateContext, node.ID())
+        updateClock := siblingSet.Event(updateContext, store.nodeID)
         var newSibling *Sibling
         
         if siblingSet.IsTombstoneSet() {
-            newSibling = node.updateToSibling(op, updateClock, siblingSet.GetOldestTombstone())
+            newSibling = store.updateToSibling(op, updateClock, siblingSet.GetOldestTombstone())
         } else {
-            newSibling = node.updateToSibling(op, updateClock, nil)
+            newSibling = store.updateToSibling(op, updateClock, nil)
         }
         
         updatedSiblingSet := siblingSet.Discard(updateClock).Sync(NewSiblingSet(map[*Sibling]bool{ newSibling: true }))
     
         siblingSets[key] = updatedSiblingSet
         
-        updatedSiblingSet = node.resolveConflicts(updatedSiblingSet)
+        updatedSiblingSet = store.conflictResolver.ResolveConflicts(updatedSiblingSet)
         
         update.AddDiff(key, siblingSet, updatedSiblingSet)
     }
     
-    err = node.storageDriver.Batch(node.batch(update, merkleTree))
+    err = store.storageDriver.Batch(store.batch(update, merkleTree))
     
     if err != nil {
         Log.Errorf("Storage driver error in Batch(%v): %s", batch, err.Error())
 
-        node.merkleTree.UndoUpdate(update)
+        store.merkleTree.UndoUpdate(update)
         
         return nil, EStorage
     }
@@ -691,7 +697,7 @@ func (node *Node) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
     return siblingSets, nil
 }
 
-func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
+func (store *Store) Merge(siblingSets map[string]*SiblingSet) error {
     if siblingSets == nil {
         Log.Warningf("Passed nil sibling sets in Merge(%v)", siblingSets)
         
@@ -704,11 +710,11 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
         keys = append(keys, []byte(key))
     }
     
-    node.lock(keys)
-    defer node.unlock(keys, true)
+    store.lock(keys)
+    defer store.unlock(keys, true)
     
-    merkleTree := node.merkleTree
-    mySiblingSets, err := node.updateInit(keys)
+    merkleTree := store.merkleTree
+    mySiblingSets, err := store.updateInit(keys)
     
     if err != nil {
         return err
@@ -733,7 +739,7 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
         
         for sibling := range updatedSiblingSet.Iter() {
             if !mySiblingSet.Has(sibling) {
-                updatedSiblingSet = node.resolveConflicts(updatedSiblingSet)
+                updatedSiblingSet = store.conflictResolver.ResolveConflicts(updatedSiblingSet)
                 
                 update.AddDiff(string(key), mySiblingSet, updatedSiblingSet)
             }
@@ -741,12 +747,12 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
     }
 
     if update.Size() != 0 {
-        err := node.storageDriver.Batch(node.batch(update, merkleTree))
+        err := store.storageDriver.Batch(store.batch(update, merkleTree))
 
         if err != nil {
             Log.Errorf("Storage driver error in Merge(%v): %s", siblingSets, err.Error())
 
-            node.merkleTree.UndoUpdate(update)
+            store.merkleTree.UndoUpdate(update)
 
             return EStorage
         }
@@ -755,14 +761,14 @@ func (node *Node) Merge(siblingSets map[string]*SiblingSet) error {
     return nil
 }
 
-func (node *Node) sortedLockKeys(keys [][]byte) ([]string, []string) {
+func (store *Store) sortedLockKeys(keys [][]byte) ([]string, []string) {
     leafSet := make(map[string]bool, len(keys))
     keyStrings := make([]string, 0, len(keys))
     nodeStrings := make([]string, 0, len(keys))
     
     for _, key := range keys {
         keyStrings = append(keyStrings, string(key))
-        leafSet[string(nodeBytes(node.merkleTree.LeafNode(key)))] = true
+        leafSet[string(nodeBytes(store.merkleTree.LeafNode(key)))] = true
     }
     
     for node, _ := range leafSet {
@@ -775,19 +781,19 @@ func (node *Node) sortedLockKeys(keys [][]byte) ([]string, []string) {
     return keyStrings, nodeStrings
 }
 
-func (node *Node) lock(keys [][]byte) {
-    keyStrings, nodeStrings := node.sortedLockKeys(keys)
+func (store *Store) lock(keys [][]byte) {
+    keyStrings, nodeStrings := store.sortedLockKeys(keys)
     
     for _, key := range keyStrings {
-        node.multiLock.Lock([]byte(key))
+        store.multiLock.Lock([]byte(key))
     }
     
     for _, key := range nodeStrings {
-        node.merkleLock.Lock([]byte(key))
+        store.merkleLock.Lock([]byte(key))
     }
 }
 
-func (node *Node) unlock(keys [][]byte, keysArePrefixed bool) {
+func (store *Store) unlock(keys [][]byte, keysArePrefixed bool) {
     tKeys := make([][]byte, 0, len(keys))
     
     for _, key := range keys {
@@ -798,14 +804,14 @@ func (node *Node) unlock(keys [][]byte, keysArePrefixed bool) {
         }
     }
     
-    keyStrings, nodeStrings := node.sortedLockKeys(tKeys)
+    keyStrings, nodeStrings := store.sortedLockKeys(tKeys)
     
     for _, key := range keyStrings {
-        node.multiLock.Unlock([]byte(key))
+        store.multiLock.Unlock([]byte(key))
     }
     
     for _, key := range nodeStrings {
-        node.merkleLock.Unlock([]byte(key))
+        store.merkleLock.Unlock([]byte(key))
     }
 }
 
@@ -988,6 +994,10 @@ func (mIterator *MerkleChildrenIterator) Next() bool {
     return true
 }
 
+func (mIterator *MerkleChildrenIterator) Prefix() []byte {
+    return nil
+}
+
 func (mIterator *MerkleChildrenIterator) Key() []byte {
     return mIterator.currentKey
 }
@@ -1012,18 +1022,18 @@ func (mIterator *MerkleChildrenIterator) Error() error {
     return nil
 }
 
-type SiblingSetIterator struct {
+type BasicSiblingSetIterator struct {
     dbIterator StorageIterator
     parseError error
     currentKey []byte
     currentValue *SiblingSet
 }
 
-func NewSiblingSetIterator(dbIterator StorageIterator) *SiblingSetIterator {
-    return &SiblingSetIterator{ dbIterator, nil, nil, nil }
+func NewBasicSiblingSetIterator(dbIterator StorageIterator) *BasicSiblingSetIterator {
+    return &BasicSiblingSetIterator{ dbIterator, nil, nil, nil }
 }
 
-func (ssIterator *SiblingSetIterator) Next() bool {
+func (ssIterator *BasicSiblingSetIterator) Next() bool {
     ssIterator.currentKey = nil
     ssIterator.currentValue = nil
     
@@ -1053,11 +1063,11 @@ func (ssIterator *SiblingSetIterator) Next() bool {
     return true
 }
 
-func (ssIterator *SiblingSetIterator) Prefix() []byte {
+func (ssIterator *BasicSiblingSetIterator) Prefix() []byte {
     return decodePartitionDataKey(ssIterator.dbIterator.Prefix())
 }
 
-func (ssIterator *SiblingSetIterator) Key() []byte {
+func (ssIterator *BasicSiblingSetIterator) Key() []byte {
     if ssIterator.currentKey == nil {
         return nil
     }
@@ -1065,15 +1075,15 @@ func (ssIterator *SiblingSetIterator) Key() []byte {
     return decodePartitionDataKey(ssIterator.currentKey)
 }
 
-func (ssIterator *SiblingSetIterator) Value() *SiblingSet {
+func (ssIterator *BasicSiblingSetIterator) Value() *SiblingSet {
     return ssIterator.currentValue
 }
 
-func (ssIterator *SiblingSetIterator) Release() {
+func (ssIterator *BasicSiblingSetIterator) Release() {
     ssIterator.dbIterator.Release()
 }
 
-func (ssIterator *SiblingSetIterator) Error() error {
+func (ssIterator *BasicSiblingSetIterator) Error() error {
     if ssIterator.parseError != nil {
         return EStorage
     }

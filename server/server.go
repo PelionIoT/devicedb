@@ -17,6 +17,9 @@ import (
     "github.com/gorilla/websocket"
     "net/http/pprof"
 
+    . "devicedb/bucket"
+    . "devicedb/bucket/builtin"
+    . "devicedb/merkle"
     . "devicedb/shared"
     . "devicedb/storage"
     . "devicedb/historian"
@@ -32,55 +35,6 @@ const (
     historianPrefix = iota
     alertsLogPrefix = iota
 )
-
-type Shared struct {
-}
-
-func (shared *Shared) ShouldReplicateOutgoing(peerID string) bool {
-    return true
-}
-
-func (shared *Shared) ShouldReplicateIncoming(peerID string) bool {
-    return true
-}
-
-func (shared *Shared) ShouldAcceptReads(clientID string) bool {
-    return true
-}
-
-func (shared *Shared) ShouldAcceptWrites(clientID string) bool {
-    return true
-}
-
-type Cloud struct {
-}
-
-func (cloud *Cloud) ShouldReplicateOutgoing(peerID string) bool {
-    return false
-}
-
-func (cloud *Cloud) ShouldReplicateIncoming(peerID string) bool {
-    return peerID == CLOUD_PEER_ID
-}
-
-func (cloud *Cloud) ShouldAcceptReads(clientID string) bool {
-    return true
-}
-
-func (cloud *Cloud) ShouldAcceptWrites(clientID string) bool {
-    return false
-}
-
-type Local struct {
-}
-
-func (local *Local) ShouldReplicateOutgoing(peerID string) bool {
-    return false
-}
-
-func (local *Local) ShouldReplicateIncoming(peerID string) bool {
-    return false
-}
 
 type peerAddress struct {
     ID string `json:"id"`
@@ -249,18 +203,18 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         Log.Info("Database recovery successful!")
     }
     
-    defaultNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ defaultNodePrefix }, storageDriver), serverConfig.MerkleDepth, nil)
-    cloudNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ cloudNodePrefix }, storageDriver), serverConfig.MerkleDepth, nil) 
-    lwwNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ lwwNodePrefix }, storageDriver), serverConfig.MerkleDepth, LastWriterWins)
-    localNode, _ := NewNode(nodeID, NewPrefixedStorageDriver([]byte{ localNodePrefix }, storageDriver), MerkleMinDepth, nil)
+    defaultBucket, _ := NewDefaultBucket(nodeID, NewPrefixedStorageDriver([]byte{ defaultNodePrefix }, storageDriver), serverConfig.MerkleDepth)
+    cloudBucket, _ := NewCloudBucket(nodeID, NewPrefixedStorageDriver([]byte{ cloudNodePrefix }, storageDriver), serverConfig.MerkleDepth, RelayMode)
+    lwwBucket, _ := NewLWWBucket(nodeID, NewPrefixedStorageDriver([]byte{ lwwNodePrefix }, storageDriver), serverConfig.MerkleDepth)
+    localBucket, _ := NewLocalBucket(nodeID, NewPrefixedStorageDriver([]byte{ localNodePrefix }, storageDriver), MerkleMinDepth)
     
     server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ historianPrefix }, storageDriver), serverConfig.HistoryEventLimit)
     server.alertsLog = NewHistorian(NewPrefixedStorageDriver([]byte{ alertsLogPrefix }, storageDriver), serverConfig.HistoryEventLimit)
     
-    server.bucketList.AddBucket("default", defaultNode, &Shared{ }, &Shared{ })
-    server.bucketList.AddBucket("lww", lwwNode, &Shared{ }, &Shared{ })
-    server.bucketList.AddBucket("cloud", cloudNode, &Cloud{ }, &Cloud{ })
-    server.bucketList.AddBucket("local", localNode, &Local{ }, &Shared{ })
+    server.bucketList.AddBucket(defaultBucket)
+    server.bucketList.AddBucket(lwwBucket)
+    server.bucketList.AddBucket(cloudBucket)
+    server.bucketList.AddBucket(localBucket)
     
     server.garbageCollector = NewGarbageCollector(server.bucketList, serverConfig.GCInterval, serverConfig.GCPurgeAge)
     
@@ -323,8 +277,8 @@ func (server *Server) recover() error {
     Log.Infof("Rebuilding merkle trees...")
 
     for i := 0; i < localNodePrefix; i += 1 {
-        tempNode, _ := NewNode("temp", NewPrefixedStorageDriver([]byte{ byte(i) }, server.storageDriver), server.merkleDepth, nil)
-        rebuildError := tempNode.RebuildMerkleLeafs()
+        tempBucket, _ := NewDefaultBucket("temp", NewPrefixedStorageDriver([]byte{ byte(i) }, server.storageDriver), server.merkleDepth)
+        rebuildError := tempBucket.RebuildMerkleLeafs()
 
         if rebuildError != nil {
             Log.Errorf("Unable to rebuild merkle tree for node %d. Reason: %v", i, rebuildError.Error())
@@ -332,7 +286,7 @@ func (server *Server) recover() error {
             return rebuildError
         }
 
-        recordError := tempNode.RecordNodeMetadata()
+        recordError := tempBucket.RecordMetadata()
 
         if recordError != nil {
             Log.Errorf("Unable to rebuild node metadata for node %d. Reason: %v", i, recordError.Error())
@@ -360,7 +314,7 @@ func (server *Server) Start() error {
             return
         }
         
-        hashBytes := server.bucketList.Get(bucket).Node.MerkleTree().RootHash().Bytes()
+        hashBytes := server.bucketList.Get(bucket).MerkleTree().RootHash().Bytes()
         
         w.Header().Set("Content-Type", "text/plain; charset=utf8")
         w.WriteHeader(http.StatusOK)
@@ -423,7 +377,7 @@ func (server *Server) Start() error {
             byteKeys = append(byteKeys, []byte(k))
         }
 
-        siblingSets, err := server.bucketList.Get(bucket).Node.Get(byteKeys)
+        siblingSets, err := server.bucketList.Get(bucket).Get(byteKeys)
         
         if err != nil {
             Log.Warningf("POST /{bucket}/values: Internal server error")
@@ -523,7 +477,7 @@ func (server *Server) Start() error {
             byteKeys = append(byteKeys, []byte(k))
         }
         
-        ssIterator, err := server.bucketList.Get(bucket).Node.GetMatches(byteKeys)
+        ssIterator, err := server.bucketList.Get(bucket).GetMatches(byteKeys)
         
         if err != nil {
             Log.Warningf("POST /{bucket}/matches: Internal server error")
@@ -966,7 +920,7 @@ func (server *Server) Start() error {
             return
         }
         
-        if !server.bucketList.Get(bucket).PermissionStrategy.ShouldAcceptWrites("") {
+        if !server.bucketList.Get(bucket).ShouldAcceptWrites("") {
             Log.Warningf("POST /{bucket}/batch: Attempted to read from %s bucket", bucket)
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
@@ -1003,7 +957,7 @@ func (server *Server) Start() error {
             return
         }
         
-        updatedSiblingSets, err := server.bucketList.Get(bucket).Node.Batch(&updateBatch)
+        updatedSiblingSets, err := server.bucketList.Get(bucket).Batch(&updateBatch)
         
         if err != nil {
             Log.Warningf("POST /{bucket}/batch: Internal server error")

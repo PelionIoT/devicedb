@@ -9,6 +9,7 @@ import (
     "path/filepath"
 
     . "devicedb/logging"
+    . "devicedb/merkle"
 )
 
 type YAMLServerConfig struct {
