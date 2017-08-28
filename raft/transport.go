@@ -36,6 +36,10 @@ func (peerAddress *PeerAddress) ToHTTPURL(endpoint string) string {
     return fmt.Sprintf("http://%s:%d%s", peerAddress.Host, peerAddress.Port, endpoint)
 }
 
+func (peerAddress *PeerAddress) IsEmpty() bool {
+    return peerAddress.NodeID == 0
+}
+
 type TransportHub struct {
     peers map[uint64]PeerAddress
     httpClient *http.Client

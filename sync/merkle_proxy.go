@@ -1,8 +1,12 @@
 package sync
 
 import (
+    "context"
+
+    . "devicedb/client"
     . "devicedb/data"
     . "devicedb/merkle"
+    . "devicedb/raft"
 )
 
 type MerkleTreeProxy interface {
@@ -16,6 +20,10 @@ type MerkleTreeProxy interface {
 
 type LocalMerkleTreeProxy struct {
     merkleTree *MerkleTree
+}
+
+func (localMerkleProxy *LocalMerkleTreeProxy) MerkleTree() *MerkleTree {
+    return localMerkleProxy.merkleTree
 }
 
 func (localMerkleProxy *LocalMerkleTreeProxy) RootNode() uint32 {
@@ -43,22 +51,62 @@ func (localMerkleProxy *LocalMerkleTreeProxy) Error() error {
 }
 
 type RemoteMerkleTreeProxy struct {
+    err error
+    client Client
+    peerAddress PeerAddress
+    siteID string
+    bucketName string
+    merkleTree *MerkleTree
 }
 
 func (remoteMerkleProxy *RemoteMerkleTreeProxy) RootNode() uint32 {
+    if remoteMerkleProxy.err != nil {
+        return 0
+    }
+
+    return remoteMerkleProxy.merkleTree.RootNode()
 }
 
 func (remoteMerkleProxy *RemoteMerkleTreeProxy) Depth() uint8 {
+    if remoteMerkleProxy.err != nil {
+        return 0
+    }
+
+    return remoteMerkleProxy.merkleTree.Depth()
 }
 
 func (remoteMerkleProxy *RemoteMerkleTreeProxy) NodeLimit() uint32 {
+    if remoteMerkleProxy.err != nil {
+        return 0
+    }
+
+    return remoteMerkleProxy.merkleTree.NodeLimit()
 }
 
 func (remoteMerkleProxy *RemoteMerkleTreeProxy) NodeHash(nodeID uint32) Hash {
+    if remoteMerkleProxy.err != nil {
+        return Hash{}
+    }
+
+    merkleNode, err := remoteMerkleProxy.client.MerkleTreeNode(context.TODO(), remoteMerkleProxy.peerAddress, remoteMerkleProxy.siteID, remoteMerkleProxy.bucketName, nodeID)
+
+    if err != nil {
+        remoteMerkleProxy.err = err
+
+        return Hash{}
+    }
+
+    return merkleNode.Hash
 }
 
 func (remoteMerkleProxy *RemoteMerkleTreeProxy) TranslateNode(nodeID uint32, depth uint8) uint32 {
+    if remoteMerkleProxy.err != nil {
+        return 0
+    }
+
+    return remoteMerkleProxy.merkleTree.TranslateNode(nodeID, depth)
 }
 
 func (remoteMerkleProxy *RemoteMerkleTreeProxy) Error() error {
+    return remoteMerkleProxy.err
 }

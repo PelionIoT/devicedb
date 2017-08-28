@@ -2,7 +2,6 @@ package site
 
 import (
     "sync"
-
 )
 
 type SitePool interface {
@@ -10,8 +9,12 @@ type SitePool interface {
     // exclusive access it merely ensures that the site pool does not
     // dispose of the underlying site
     Acquire(siteID string) Site
-    // Called when client no longer needs access to a bucket.
+    // Called when client no longer needs access to a site
     Release(siteID string)
+    // Call when a site should be added to the pool
+    Add(siteID string)
+    // Called when a site should be removed from the pool
+    Remove(siteID string)
 }
 
 // A relay only ever contains one site database
@@ -24,27 +27,56 @@ func (relayNodeSitePool *RelayNodeSitePool) Acquire(siteID string) Site {
 }
 
 func (relayNodeSitePool *RelayNodeSitePool) Release(siteID string) {
-    // Do nothing. Relay bucket pool does no lifecycle management
-    // for buckets.
 }
 
-type CloudNodeBucketPool struct {
+func (relayNodeSitePool *RelayNodeSitePool) Add(siteID string) {
+}
+
+func (relayNodeSitePool *RelayNodeSitePool) Remove(siteID string) {
+}
+
+type CloudNodeSitePool struct {
     SiteFactory SiteFactory
     lock sync.Mutex
     sites map[string]Site
 }
 
-func (cloudNodeBucketPool *CloudNodeBucketPool) Acquire(siteID string) Site {
-    cloudNodeBucketPool.lock.Lock()
-    defer cloudNodeBucketPool.lock.Lock()
+func (cloudNodeSitePool *CloudNodeSitePool) Acquire(siteID string) Site {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
 
-    if _, ok := cloudNodeBucketPool.sites[siteID]; !ok {
-        cloudNodeBucketPool.sites[siteID] = cloudNodeBucketPool.SiteFactory.CreateSite(siteID)
+    site, ok := cloudNodeSitePool.sites[siteID]
+
+    if !ok {
+        return nil
     }
 
-    return cloudNodeBucketPool.sites[siteID]
+    if site == nil {
+        cloudNodeSitePool.sites[siteID] = cloudNodeSitePool.SiteFactory.CreateSite(siteID)
+    }
+
+    return cloudNodeSitePool.sites[siteID]
 }
 
-func (cloudNodeBucketPool *CloudNodeBucketPool) Release(siteID string) {
-    // Do nothing for now.
+func (cloudNodeSitePool *CloudNodeSitePool) Release(siteID string) {
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) Add(siteID string) {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    if cloudNodeSitePool.sites == nil {
+        cloudNodeSitePool.sites = make(map[string]Site)
+    }
+
+    if _, ok := cloudNodeSitePool.sites[siteID]; !ok {
+        cloudNodeSitePool.sites[siteID] = nil
+    }
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) Remove(siteID string) {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    delete(cloudNodeSitePool.sites, siteID)
 }

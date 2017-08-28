@@ -44,6 +44,8 @@ const (
     eNODE_DECOMMISSIONING = iota
     ePROPOSAL_ERROR = iota
     eDUPLICATE_NODE_ID = iota
+    eNO_SUCH_SITE = iota
+    eNO_SUCH_BUCKET = iota
 )
 
 var (
@@ -67,4 +69,6 @@ var (
     ENodeDecommissioning   = DBerror{ "This node is in the process of leaving the cluster.", eNODE_DECOMMISSIONING }
     EDuplicateNodeID       = DBerror{ "The ID the node is using was already used by a cluster member at some point.", eDUPLICATE_NODE_ID }
     EProposalError         = DBerror{ "An error occurred while proposing cluster configuration change.", ePROPOSAL_ERROR }
+    ESiteDoesNotExist      = DBerror{ "The specified site does not exist at this node.", eNO_SUCH_SITE }
+    EBucketDoesNotExist    = DBerror{ "The site does not contain the specified bucket.", eNO_SUCH_BUCKET }
 )

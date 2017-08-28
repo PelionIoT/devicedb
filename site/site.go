@@ -13,6 +13,10 @@ type RelaySiteReplica struct {
 }
 
 func (relaySiteReplica *RelaySiteReplica) Buckets() *BucketList {
+    if relaySiteReplica == nil {
+        return NewBucketList()
+    }
+
     return relaySiteReplica.bucketList
 }
 
@@ -21,5 +25,9 @@ type CloudSiteReplica struct {
 }
 
 func (cloudSiteReplica *CloudSiteReplica) Buckets() *BucketList {
+    if cloudSiteReplica == nil {
+        return NewBucketList()
+    }
+
     return cloudSiteReplica.bucketList
 }

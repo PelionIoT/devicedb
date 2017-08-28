@@ -41,6 +41,16 @@ func NewMerkleTree(depth uint8) (*MerkleTree, error) {
     }, nil
 }
 
+func NewDummyMerkleTree(depth uint8) (*MerkleTree, error) {
+    if depth < MerkleMinDepth || depth > MerkleMaxDepth {
+        return nil, errors.New("depth must be between " + strconv.Itoa(int(MerkleMinDepth)) + " and " + strconv.Itoa(int(MerkleMaxDepth)))
+    }
+
+    return &MerkleTree{
+        depth: depth,
+    }, nil
+}
+
 func (tree *MerkleTree) RootHash() Hash {
     tree.lock.Lock()
     defer tree.lock.Unlock()

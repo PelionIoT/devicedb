@@ -349,6 +349,19 @@ func (clusterController *ClusterController) ClusterIsInitialized() bool {
     return clusterController.State.ClusterSettings.AreInitialized()
 }
 
+func (clusterController *ClusterController) ClusterMemberAddress(nodeID uint64) raft.PeerAddress {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    nodeConfig, ok := clusterController.State.Nodes[nodeID]
+
+    if !ok {
+        return raft.PeerAddress{}
+    }
+
+    return nodeConfig.Address
+}
+
 func (clusterController *ClusterController) LocalNodeConfig() *NodeConfig {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

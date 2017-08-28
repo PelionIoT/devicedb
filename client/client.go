@@ -14,6 +14,8 @@ import (
     . "devicedb/raft"
     . "devicedb/error"
     . "devicedb/cluster"
+
+    "devicedb/rest"
 )
 
 const DefaultClientTimeout = time.Second * 10
@@ -158,4 +160,55 @@ func (client *Client) ForceRemoveNode(ctx context.Context, memberAddress PeerAdd
 
 func (client *Client) ReplaceNode(ctx context.Context, memberAddress PeerAddress, nodeID uint64, replacementNodeID uint64) error {
     return client.RemoveNode(ctx, memberAddress, nodeID, replacementNodeID, false, false)
+}
+
+func (client *Client) MerkleTreeStats(ctx context.Context, memberAddress PeerAddress, siteID string, bucketName string) (rest.MerkleTree, error) {
+    endpoint := memberAddress.ToHTTPURL(fmt.Sprintf("/sites/%s/buckets/%s/merkle", siteID, bucketName))
+    response, err := client.sendRequest(ctx, "GET", endpoint, []byte{ })
+
+    if err != nil {
+        return rest.MerkleTree{}, err
+    }
+
+    var merkleTree rest.MerkleTree
+
+    if err := json.Unmarshal(response, &merkleTree); err != nil {
+        return rest.MerkleTree{}, err
+    }
+
+    return merkleTree, nil
+}
+
+func (client *Client) MerkleTreeNode(ctx context.Context, memberAddress PeerAddress, siteID string, bucketName string, nodeID uint32) (rest.MerkleNode, error) {
+    endpoint := memberAddress.ToHTTPURL(fmt.Sprintf("/sites/%s/buckets/%s/merkle/nodes/%d", siteID, bucketName, nodeID))
+    response, err := client.sendRequest(ctx, "GET", endpoint, []byte{ })
+
+    if err != nil {
+        return rest.MerkleNode{}, err
+    }
+
+    var merkleNode rest.MerkleNode
+
+    if err := json.Unmarshal(response, &merkleNode); err != nil {
+        return rest.MerkleNode{}, err
+    }
+
+    return merkleNode, nil
+}
+
+func (client *Client) MerkleTreeNodeKeys(ctx context.Context, memberAddress PeerAddress, siteID string, bucketName string, nodeID uint32) (rest.MerkleKeys, error) {
+    endpoint := memberAddress.ToHTTPURL(fmt.Sprintf("/sites/%s/buckets/%s/merkle/nodes/%d/keys", siteID, bucketName, nodeID))
+    response, err := client.sendRequest(ctx, "GET", endpoint, []byte{ })
+
+    if err != nil {
+        return rest.MerkleKeys{}, err
+    }
+
+    var merkleKeys rest.MerkleKeys
+
+    if err := json.Unmarshal(response, &merkleKeys); err != nil {
+        return rest.MerkleKeys{}, err
+    }
+
+    return merkleKeys, nil
 }
