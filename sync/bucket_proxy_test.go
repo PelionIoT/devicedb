@@ -4,10 +4,18 @@ import (
     . "devicedb/bucket"
     . "devicedb/data"
     . "devicedb/merkle"
+    rest "devicedb/rest"
     . "devicedb/cluster"
-    //. "devicedb/raft"
+    . "devicedb/client"
+    . "devicedb/raft"
     . "devicedb/site"
     . "devicedb/sync"
+
+    "github.com/gorilla/mux"
+    "strconv"
+    "time"
+    "net"
+    "net/http"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -51,6 +59,7 @@ func (dummySite *DummySite) Buckets() *BucketList {
 type DummyBucket struct {
     name string
     merkleTree *MerkleTree
+    syncChildren map[uint32]SiblingSetIterator
 }
 
 func (dummyBucket *DummyBucket) Name() string {
@@ -98,7 +107,7 @@ func (dummyBucket *DummyBucket) GetMatches(keys [][]byte) (SiblingSetIterator, e
 }
 
 func (dummyBucket *DummyBucket) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
-    return nil, nil
+    return dummyBucket.syncChildren[nodeID], nil
 }
 
 func (dummyBucket *DummyBucket) Forget(keys [][]byte) error {
@@ -111,6 +120,59 @@ func (dummyBucket *DummyBucket) Batch(batch *UpdateBatch) (map[string]*SiblingSe
 
 func (dummyBucket *DummyBucket) Merge(siblingSets map[string]*SiblingSet) error {
     return nil
+}
+
+type TestHTTPServer struct {
+    port int
+    r *mux.Router
+    httpServer *http.Server
+    listener net.Listener
+    done chan int
+}
+
+func NewTestHTTPServer(port int) *TestHTTPServer {
+    httpServer := &TestHTTPServer{
+        port: port,
+        done: make(chan int),
+        r: mux.NewRouter(),
+    }
+
+    return httpServer
+}
+
+func (s *TestHTTPServer) Start() error {
+    s.httpServer = &http.Server{
+        Handler: s.r,
+        WriteTimeout: 15 * time.Second,
+        ReadTimeout: 15 * time.Second,
+    }
+    
+    var listener net.Listener
+    var err error
+
+    listener, err = net.Listen("tcp", "localhost:" + strconv.Itoa(s.port))
+    
+    if err != nil {
+        return err
+    }
+    
+    s.listener = listener
+
+    go func() {
+        s.httpServer.Serve(s.listener)
+        s.done <- 1
+    }()
+
+    return nil
+}
+
+func (s *TestHTTPServer) Stop() {
+    s.listener.Close()
+    <-s.done
+}
+
+func (s *TestHTTPServer) Router() *mux.Router {
+    return s.r
 }
 
 var _ = Describe("BucketProxy", func() {
@@ -303,5 +365,493 @@ var _ = Describe("BucketProxy", func() {
     })
 
     Describe("RemoteBucketProxy", func() {
+        Describe("#Name", func() {
+            Specify("Should return the result of Name of the Bucket it is a proxy for", func() {
+                remoteBucketProxy := &RemoteBucketProxy{
+                    BucketName: "default",
+                }
+
+                Expect(remoteBucketProxy.Name()).Should(Equal("default"))
+            })
+        })
+
+        Describe("#MerkleTree", func() {
+            var httpServer *TestHTTPServer
+            var bucketSyncHTTP *BucketSyncHTTP
+            var remoteBucket Bucket
+            var remoteBucketProxy *RemoteBucketProxy
+
+            BeforeEach(func() {
+                httpServer = NewTestHTTPServer(9000)
+                bucketList := NewBucketList()
+                merkleTree, _ := NewMerkleTree(MerkleMinDepth)
+                merkleTree.SetNodeHash(merkleTree.RootNode(), Hash{}.SetLow(60).SetHigh(60))
+                remoteBucket = &DummyBucket{
+                    name: "default",
+                    merkleTree: merkleTree,
+                    syncChildren: map[uint32]SiblingSetIterator{
+                        merkleTree.RootNode(): &RemoteMerkleNodeSiblingSetIterator{
+                            CurrentIndex: -1,
+                            MerkleKeys: rest.MerkleKeys{
+                                Keys: []rest.Key{
+                                    rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                    rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                },
+                            },
+                        },
+                    },
+                }
+
+                bucketList.AddBucket(remoteBucket)
+                bucketSyncHTTP = &BucketSyncHTTP{
+                    SitePool: &DummySitePool{
+                        sites: map[string]Site{
+                            "site1": &DummySite{
+                                bucketList: bucketList,
+                            },
+                        },
+                    },
+                }
+
+                bucketSyncHTTP.Attach(httpServer.Router())
+                httpServer.Start()
+            })
+
+            AfterEach(func() {
+                httpServer.Stop()
+            })
+
+            Context("when there is an error performing the request to the peer specified by PeerAddress", func() {
+                BeforeEach(func() {
+                    remoteBucketProxy = &RemoteBucketProxy{
+                        SiteID: "site1",
+                        BucketName: "default",
+                        Client: *NewClient(ClientConfig{ }),
+                        PeerAddress: PeerAddress{ Host: "localhost", Port: 9001 }, // wrong port to force error
+                    }
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose Error() method returns an error", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+                    _, ok := merkleTreeProxy.(*RemoteMerkleTreeProxy)
+
+                    Expect(ok).Should(BeTrue())
+                    Expect(merkleTreeProxy.Error()).Should(Not(BeNil()))
+                })
+            })
+
+            Context("when the request to the peer specified by PeerAddress works", func() {
+                BeforeEach(func() {
+                    remoteBucketProxy = &RemoteBucketProxy{
+                        SiteID: "site1",
+                        BucketName: "default",
+                        Client: *NewClient(ClientConfig{ }),
+                        PeerAddress: PeerAddress{ Host: "localhost", Port: 9000 },
+                    }
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose Error() method returns nil", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+                    _, ok := merkleTreeProxy.(*RemoteMerkleTreeProxy)
+
+                    Expect(ok).Should(BeTrue())
+                    Expect(merkleTreeProxy.Error()).Should(BeNil())
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose RootNode() method returns the root node ID of the remote merkle tree", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+
+                    Expect(merkleTreeProxy.RootNode()).Should(Equal(remoteBucket.MerkleTree().RootNode()))
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose Depth() method returns the depth of the remote merkle tree", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+
+                    Expect(merkleTreeProxy.Depth()).Should(Equal(remoteBucket.MerkleTree().Depth()))
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose NodeLimit() method returns the node limit of the remote merkle tree", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+
+                    Expect(merkleTreeProxy.NodeLimit()).Should(Equal(remoteBucket.MerkleTree().NodeLimit()))
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose NodeHash() method returns the same node hash as the remote merkle tree", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+
+                    Expect(merkleTreeProxy.NodeHash(remoteBucket.MerkleTree().RootNode())).Should(Equal(remoteBucket.MerkleTree().NodeHash(remoteBucket.MerkleTree().RootNode())))
+                })
+
+                It("should return a RemoteMerkleTreeProxy whose TranslateNode() method returns the same translation as the remote merkle tree", func() {
+                    merkleTreeProxy := remoteBucketProxy.MerkleTree()
+
+                    Expect(merkleTreeProxy.TranslateNode(remoteBucket.MerkleTree().RootNode(), MerkleMaxDepth)).Should(Equal(remoteBucket.MerkleTree().TranslateNode(remoteBucket.MerkleTree().RootNode(), MerkleMaxDepth)))
+                })
+            })
+        })
+
+        Describe("#GetSyncChildren", func() {
+            var httpServer *TestHTTPServer
+            var bucketSyncHTTP *BucketSyncHTTP
+            var remoteBucket Bucket
+            var remoteBucketProxy *RemoteBucketProxy
+
+            BeforeEach(func() {
+                httpServer = NewTestHTTPServer(9000)
+                bucketList := NewBucketList()
+                merkleTree, _ := NewMerkleTree(MerkleMinDepth)
+                merkleTree.SetNodeHash(merkleTree.RootNode(), Hash{}.SetLow(60).SetHigh(60))
+                remoteBucket = &DummyBucket{
+                    name: "default",
+                    merkleTree: merkleTree,
+                    syncChildren: map[uint32]SiblingSetIterator{
+                        merkleTree.RootNode(): &RemoteMerkleNodeSiblingSetIterator{
+                            CurrentIndex: -1,
+                            MerkleKeys: rest.MerkleKeys{
+                                Keys: []rest.Key{
+                                    rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                    rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                },
+                            },
+                        },
+                    },
+                }
+
+                bucketList.AddBucket(remoteBucket)
+                bucketSyncHTTP = &BucketSyncHTTP{
+                    SitePool: &DummySitePool{
+                        sites: map[string]Site{
+                            "site1": &DummySite{
+                                bucketList: bucketList,
+                            },
+                        },
+                    },
+                }
+
+                bucketSyncHTTP.Attach(httpServer.Router())
+                httpServer.Start()
+            })
+
+            AfterEach(func() {
+                httpServer.Stop()
+            })
+
+            Context("when there is an error performing the request to the peer specified by PeerAddress", func() {
+                BeforeEach(func() {
+                    remoteBucketProxy = &RemoteBucketProxy{
+                        SiteID: "site1",
+                        BucketName: "default",
+                        Client: *NewClient(ClientConfig{ }),
+                        PeerAddress: PeerAddress{ Host: "localhost", Port: 9001 }, // wrong port to force error
+                    }
+                })
+
+                It("should return an error", func() {
+                    siblingSetIter, err := remoteBucketProxy.GetSyncChildren(remoteBucket.MerkleTree().RootNode())
+
+                    Expect(siblingSetIter).Should(BeNil())
+                    Expect(err).Should(Not(BeNil()))
+                })
+            })
+
+            Context("when the request to the peer specified by PeerAddress works", func() {
+                BeforeEach(func() {
+                    remoteBucketProxy = &RemoteBucketProxy{
+                        SiteID: "site1",
+                        BucketName: "default",
+                        Client: *NewClient(ClientConfig{ }),
+                        PeerAddress: PeerAddress{ Host: "localhost", Port: 9000 },
+                    }
+                })
+
+                It("should return no error and a valid sibling set iterator", func() {
+                    siblingSetIter, err := remoteBucketProxy.GetSyncChildren(remoteBucket.MerkleTree().RootNode())
+
+                    Expect(siblingSetIter).Should(Not(BeNil()))
+                    Expect(err).Should(BeNil())
+                    Expect(siblingSetIter.Next()).Should(BeTrue())
+                    Expect(siblingSetIter.Key()).Should(Equal([]byte("a")))
+                    Expect(siblingSetIter.Next()).Should(BeTrue())
+                    Expect(siblingSetIter.Key()).Should(Equal([]byte("b")))
+                })
+            })
+        })
+
+        Describe("#Close", func() {
+        })
+    })
+
+    Describe("RemoteMerkleNodeSiblingSetIterator", func() {
+        Describe("#Next", func() {
+            Context("when the current index is >= the number of merkle keys - 1", func () {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{ },
+                        },
+                        CurrentIndex: -1,
+                    }
+                })
+
+                It("Should not advance the current index", func() {
+                    remoteMerkleIterator.Next()
+                    Expect(remoteMerkleIterator.CurrentIndex).Should(Equal(0))
+                })
+
+                It("Should return false", func() {
+                    Expect(remoteMerkleIterator.Next()).Should(BeFalse())
+                })
+            })
+
+            Context("when the current index is < the number of merkle keys - 1", func () {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{ 
+                                rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                            },
+                        },
+                        CurrentIndex: -1,
+                    }
+                })
+
+                It("Should advance the current index", func() {
+                    remoteMerkleIterator.Next()
+                    Expect(remoteMerkleIterator.CurrentIndex).Should(Equal(0))
+                })
+
+                It("Should return false", func() {
+                    Expect(remoteMerkleIterator.Next()).Should(BeTrue())
+                })
+            })
+        })
+
+        Describe("#Prefix", func() {
+            It("Should return nil", func() {
+                remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{ }
+
+                Expect(remoteMerkleIterator.Prefix()).Should(BeNil())
+            })
+        })
+
+        Describe("#Key", func() {
+            Context("when the current index < 0", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{ 
+                                rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                            },
+                        },
+                        CurrentIndex: -1,
+                    }
+                })
+
+                It("should return nil", func() {
+                    Expect(remoteMerkleIterator.Key()).Should(BeNil())
+                })
+            })
+
+            Context("when the current index == 0 and there are no elements in the Keys list", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{},
+                        },
+                        CurrentIndex: 0,
+                    }
+                })
+
+                It("should return nil", func() {
+                    Expect(remoteMerkleIterator.Key()).Should(BeNil())
+                })
+            })
+
+            Context("when the current index >= the number of elements in the keys list", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{
+                                rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                            },
+                        },
+                        CurrentIndex: 2,
+                    }
+                })
+
+                It("should return nil", func() {
+                    Expect(remoteMerkleIterator.Key()).Should(BeNil())
+                })
+            })
+
+            Context("when the current index exists in the keys list", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{
+                                rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                            },
+                        },
+                        CurrentIndex: 0,
+                    }
+                })
+
+                It("should return the key at the current index", func() {
+                    Expect(remoteMerkleIterator.Key()).Should(Equal([]byte("a")))
+                })
+            })
+        })
+
+        Describe("#Value", func() {
+            Context("when the current index < 0", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{ 
+                                rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                            },
+                        },
+                        CurrentIndex: -1,
+                    }
+                })
+
+                It("should return nil", func() {
+                    Expect(remoteMerkleIterator.Value()).Should(BeNil())
+                })
+            })
+
+            Context("when the current index == 0 and there are no elements in the Keys list", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{},
+                        },
+                        CurrentIndex: 0,
+                    }
+                })
+
+                It("should return nil", func() {
+                    Expect(remoteMerkleIterator.Value()).Should(BeNil())
+                })
+            })
+
+            Context("when the current index >= the number of elements in the keys list", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+
+                BeforeEach(func() {
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{
+                                rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                                rest.Key{ Key: "b", Value: NewSiblingSet(map[*Sibling]bool{ }) },
+                            },
+                        },
+                        CurrentIndex: 2,
+                    }
+                })
+
+                It("should return nil", func() {
+                    Expect(remoteMerkleIterator.Value()).Should(BeNil())
+                })
+            })
+
+            Context("when the current index exists in the keys list", func() {
+                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var siblingSetA *SiblingSet
+                var siblingSetB *SiblingSet
+
+                BeforeEach(func() {
+                    siblingSetA = NewSiblingSet(map[*Sibling]bool{ })
+                    siblingSetB = NewSiblingSet(map[*Sibling]bool{ })
+
+                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{
+                                rest.Key{ Key: "a", Value: siblingSetA },
+                                rest.Key{ Key: "b", Value: siblingSetB },
+                            },
+                        },
+                        CurrentIndex: 0,
+                    }
+                })
+
+                It("should return the key at the current index", func() {
+                    Expect(remoteMerkleIterator.Value()).Should(Equal(siblingSetA))
+                })
+            })
+        })
+
+        Describe("#Error", func() {
+            It("Should return nil", func() {
+                remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{ }
+
+                Expect(remoteMerkleIterator.Error()).Should(BeNil())
+            })
+        })
+
+        Describe("iteration through a list of keys", func() {
+            Context("The list of keys is not empty", func() {
+                Specify("calls to Next() should return true twice: once for each item in the list", func() {
+                    siblingSetA := NewSiblingSet(map[*Sibling]bool{ })
+                    siblingSetB := NewSiblingSet(map[*Sibling]bool{ })
+
+                    remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{
+                                rest.Key{ Key: "a", Value: siblingSetA },
+                                rest.Key{ Key: "b", Value: siblingSetB },
+                            },
+                        },
+                        CurrentIndex: -1,
+                    }
+
+                    Expect(remoteMerkleIterator.Next()).Should(BeTrue())
+                    Expect(remoteMerkleIterator.Key()).Should(Equal([]byte("a")))
+                    Expect(remoteMerkleIterator.Value()).Should(Equal(siblingSetA))
+                    Expect(remoteMerkleIterator.Next()).Should(BeTrue())
+                    Expect(remoteMerkleIterator.Key()).Should(Equal([]byte("b")))
+                    Expect(remoteMerkleIterator.Value()).Should(Equal(siblingSetB))
+                    Expect(remoteMerkleIterator.Next()).Should(BeFalse())
+                    Expect(remoteMerkleIterator.Key()).Should(BeNil())
+                    Expect(remoteMerkleIterator.Value()).Should(BeNil())
+                })
+            })
+
+            Context("The list of keys is empty", func() {
+                Specify("calls to Next() should return false and calls to Key() and Value() should return nil", func() {
+                    remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{
+                        MerkleKeys: rest.MerkleKeys{
+                            Keys: []rest.Key{ },
+                        },
+                        CurrentIndex: -1,
+                    }
+
+                    Expect(remoteMerkleIterator.Next()).Should(BeFalse())
+                    Expect(remoteMerkleIterator.Key()).Should(BeNil())
+                    Expect(remoteMerkleIterator.Value()).Should(BeNil())
+                })
+            })
+        })
     })
 })

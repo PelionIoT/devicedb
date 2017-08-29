@@ -133,7 +133,7 @@ func (remoteBucketProxy *RemoteBucketProxy) MerkleTree() MerkleTreeProxy {
     }
 
     return &RemoteMerkleTreeProxy{
-        err: err,
+        err: nil,
         client: remoteBucketProxy.Client,
         peerAddress: remoteBucketProxy.PeerAddress,
         siteID: remoteBucketProxy.SiteID,
@@ -150,8 +150,8 @@ func (remoteBucketProxy *RemoteBucketProxy) GetSyncChildren(nodeID uint32) (Sibl
     }
 
     return &RemoteMerkleNodeSiblingSetIterator{
-        merkleKeys: merkleKeys,
-        currentIndex: -1,
+        MerkleKeys: merkleKeys,
+        CurrentIndex: -1,
     }, nil
 }
 
@@ -159,16 +159,18 @@ func (remoteBucketProxy *RemoteBucketProxy) Close() {
 }
 
 type RemoteMerkleNodeSiblingSetIterator struct {
-    merkleKeys rest.MerkleKeys
-    currentIndex int
+    MerkleKeys rest.MerkleKeys
+    CurrentIndex int
 }
 
 func (iter *RemoteMerkleNodeSiblingSetIterator) Next() bool {
-    iter.currentIndex++
+    if iter.CurrentIndex >= len(iter.MerkleKeys.Keys) - 1 {
+        iter.CurrentIndex = len(iter.MerkleKeys.Keys)
 
-    if iter.currentIndex >= len(iter.merkleKeys.Keys) {
         return false
     }
+
+    iter.CurrentIndex++
 
     return true
 }
@@ -178,11 +180,19 @@ func (iter *RemoteMerkleNodeSiblingSetIterator) Prefix() []byte {
 }
 
 func (iter *RemoteMerkleNodeSiblingSetIterator) Key() []byte {
-    return []byte(iter.merkleKeys.Keys[iter.currentIndex].Key)
+    if iter.CurrentIndex < 0 || len(iter.MerkleKeys.Keys) == 0 || iter.CurrentIndex >= len(iter.MerkleKeys.Keys) {
+        return nil
+    }
+
+    return []byte(iter.MerkleKeys.Keys[iter.CurrentIndex].Key)
 }
 
 func (iter *RemoteMerkleNodeSiblingSetIterator) Value() *SiblingSet {
-    return iter.merkleKeys.Keys[iter.currentIndex].Value
+    if iter.CurrentIndex < 0 || len(iter.MerkleKeys.Keys) == 0 || iter.CurrentIndex >= len(iter.MerkleKeys.Keys) {
+        return nil
+    }
+
+    return iter.MerkleKeys.Keys[iter.CurrentIndex].Value
 }
 
 func (iter *RemoteMerkleNodeSiblingSetIterator) Release() {

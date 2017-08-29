@@ -10,7 +10,7 @@ const (
 )
 
 type Hash struct {
-    hash[2] uint64
+    Hash[2] uint64
 }
 
 func NewHash(input []byte) Hash {
@@ -18,14 +18,14 @@ func NewHash(input []byte) Hash {
     
     sum := md5.Sum(input)
         
-    newHash.hash[1] = binary.BigEndian.Uint64(sum[0:8])
-    newHash.hash[0] = binary.BigEndian.Uint64(sum[8:16])
+    newHash.Hash[1] = binary.BigEndian.Uint64(sum[0:8])
+    newHash.Hash[0] = binary.BigEndian.Uint64(sum[8:16])
     
     return newHash
 }
 
 func (hash Hash) Xor(otherHash Hash) Hash {
-    return Hash{[2]uint64{ hash.hash[0] ^ otherHash.hash[0], hash.hash[1] ^ otherHash.hash[1] }}
+    return Hash{[2]uint64{ hash.Hash[0] ^ otherHash.Hash[0], hash.Hash[1] ^ otherHash.Hash[1] }}
 }
 
 func (hash Hash) Bytes() [16]byte {
@@ -38,21 +38,21 @@ func (hash Hash) Bytes() [16]byte {
 }
 
 func (hash Hash) Low() uint64 {
-    return hash.hash[0]
+    return hash.Hash[0]
 }
 
 func (hash Hash) SetLow(l uint64) Hash {
-    hash.hash[0] = l
+    hash.Hash[0] = l
     
     return hash
 }
 
 func (hash Hash) High() uint64 {
-    return hash.hash[1]
+    return hash.Hash[1]
 }
 
 func (hash Hash) SetHigh(h uint64) Hash {
-    hash.hash[1] = h
+    hash.Hash[1] = h
     
     return hash
 }

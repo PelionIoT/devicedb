@@ -102,7 +102,7 @@ var _ = Describe("SitePool", func() {
                 })
             })
 
-            Context("when the site was previously added but has since been removd", func() {
+            Context("when the site was previously added but has since been removed", func() {
                 Specify("it should return nil", func() {
                     dummySiteFactory := &DummySiteFactory{}
                     cloudNodeSitePool := &CloudNodeSitePool{

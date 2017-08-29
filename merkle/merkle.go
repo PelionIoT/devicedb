@@ -77,6 +77,10 @@ func (tree *MerkleTree) NodeHash(node uint32) Hash {
 }
 
 func (tree *MerkleTree) NodeLimit() uint32 {
+    if tree.nodes == nil {
+        return uint32(math.Pow(float64(2), float64(tree.depth)))
+    }
+
     return uint32(len(tree.nodes))
 }
 

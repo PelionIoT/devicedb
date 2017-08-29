@@ -1,8 +1,6 @@
 package sync
 
 import (
-
-    . "devicedb/cluster"
     . "devicedb/error"
     . "devicedb/logging"
     . "devicedb/rest"
@@ -16,7 +14,6 @@ import (
 )
 
 type BucketSyncHTTP struct {
-    ClusterController *ClusterController
     SitePool SitePool
 }
 
@@ -204,8 +201,10 @@ func (bucketSync *BucketSyncHTTP) Attach(router *mux.Router) {
             return
         }
 
+        nodeHash := site.Buckets().Get(bucketName).MerkleTree().NodeHash(uint32(nodeID))
+
         responseMerkleNodeHash := MerkleNode{
-            Hash: site.Buckets().Get(bucketName).MerkleTree().NodeHash(uint32(nodeID)),
+            Hash: nodeHash,
         }
 
         body, _ := json.Marshal(&responseMerkleNodeHash)
