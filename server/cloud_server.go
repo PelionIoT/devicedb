@@ -16,12 +16,19 @@
 // Decommissioning States
 // [Decommissioning] ---proposes capacity change--> [Partition Ownership Handed Off] ---holds no more replicas---> [Data Ownership Handed Off] ----proposes removal---> [Removed from cluster]
 // Decommissioning State is not tied to raft log state. It is just a flag on a node that indicates its mode of operation
+// Relay client (relay talking to cluster)
+// Cloud client (cloud app talking to cluster)
+// ...
+// Relay Cert CA
+// Client Cert CA
+// Server Cert + Server Key
 
 package server
 
 import (
     "io"
     "io/ioutil"
+    "crypto/tls"
     "net"
     "net/http"
     "time"
@@ -32,6 +39,7 @@ import (
     "encoding/json"
     "context"
     "sync"
+    "errors"
 
     . "devicedb/storage"
     . "devicedb/error"
@@ -49,6 +57,51 @@ const (
 const (
     ClusterJoinRetryTimeout = 5
 )
+
+type RelayHandler struct {
+    upgrader websocket.Upgrader
+}
+
+func NewRelayHandler() *RelayHandler {
+    return &RelayHandler{
+        upgrader: websocket.Upgrader{
+            ReadBufferSize:  1024,
+            WriteBufferSize: 1024,
+        },
+    }
+}
+
+func (rh *RelayHandler) extractRelayID(conn *tls.Conn) (string, error) {
+    verifiedChains := conn.ConnectionState().VerifiedChains
+    
+    if len(verifiedChains) != 1 {
+        return "", errors.New("Invalid client certificate")
+    }
+    
+    relayID:= verifiedChains[0][0].Subject.CommonName
+    
+    return relayID, nil
+}
+
+func (rh *RelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    connection, err := rh.upgrader.Upgrade(w, r, nil)
+    
+    if err != nil {
+        return
+    }
+ 
+    conn := connection.UnderlyingConn()
+    relayID, err := rh.extractRelayID(conn.(*tls.Conn))
+
+    if err != nil {
+        conn.Close()
+
+        return
+    }
+
+    // rh.relayHub.HandleRelayConnection(relayID, connection)
+    Log.Infof("Relay %s connected", relayID)
+}
 
 type SwappableHandler struct {
     normalRouter *mux.Router
@@ -119,6 +172,12 @@ type CloudServerConfig struct {
     Port int
     // The host that the node should listen on and advertise to other nodes in its cluster for communication.
     Host string
+    // The port that the node should listen on for TLS based relay connections
+    RelayPort int
+    // The host that the node should listen on for TLS based relay connections
+    RelayHost string
+    // The relay TLS config
+    RelayTLSConfig *tls.Config
     // if SeedHost and SeedPort are specified it indicates that this node should join an existing cluster. It means that ReplicationFactor and Partitions will be ignored since this node will adopt the settings dictated by the cluster it is joining.
     // SeedHost is the host name or IP of an existing cluster member used to bootstrap the addition of this node to the cluster
     SeedHost string
@@ -129,7 +188,9 @@ type CloudServerConfig struct {
 
 type CloudServer struct {
     httpServer *http.Server
+    relayHTTPServer *http.Server
     listener net.Listener
+    relayListener net.Listener
     storageDriver StorageDriver
     replicationFactor uint64
     partitions uint64
@@ -137,8 +198,10 @@ type CloudServer struct {
     seedHost string
     port int
     host string
+    relayPort int
+    relayHost string
+    relayTLSConfig *tls.Config
     capacity uint64
-    upgrader websocket.Upgrader
     interClusterClient *Client
     clusterController *ClusterController
     raftNode *RaftNode
@@ -146,6 +209,7 @@ type CloudServer struct {
     configController *ConfigController
     raftTransportHub *TransportHub
     handler *SwappableHandler
+    relayHandler *RelayHandler
     stop chan int
     joinedCluster chan int
     leftCluster chan int
@@ -157,22 +221,19 @@ type CloudServer struct {
 }
 
 func NewCloudServer(serverConfig CloudServerConfig) (*CloudServer, error) {
-    upgrader := websocket.Upgrader{
-        ReadBufferSize:  1024,
-        WriteBufferSize: 1024,
-    }
-    
     storageDriver := NewLevelDBStorageDriver(serverConfig.Store, nil)
     server := &CloudServer{ 
         storageDriver: storageDriver,
         port: serverConfig.Port,
         host: serverConfig.Host,
+        relayPort: serverConfig.RelayPort,
+        relayHost: serverConfig.RelayHost,
+        relayTLSConfig: serverConfig.RelayTLSConfig,
         seedHost: serverConfig.SeedHost,
         seedPort: serverConfig.SeedPort,
         capacity: serverConfig.Capacity,
         replicationFactor: serverConfig.ReplicationFactor,
         partitions: serverConfig.Partitions,
-        upgrader: upgrader,
         decommission: make(chan int, 1),
         join: make(chan int, 1),
         joinedCluster: make(chan int, 1),
@@ -476,11 +537,24 @@ func (server *CloudServer) initializeHandler() {
     decommissioningRouter.HandleFunc("/debug/pprof/profile", pprof.Profile)
     decommissioningRouter.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 
+    server.relayHandler = NewRelayHandler()
     server.handler = NewSwappableHandler(normalRouter, decommissioningRouter)
 }
 
 func (server *CloudServer) Port() int {
     return server.port
+}
+
+func (server *CloudServer) Host() string {
+    return server.host
+}
+
+func (server *CloudServer) RelayPort() int {
+    return server.relayPort
+}
+
+func (server *CloudServer) RelayHost() string {
+    return server.relayHost
 }
 
 func (server *CloudServer) ClusterController() *ClusterController {
@@ -521,11 +595,18 @@ func (server *CloudServer) Start() error {
         WriteTimeout: 15 * time.Second,
         ReadTimeout: 15 * time.Second,
     }
+
+    server.relayHTTPServer = &http.Server{
+        Handler: server.relayHandler,
+        WriteTimeout: 15 * time.Second,
+        ReadTimeout: 15 * time.Second,
+    }
     
     var listener net.Listener
+    var relayListener net.Listener
     var err error
 
-    listener, err = net.Listen("tcp", "0.0.0.0:" + strconv.Itoa(server.Port()))
+    listener, err = net.Listen("tcp", server.Host() + ":" + strconv.Itoa(server.Port()))
 
     if err != nil {
         Log.Errorf("Error listening on port %d: %v", server.port, err.Error())
@@ -534,7 +615,19 @@ func (server *CloudServer) Start() error {
         
         return err
     }
+
+    server.listener = listener
+    relayListener, err = tls.Listen("tcp", server.RelayHost() + ":" + strconv.Itoa(server.RelayPort()), server.relayTLSConfig)
+
+    if err != nil {
+        Log.Errorf("Error setting up relay listener on port %d: %v", server.RelayPort(), err.Error())
+        
+        server.shutdown()
+        
+        return err
+    }
     
+    server.relayListener = relayListener
     err = server.storageDriver.Open()
     
     if err != nil {
@@ -555,8 +648,6 @@ func (server *CloudServer) Start() error {
             return EStorage
         }
     }
-    
-    server.listener = listener
 
     server.configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
         server.processLocalUpdates(deltas)
@@ -609,9 +700,24 @@ func (server *CloudServer) Start() error {
         server.shutdown()
     }()
 
-    Log.Infof("Node %d listening on port %d", server.clusterController.LocalNodeID, server.port)
+    Log.Infof("Node %d listening external (%s:%d), internal (%s:%d)", server.clusterController.LocalNodeID, server.RelayHost(), server.RelayPort(), server.Host(), server.Port())
 
-    err = server.httpServer.Serve(server.listener)
+    var wg sync.WaitGroup
+    wg.Add(2)
+
+    go func() {
+        err = server.httpServer.Serve(server.listener)
+        server.shutdown() // to ensure all other listeners shutdown
+        wg.Done()
+    }()
+
+    go func() {
+        err = server.relayHTTPServer.Serve(server.relayListener)
+        server.shutdown() // to ensure all other listeners shutdown
+        wg.Done()
+    }()
+
+    wg.Wait()
 
     Log.Errorf("Node %d server shutting down. Reason: %v", server.clusterController.LocalNodeID, err)
 
@@ -630,10 +736,25 @@ func (server *CloudServer) processLocalUpdates(deltas []ClusterStateDelta) {
             Log.Infof("This node (id = %d) was removed from its cluster. It will now shut down...", server.clusterController.LocalNodeID)
             server.leftCluster <- 1
         case DeltaNodeGainPartitionReplica:
+            // Unlock that partition
         case DeltaNodeLosePartitionReplica:
-            // Need to notify anyone listening
-        case DeltaNodeGainToken:
-        case DeltaNodeLoseToken:
+            // Delete that partition
+        case DeltaNodeGainPartitionReplicaOwnership:
+            // Create that partition
+        case DeltaNodeLosePartitionReplicaOwnership:
+            // Lock that partition
+        case DeltaSiteAdded:
+            // If we are responsible for the partition that this site
+            // belongs to then add this site to that partition's site pool
+        case DeltaSiteRemoved:
+            // If we are responsible for the partition that this site
+            // belongs to then remove this site from that partition's site pool
+        case DeltaRelayAdded:
+            // Nothing to do. The cluster should be aware of this relay
+        case DeltaRelayRemoved:
+            // disconnect the relay if it's currently connected
+        case DeltaRelayMoved:
+            // disconnect the relay if it's currently connected
         }
     }
 }
@@ -960,6 +1081,10 @@ func (server *CloudServer) removeSelfFromCluster() {
 func (server *CloudServer) shutdown() {
     if server.listener != nil {
         server.listener.Close()
+    }
+
+    if server.relayListener != nil {
+        server.relayListener.Close()
     }
     
     server.configController.Stop()

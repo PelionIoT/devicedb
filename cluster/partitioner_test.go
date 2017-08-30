@@ -1,6 +1,8 @@
 package cluster_test
 
 import (
+    "fmt"
+
     . "devicedb/cluster"
     . "devicedb/raft"
 
@@ -301,6 +303,75 @@ var _ = Describe("Partitioner", func() {
             Expect(AssignmentIsValid(nodes, partitions, newAssignment)).Should(BeTrue())
             Expect(newAssignment).Should(Equal(assignment))
             Expect(err).Should(BeNil())
+        })
+    })
+
+    Describe("#Owners", func() {
+        It("should return an empty array if tokenAssignments is nil", func() {
+            ps := &SimplePartitioningStrategy{ }
+            Expect(ps.Owners(nil, 0, 3)).Should(Equal([]uint64{}))
+        })
+
+        It("should return an empty array if partition is not within the token assignments array", func() {
+            ps := &SimplePartitioningStrategy{ }
+            Expect(ps.Owners([]uint64{ 1, 1, 1 }, 5, 3)).Should(Equal([]uint64{}))
+        })
+
+        Context("the number of distinct nodes < the replication factor", func() {
+            It("should return an array that repeats some nodes", func() {
+                ps := &SimplePartitioningStrategy{ }
+                Expect(ps.Owners([]uint64{ 1, 1, 1, 1, 2, 2, 2, 2 }, 0, 3)).Should(Equal([]uint64{ 1, 2, 1 }))
+                Expect(ps.Owners([]uint64{ 1, 1, 1, 1, 2, 2, 2, 2 }, 4, 3)).Should(Equal([]uint64{ 2, 1, 2 }))
+                Expect(ps.Owners([]uint64{ 1, 1, 1, 1, 2, 2, 2, 2 }, 7, 3)).Should(Equal([]uint64{ 2, 1, 2 }))
+            })
+
+            It("should exclude 0 as a possible node", func() {
+                ps := &SimplePartitioningStrategy{ }
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 0, 3)).Should(Equal([]uint64{ 1, 2, 1 }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 4, 3)).Should(Equal([]uint64{ 2, 1, 2 }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 7, 3)).Should(Equal([]uint64{ 2, 1, 2 }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 0, 0, 0, 0, 0 }, 7, 3)).Should(Equal([]uint64{ }))
+            })
+        })
+
+        Context("the number of distinct nodes >= the replication factor", func() {
+           It("should return an array that contains only the first R distinct nodes encountered while traversing the ring in a clockwise direction where R is the replication factor", func() {
+                ps := &SimplePartitioningStrategy{ }
+                Expect(ps.Owners([]uint64{ 1, 2, 3, 4, 5, 1, 2, 3 }, 0, 3)).Should(Equal([]uint64{ 1, 2, 3 }))
+                Expect(ps.Owners([]uint64{ 1, 2, 3, 4, 5, 1, 2, 3 }, 4, 3)).Should(Equal([]uint64{ 5, 1, 2 }))
+                Expect(ps.Owners([]uint64{ 1, 2, 3, 4, 5, 1, 2, 3 }, 7, 3)).Should(Equal([]uint64{ 3, 1, 2 }))
+                Expect(ps.Owners([]uint64{ 1, 2, 1, 4, 5, 1, 2, 1 }, 7, 3)).Should(Equal([]uint64{ 1, 2, 4 }))
+            })
+        })
+    })
+
+    Describe("#Partition", func() {
+        Specify("Should return a bunch of partition numbers that are < partition count", func() {
+            ps := &SimplePartitioningStrategy{ }
+            buckets := map[uint64]int{ }
+
+            for i := 0; i < 10000; i++ {
+                key := fmt.Sprintf("key-%d", i)
+                Expect(ps.Partition(key, 64)).Should(Equal(ps.Partition(key, 64)))
+                Expect(ps.Partition(key, 64) < 64).Should(BeTrue())
+                buckets[ps.Partition(key, 64)] = buckets[ps.Partition(key, 64)] + 1
+            }
+
+            for i := 0; i < 64; i += 1 {
+                count, ok := buckets[uint64(i)]
+
+                Expect(ok).Should(BeTrue())
+                Expect(count > 0).Should(BeTrue())
+            }
+        })
+    })
+
+    Describe("#CalculateShiftAmount", func() {
+        Specify("Should set shift amount to (64 - P) where 2^P = the partition count", func() {
+            for i := uint(0); i < 64; i++ {
+                ps := &SimplePartitioningStrategy{ }
+                Expect(ps.CalculateShiftAmount(1 << i)).Should(Equal(int(64 - i)))
+            }
         })
     })
 })

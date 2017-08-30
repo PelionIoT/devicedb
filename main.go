@@ -11,6 +11,9 @@ import (
     "time"
     "sync"
     "context"
+    "io/ioutil"
+    "crypto/tls"
+    "crypto/x509"
 
     . "devicedb/client"
     . "devicedb/server"
@@ -296,23 +299,28 @@ func main() {
     benchmarkDB := benchmarkCommand.String("db", "", "The directory to use for the benchark test scratch space")
     benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
 
-    clusterStartHost := clusterStartCommand.String("host", "localhost", "The hostname or ip to listen on. This is the advertised host address for this node.")
-    clusterStartPort := clusterStartCommand.Uint("port", uint(80), "The port to bind to.")
+    clusterStartHost := clusterStartCommand.String("host", "localhost", "HTTP The hostname or ip to listen on. This is the advertised host address for this node.")
+    clusterStartPort := clusterStartCommand.Uint("port", uint(55555), "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
+    clusterStartRelayHost := clusterStartCommand.String("relay_host", "localhost", "HTTPS The hostname or ip to listen on for incoming relay connections.")
+    clusterStartRelayPort := clusterStartCommand.Uint("relay_port", uint(443), "HTTPS This is the port used for incoming relay connections.")
+    clusterStartTLSCertificate := clusterStartCommand.String("cert", "", "PEM encoded x509 certificate to be used by relay connections. (Required) (Ex: /path/to/certs/cert.pem)")
+    clusterStartTLSKey := clusterStartCommand.String("key", "", "PEM encoded x509 key corresponding to the specified 'cert'. (Required) (Ex: /path/to/certs/key.pem)")
+    clusterStartTLSRelayCA := clusterStartCommand.String("relay_ca", "", "PEM encoded x509 certificate authority used to validate relay client certs for incoming relay connections. (Required) (Ex: /path/to/certs/relays.ca.pem)")
     clusterStartPartitions := clusterStartCommand.Uint64("partitions", uint64(cluster.DefaultPartitionCount), "The number of hash space partitions in the cluster. Must be a power of 2. (Only specified when starting a new cluster)")
     clusterStartReplicationFactor := clusterStartCommand.Uint64("replication_factor", uint64(3), "The number of replcas required for every database key. (Only specified when starting a new cluster)")
     clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
     clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
-    clusterRemovePort := clusterRemoveCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
+    clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
     clusterRemoveNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that should be removed from the cluster. Defaults to the ID of the node being contacted.")
 
     clusterDecommissionHost := clusterDecommissionCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterDecommissionPort := clusterDecommissionCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
+    clusterDecommissionPort := clusterDecommissionCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
     clusterDecommissionNodeID := clusterDecommissionCommand.Uint64("node", uint64(0), "The ID of the node that should be decommissioned from the cluster. Defaults to the ID of the node being contacted.")
 
     clusterReplaceHost := clusterReplaceCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterReplacePort := clusterReplaceCommand.Uint("port", uint(80), "The port of the cluster member to contact.")
+    clusterReplacePort := clusterReplaceCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
     clusterReplaceNodeID := clusterReplaceCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")
     clusterReplaceReplacementNodeID := clusterReplaceCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
 
@@ -534,6 +542,56 @@ func main() {
             }
         }
 
+        if *clusterStartTLSCertificate == "" {
+            fmt.Fprintf(os.Stderr, "Error: -cert must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterStartTLSKey == "" {
+            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterStartTLSRelayCA  == "" {
+            fmt.Fprintf(os.Stderr, "Error: -relay_ca must be specified\n")
+            os.Exit(1)
+        }
+
+        certificate, err := ioutil.ReadFile(*clusterStartTLSCertificate)
+        
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Could not the TLS certificate from %s: %v\n", *clusterStartTLSCertificate, err.Error())
+            os.Exit(1)
+        }
+
+        key, err := ioutil.ReadFile(*clusterStartTLSKey)
+        
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Could not the TLS key from %s: %v\n", *clusterStartTLSKey, err.Error())
+            os.Exit(1)
+        }
+
+        relayCA, err := ioutil.ReadFile(*clusterStartTLSRelayCA)
+        
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Could not the TLS Relay CA from %s: %v\n", *clusterStartTLSRelayCA, err.Error())
+            os.Exit(1)
+        }
+
+        cert, err := tls.X509KeyPair([]byte(certificate), []byte(key))
+        
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair")
+            os.Exit(1)
+        }
+
+        rootCAs := x509.NewCertPool()
+
+        if !rootCAs.AppendCertsFromPEM([]byte(relayCA)) {
+            fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid")
+            os.Exit(1)
+        }
+
         var seedHost string
         var seedPort int
 
@@ -547,9 +605,16 @@ func main() {
             Partitions: *clusterStartPartitions,
             Host: *clusterStartHost,
             Port: int(*clusterStartPort),
+            RelayHost: *clusterStartRelayHost,
+            RelayPort: int(*clusterStartRelayPort),
             SeedHost: seedHost,
             SeedPort: seedPort,
             Capacity: 1,
+            RelayTLSConfig: &tls.Config{
+                Certificates: []tls.Certificate{ cert },
+                ClientCAs: rootCAs,
+                ClientAuth: tls.RequireAndVerifyClientCert,
+            },
         }
 
         cloudServer, err := NewCloudServer(cloudServerConfig)

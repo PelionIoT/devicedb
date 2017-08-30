@@ -95,6 +95,7 @@ func (clusterController *ClusterController) Deltas() []ClusterStateDelta {
 func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()
+    localNodeOwnedPartitionReplica := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
     localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
     _, localNodeWasPresentBefore := clusterController.State.Nodes[clusterController.LocalNodeID]
@@ -111,6 +112,7 @@ func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
     }
 
     clusterController.localDiffTokensAndNotify(localNodeTokenSnapshot)
+    clusterController.localDiffOwnedPartitionReplicasAndNotify(localNodeOwnedPartitionReplica)
     clusterController.localDiffPartitionReplicasAndNotify(localNodePartitionReplicaSnapshot)
 
     if localNodeWasPresentBefore && !localNodeIsPresentNow {
@@ -284,6 +286,14 @@ func (clusterController *ClusterController) localDiffPartitionReplicasAndNotify(
     }
 }
 
+func (clusterController *ClusterController) Lock() {
+    clusterController.stateUpdateLock.Lock()
+}
+
+func (clusterController *ClusterController) Unlock() {
+    clusterController.stateUpdateLock.Unlock()
+}
+
 func (clusterController *ClusterController) SetReplicationFactor(clusterCommand ClusterSetReplicationFactorBody) error {
     if clusterController.State.ClusterSettings.ReplicationFactor != 0 {
         // The replication factor has already been set and cannot be changed
@@ -362,6 +372,79 @@ func (clusterController *ClusterController) ClusterMemberAddress(nodeID uint64) 
     return nodeConfig.Address
 }
 
+func (clusterController *ClusterController) LocalNodeOwnedPartitionReplicas() []PartitionReplica {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    partitionReplicas := make([]PartitionReplica, 0)
+
+    for partition, replicas := range clusterController.localNodeOwnedPartitionReplicas() {
+        for replica, _ := range replicas {
+            partitionReplicas = append(partitionReplicas, PartitionReplica{ Partition: partition, Replica: replica })
+        }
+    }
+
+    return partitionReplicas
+}
+
+func (clusterController *ClusterController) localNodeOwnedPartitionReplicas() map[uint64]map[uint64]bool {
+    if !clusterController.State.ClusterSettings.AreInitialized() {
+        return map[uint64]map[uint64]bool{ }
+    }
+
+    partitionReplicas := make(map[uint64]map[uint64]bool)
+
+    for i := 0; i < len(clusterController.State.Tokens); i++ {
+        partitionOwners := clusterController.PartitioningStrategy.Owners(clusterController.State.Tokens, uint64(i), clusterController.State.ClusterSettings.ReplicationFactor)
+
+        for replica, nodeID := range partitionOwners {
+            if nodeID == clusterController.LocalNodeID {
+                if _, ok := partitionReplicas[uint64(i)]; !ok {
+                    partitionReplicas[uint64(i)] = make(map[uint64]bool)
+                }
+
+                partitionReplicas[uint64(i)][uint64(replica)] = true
+            }
+        }
+    }
+
+    return partitionReplicas
+}
+
+func (clusterController *ClusterController) localDiffOwnedPartitionReplicasAndNotify(partitionReplicaSnapshot map[uint64]map[uint64]bool) {
+    currentPartitionReplicas := clusterController.localNodeOwnedPartitionReplicas()
+
+    // find out which partition replicas have been lost
+    for partition, replicas := range partitionReplicaSnapshot {
+        for replica, _ := range replicas {
+            if _, ok := currentPartitionReplicas[partition]; !ok {
+                clusterController.notifyLocalNode(DeltaNodeLosePartitionReplicaOwnership, NodeLosePartitionReplicaOwnership{ NodeID: clusterController.LocalNodeID, Partition: partition, Replica: replica })
+
+                continue
+            }
+
+            if _, ok := currentPartitionReplicas[partition][replica]; !ok {
+                clusterController.notifyLocalNode(DeltaNodeLosePartitionReplicaOwnership, NodeLosePartitionReplicaOwnership{ NodeID: clusterController.LocalNodeID, Partition: partition, Replica: replica })
+            }
+        }
+    }
+
+    // find out which partition replicas have been gained
+    for partition, replicas := range currentPartitionReplicas {
+        for replica, _ := range replicas {
+            if _, ok := partitionReplicaSnapshot[partition]; !ok {
+                clusterController.notifyLocalNode(DeltaNodeGainPartitionReplicaOwnership, NodeGainPartitionReplicaOwnership{ NodeID: clusterController.LocalNodeID, Partition: partition, Replica: replica })
+
+                continue
+            }
+
+            if _, ok := partitionReplicaSnapshot[partition][replica]; !ok {
+                clusterController.notifyLocalNode(DeltaNodeGainPartitionReplicaOwnership, NodeGainPartitionReplicaOwnership{ NodeID: clusterController.LocalNodeID, Partition: partition, Replica: replica })
+            }
+        }
+    }
+}
+
 func (clusterController *ClusterController) LocalNodeConfig() *NodeConfig {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()
@@ -431,6 +514,7 @@ func (clusterController *ClusterController) initializeClusterIfReady() {
 }
 
 func (clusterController *ClusterController) reassignTokens(oldOwnerID, newOwnerID uint64) {
+    localNodeOwnedPartitionReplicas := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
 
     // make new owner match old owners capacity
@@ -443,6 +527,7 @@ func (clusterController *ClusterController) reassignTokens(oldOwnerID, newOwnerI
 
     // perform diff between original token assignment and new token assignment to build deltas to place into update channel
     clusterController.localDiffTokensAndNotify(localNodeTokenSnapshot)
+    clusterController.localDiffOwnedPartitionReplicasAndNotify(localNodeOwnedPartitionReplicas)
 }
 
 func (clusterController *ClusterController) assignTokens() {
@@ -454,6 +539,7 @@ func (clusterController *ClusterController) assignTokens() {
 
     newTokenAssignment, _ := clusterController.PartitioningStrategy.AssignTokens(nodes, clusterController.State.Tokens, clusterController.State.ClusterSettings.Partitions)
 
+    localNodeOwnedPartitionReplicas := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
 
     for token, owner := range newTokenAssignment {
@@ -462,6 +548,7 @@ func (clusterController *ClusterController) assignTokens() {
 
     // perform diff between original token assignment and new token assignment to build deltas to place into update channel
     clusterController.localDiffTokensAndNotify(localNodeTokenSnapshot)
+    clusterController.localDiffOwnedPartitionReplicasAndNotify(localNodeOwnedPartitionReplicas)
 }
 
 func (clusterController *ClusterController) localNodeTokenSnapshot() map[uint64]bool {

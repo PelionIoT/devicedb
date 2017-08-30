@@ -1,6 +1,8 @@
 package cluster_test
 
 import (
+    "sort"
+
     . "devicedb/cluster"
     . "devicedb/raft"
 
@@ -11,6 +13,8 @@ import (
 type testPartitioningStrategy struct {
     calls int
     results [][]uint64
+    ownersCalls int
+    owners [][]uint64
 }
 
 func (ps *testPartitioningStrategy) AssignTokens(nodes []NodeConfig, currentTokenAssignment []uint64, partitions uint64) ([]uint64, error) {
@@ -24,6 +28,42 @@ func (ps *testPartitioningStrategy) AssignTokens(nodes []NodeConfig, currentToke
     ps.results = ps.results[1:]
 
     return result, nil
+}
+
+func (ps *testPartitioningStrategy) Owners(tokenAssignment []uint64, partition uint64, replicationFactor uint64) []uint64 {
+    ps.ownersCalls++
+
+    if ps.owners == nil {
+        return []uint64{ }
+    }
+
+    next := ps.owners[0]
+    ps.owners = ps.owners[1:]
+    return next
+}
+
+func (ps *testPartitioningStrategy) Partition(key string, partitionCount uint64) uint64 {
+    return 0
+}
+
+func filterDeltas(deltas []ClusterStateDelta, t ClusterStateDeltaType) ([]ClusterStateDelta, []ClusterStateDelta) {
+    filteredDeltas := make([]ClusterStateDelta, 0)
+    extractedDeltas := make([]ClusterStateDelta, 0)
+
+    for _, delta := range deltas {
+        if delta.Type == t {
+            extractedDeltas = append(extractedDeltas, delta)
+        } else {
+            filteredDeltas = append(filteredDeltas, delta)
+        }
+    }
+
+    return filteredDeltas, extractedDeltas
+}
+
+func sortDeltas(deltas []ClusterStateDelta) {
+    var clusterStateRange ClusterStateDeltaRange = deltas
+    sort.Sort(clusterStateRange)
 }
 
 // drains the channel without expecting a set order
@@ -231,6 +271,98 @@ var _ = Describe("Controller", func() {
                 Expect(partitioningStrategy.calls).Should(Equal(0))
             })
 
+            Context("The cluster settings (replication factor and #partitions) are already initialized", func() {
+                Context("This is the first node added to the cluster", func() {
+                    Specify("That node should gain ownership over all partitions and should immediately become the holder of all partition replicas", func() {
+                        node1 := NodeConfig{
+                            Capacity: 1, 
+                            Address: PeerAddress{ NodeID: 1 },
+                            Tokens: map[uint64]bool{ 0: true, 1: true, 2: true, 3: true },
+                            PartitionReplicas: map[uint64]map[uint64]bool{ },
+                        }
+                        clusterState := ClusterState{
+                            Nodes: map[uint64]*NodeConfig{ },
+                            ClusterSettings: ClusterSettings{ Partitions: 4, ReplicationFactor: 2 },
+                            Partitions: [][]*PartitionReplica {
+                                []*PartitionReplica{ &PartitionReplica{ Partition: 0, Replica: 0 }, &PartitionReplica{ Partition: 0, Replica: 1 } },
+                                []*PartitionReplica{ &PartitionReplica{ Partition: 1, Replica: 0 }, &PartitionReplica{ Partition: 1, Replica: 1 } },
+                                []*PartitionReplica{ &PartitionReplica{ Partition: 2, Replica: 0 }, &PartitionReplica{ Partition: 2, Replica: 1 } },
+                                []*PartitionReplica{ &PartitionReplica{ Partition: 3, Replica: 0 }, &PartitionReplica{ Partition: 3, Replica: 1 } },
+                            },
+                            Tokens: []uint64{ 0, 0, 0, 0 },
+                        }
+                        partitioningStrategy := &testPartitioningStrategy{ 
+                            results: [][]uint64{
+                                []uint64{ 1, 1, 1, 1 },
+                            },
+                            owners: [][]uint64{
+                                []uint64{ },
+                                []uint64{ },
+                                []uint64{ },
+                                []uint64{ },
+                                []uint64{ 1, 1 },
+                                []uint64{ 1, 1 },
+                                []uint64{ 1, 1 },
+                                []uint64{ 1, 1 },
+                            },
+                        }
+                        clusterController := &ClusterController{
+                            LocalNodeID: 1,
+                            State: clusterState,
+                            PartitioningStrategy: partitioningStrategy,
+                        }
+
+                        clusterCommand := ClusterAddNodeBody{
+                            NodeID: 1,
+                            NodeConfig: node1,
+                        }
+
+                        clusterController.AddNode(clusterCommand)
+
+                        deltas := clusterController.Deltas()
+                        deltas, adds := filterDeltas(deltas, DeltaNodeAdd)
+                        deltas, tokenGains := filterDeltas(deltas, DeltaNodeGainToken)
+                        deltas, tokenLosses:= filterDeltas(deltas, DeltaNodeLoseToken)
+                        deltas, partitionReplicaGains := filterDeltas(deltas, DeltaNodeGainPartitionReplica)
+                        deltas, partitionReplicaLosses := filterDeltas(deltas, DeltaNodeLosePartitionReplica)
+                        deltas, partitionReplicaOwnershipGains := filterDeltas(deltas, DeltaNodeGainPartitionReplicaOwnership)
+                        deltas, partitionReplicaOwnershipLosses := filterDeltas(deltas, DeltaNodeLosePartitionReplicaOwnership)
+
+                        // add node
+                        Expect(adds).Should(Equal([]ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 1, NodeConfig: node1 } } }))
+
+                        sortDeltas(tokenGains)
+
+                        // tokens
+                        Expect(tokenGains).Should(Equal([]ClusterStateDelta{ 
+                            ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 0 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 1 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 2 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 1, Token: 3 } },
+                        }))
+
+                        Expect(tokenLosses).Should(Equal([]ClusterStateDelta{ }))
+
+                        Expect(partitionReplicaGains).Should(Equal([]ClusterStateDelta{ }))
+                        Expect(partitionReplicaLosses).Should(Equal([]ClusterStateDelta{ }))
+
+                        sortDeltas(partitionReplicaOwnershipGains)
+                        Expect(partitionReplicaOwnershipGains).Should(Equal([]ClusterStateDelta{ 
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 0, Replica: 0 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 0, Replica: 1 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 1, Replica: 0 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 1, Replica: 1 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 2, Replica: 0 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 2, Replica: 1 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 3, Replica: 0 } },
+                            ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 1, Partition: 3, Replica: 1 } },
+                        }))
+
+                        Expect(partitionReplicaOwnershipLosses).Should(Equal([]ClusterStateDelta{ }))
+                    })
+                })
+            })
+
             It("should trigger a token assignment following its add notification if added node is local node", func() {
                 node1 := NodeConfig{ 
                     Capacity: 1, 
@@ -259,6 +391,16 @@ var _ = Describe("Controller", func() {
                     results: [][]uint64{
                         []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
                     },
+                    owners: [][]uint64{
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 2 },
+                        []uint64{ 2, 1 },
+                        []uint64{ 1, 2 },
+                        []uint64{ 2, 1 },
+                    },
                 }
                 clusterController := &ClusterController{
                     LocalNodeID: 2, // set this to 2 so the added node is this node
@@ -277,12 +419,39 @@ var _ = Describe("Controller", func() {
                 Expect(clusterController.State.Nodes[1].Capacity).Should(Equal(uint64(1)))
                 Expect(clusterController.State.Nodes[2].Capacity).Should(Equal(uint64(1)))
                 Expect(partitioningStrategy.calls).Should(Equal(1))
-                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 2, NodeConfig: node2 } }))
 
-                expectTokenGains(clusterController.Deltas()[1:], map[uint64]ClusterStateDelta{
-                    2: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
-                    3: ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
-                })
+                deltas := clusterController.Deltas()
+                deltas, adds := filterDeltas(deltas, DeltaNodeAdd)
+                deltas, tokenGains := filterDeltas(deltas, DeltaNodeGainToken)
+                deltas, tokenLosses:= filterDeltas(deltas, DeltaNodeLoseToken)
+                deltas, partitionReplicaGains := filterDeltas(deltas, DeltaNodeGainPartitionReplica)
+                deltas, partitionReplicaLosses := filterDeltas(deltas, DeltaNodeLosePartitionReplica)
+                deltas, partitionReplicaOwnershipGains := filterDeltas(deltas, DeltaNodeGainPartitionReplicaOwnership)
+                deltas, partitionReplicaOwnershipLosses := filterDeltas(deltas, DeltaNodeLosePartitionReplicaOwnership)
+
+                Expect(adds).Should(Equal([]ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ NodeID: 2, NodeConfig: node2 } } }))
+
+                sortDeltas(tokenGains)
+
+                Expect(tokenGains).Should(Equal([]ClusterStateDelta{ 
+                    ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 2 } },
+                    ClusterStateDelta{ Type: DeltaNodeGainToken, Delta: NodeGainToken{ NodeID: 2, Token: 3 } },
+                }))
+
+                Expect(tokenLosses).Should(Equal([]ClusterStateDelta{ }))
+
+                Expect(partitionReplicaGains).Should(Equal([]ClusterStateDelta{ }))
+                Expect(partitionReplicaLosses).Should(Equal([]ClusterStateDelta{ }))
+
+                sortDeltas(partitionReplicaOwnershipGains)
+                Expect(partitionReplicaOwnershipGains).Should(Equal([]ClusterStateDelta{
+                    ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 2, Partition: 0, Replica: 1 } },
+                    ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 2, Partition: 1, Replica: 0 } },
+                    ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 2, Partition: 2, Replica: 1 } },
+                    ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ NodeID: 2, Partition: 3, Replica: 0 } },
+                }))
+
+                Expect(partitionReplicaOwnershipLosses).Should(Equal([]ClusterStateDelta{ }))
             })
 
             It("should trigger a token removal if added node is not local node and added node is stealing tokens from me", func() {
@@ -313,6 +482,16 @@ var _ = Describe("Controller", func() {
                     results: [][]uint64{
                         []uint64{ 1, 1, 2, 2 }, // this is the new token assignment that will happen
                     },
+                    owners: [][]uint64{
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 1 },
+                        []uint64{ 1, 2 },
+                        []uint64{ 2, 1 },
+                        []uint64{ 1, 2 },
+                        []uint64{ 2, 1 },
+                    },
                 }
                 clusterController := &ClusterController{
                     LocalNodeID: 1, // set this to 2 so the added node is this node
@@ -331,10 +510,37 @@ var _ = Describe("Controller", func() {
                 Expect(clusterController.State.Nodes[2].Capacity).Should(Equal(uint64(1)))
                 Expect(partitioningStrategy.calls).Should(Equal(1))
 
-                expectTokenLosses(clusterController.Deltas(), map[uint64]ClusterStateDelta{
-                    2: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 2 } },
-                    3: ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 3 } },
-                })
+                deltas := clusterController.Deltas()
+                deltas, tokenGains := filterDeltas(deltas, DeltaNodeGainToken)
+                deltas, tokenLosses:= filterDeltas(deltas, DeltaNodeLoseToken)
+                deltas, partitionReplicaGains := filterDeltas(deltas, DeltaNodeGainPartitionReplica)
+                deltas, partitionReplicaLosses := filterDeltas(deltas, DeltaNodeLosePartitionReplica)
+                deltas, partitionReplicaOwnershipGains := filterDeltas(deltas, DeltaNodeGainPartitionReplicaOwnership)
+                deltas, partitionReplicaOwnershipLosses := filterDeltas(deltas, DeltaNodeLosePartitionReplicaOwnership)
+
+                sortDeltas(tokenGains)
+                sortDeltas(tokenLosses)
+
+                Expect(tokenGains).Should(Equal([]ClusterStateDelta{ }))
+
+                Expect(tokenLosses).Should(Equal([]ClusterStateDelta{ 
+                    ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 2 } },
+                    ClusterStateDelta{ Type: DeltaNodeLoseToken, Delta: NodeLoseToken{ NodeID: 1, Token: 3 } },
+                }))
+
+                Expect(partitionReplicaGains).Should(Equal([]ClusterStateDelta{ }))
+                Expect(partitionReplicaLosses).Should(Equal([]ClusterStateDelta{ }))
+
+                sortDeltas(partitionReplicaOwnershipGains)
+                sortDeltas(partitionReplicaOwnershipLosses)
+                Expect(partitionReplicaOwnershipLosses).Should(Equal([]ClusterStateDelta{
+                    ClusterStateDelta{ Type: DeltaNodeLosePartitionReplicaOwnership, Delta: NodeLosePartitionReplicaOwnership{ NodeID: 1, Partition: 0, Replica: 1 } },
+                    ClusterStateDelta{ Type: DeltaNodeLosePartitionReplicaOwnership, Delta: NodeLosePartitionReplicaOwnership{ NodeID: 1, Partition: 1, Replica: 0 } },
+                    ClusterStateDelta{ Type: DeltaNodeLosePartitionReplicaOwnership, Delta: NodeLosePartitionReplicaOwnership{ NodeID: 1, Partition: 2, Replica: 1 } },
+                    ClusterStateDelta{ Type: DeltaNodeLosePartitionReplicaOwnership, Delta: NodeLosePartitionReplicaOwnership{ NodeID: 1, Partition: 3, Replica: 0 } },
+                }))
+
+                Expect(partitionReplicaOwnershipGains).Should(Equal([]ClusterStateDelta{ }))
             })
         })
 
@@ -922,6 +1128,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 2,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -955,6 +1162,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -989,6 +1197,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -1032,6 +1241,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -1078,6 +1288,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -1122,6 +1333,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()
@@ -1163,6 +1375,7 @@ var _ = Describe("Controller", func() {
                 clusterController := &ClusterController{
                     LocalNodeID: 1,
                     State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
                 }
 
                 snap, _ := snapshotClusterState.Snapshot()

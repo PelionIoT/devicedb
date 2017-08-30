@@ -2,6 +2,9 @@ package cluster
 
 import (
     "errors"
+    "sync"
+
+    . "devicedb/data"
 )
 
 const MaxPartitionCount uint64 = 65536
@@ -13,12 +16,19 @@ var ENoNodesAvailable = errors.New("Unable to assign tokens because there are no
 
 type PartitioningStrategy interface {
     AssignTokens(nodes []NodeConfig, currentTokenAssignment []uint64, partitions uint64) ([]uint64, error)
+    Owners(tokenAssignment []uint64, partition uint64, replicationFactor uint64) []uint64
+    Partition(key string, partitionCount uint64) uint64
 }
 
 // Simple replication strategy that does not account for capacity other than finding nodes
 // that are marked as having 0 capacity to account for decomissioned nodes. Other than that
 // It just tries to assign as close to an even amount of tokens to each node as possible
 type SimplePartitioningStrategy struct {
+    // cached partition count
+    partitionCount uint64
+    // cached shift amount so it doesnt have to be recalculated every time
+    shiftAmount int
+    lock sync.Mutex
 }
 
 func (ps *SimplePartitioningStrategy) countAvailableNodes(nodes []NodeConfig) int {
@@ -201,4 +211,69 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
     }
 
     return assignments, nil
+}
+
+func (ps *SimplePartitioningStrategy) Owners(tokenAssignment []uint64, partition uint64, replicationFactor uint64) []uint64 {
+    if tokenAssignment == nil {
+        return []uint64{}
+    }
+
+    if partition >= uint64(len(tokenAssignment)) {
+        return []uint64{}
+    }
+
+    ownersSet := make(map[uint64]bool, int(replicationFactor))
+    owners := make([]uint64, 0, int(replicationFactor))
+
+    for i := 0; i < len(tokenAssignment) && len(ownersSet) < int(replicationFactor); i++ {
+        realIndex := (i + int(partition)) % len(tokenAssignment)
+
+        // 0 is not a valid node ID. These indicate tokens that have not been assigned yet
+        if tokenAssignment[realIndex] == 0 {
+            continue
+        }
+
+        if _, ok := ownersSet[tokenAssignment[realIndex]]; !ok {
+            ownersSet[tokenAssignment[realIndex]] = true
+            owners = append(owners, tokenAssignment[realIndex])
+        }
+    }
+
+    if uint64(len(owners)) > 0 && replicationFactor > uint64(len(owners)) {
+        originalOwnersList := owners
+
+        for i := 0; uint64(i) < replicationFactor - uint64(len(originalOwnersList)); i++ {
+            owners = append(owners, originalOwnersList[i % len(originalOwnersList)])
+        }
+    }
+
+    return owners
+}
+
+func (ps *SimplePartitioningStrategy) Partition(key string, partitionCount uint64) uint64 {
+    hash := NewHash([]byte(key)).High()
+    
+    if ps.shiftAmount == 0 {
+        ps.CalculateShiftAmount(partitionCount)
+    }
+
+    return hash >> uint(ps.shiftAmount)
+}
+
+func (ps *SimplePartitioningStrategy) CalculateShiftAmount(partitionCount uint64) int {
+    ps.lock.Lock()
+    defer ps.lock.Unlock()
+
+    if ps.shiftAmount != 0 {
+        return ps.shiftAmount
+    }
+
+    ps.shiftAmount = 65
+
+    for partitionCount > 0 {
+        ps.shiftAmount--
+        partitionCount = partitionCount >> 1
+    }
+
+    return ps.shiftAmount
 }
