@@ -58,6 +58,8 @@ func (dummySite *DummySite) Buckets() *BucketList {
 
 type DummyBucket struct {
     name string
+    mergeCalls int
+    forgetCalls int
     merkleTree *MerkleTree
     syncChildren map[uint32]SiblingSetIterator
 }
@@ -111,6 +113,8 @@ func (dummyBucket *DummyBucket) GetSyncChildren(nodeID uint32) (SiblingSetIterat
 }
 
 func (dummyBucket *DummyBucket) Forget(keys [][]byte) error {
+    dummyBucket.forgetCalls++
+
     return nil
 }
 
@@ -119,6 +123,8 @@ func (dummyBucket *DummyBucket) Batch(batch *UpdateBatch) (map[string]*SiblingSe
 }
 
 func (dummyBucket *DummyBucket) Merge(siblingSets map[string]*SiblingSet) error {
+    dummyBucket.mergeCalls++
+
     return nil
 }
 
@@ -214,7 +220,7 @@ var _ = Describe("BucketProxy", func() {
                 }
 
                 bucketProxy, err := relayBucketProxyFactory.CreateBucketProxy(1, "site1", "dummy")
-                _, ok := bucketProxy.(*LocalBucketProxy)
+                _, ok := bucketProxy.(*RelayBucketProxy)
 
                 Expect(ok).Should(BeTrue())
                 Expect(bucketProxy).Should(Not(BeNil()))
@@ -289,7 +295,7 @@ var _ = Describe("BucketProxy", func() {
                         }
 
                         bucketProxy, err := cloudBucketProxyFactory.CreateBucketProxy(1, "site1", "default")
-                        _, ok := bucketProxy.(*LocalBucketProxy)
+                        _, ok := bucketProxy.(*RelayBucketProxy)
 
                         Expect(ok).Should(BeTrue())
                         Expect(bucketProxy).Should(Not(BeNil()))
@@ -300,10 +306,10 @@ var _ = Describe("BucketProxy", func() {
         })
     })
 
-    Describe("LocalBucketProxy", func() {
+    Describe("RelayBucketProxy", func() {
         Describe("#Name", func() {
             Specify("Should return the result of Name of the Bucket it is a proxy for", func() {
-                localBucketProxy := &LocalBucketProxy{
+                localBucketProxy := &RelayBucketProxy{
                     Bucket: &DummyBucket{
                         name: "default",
                     },
@@ -314,9 +320,9 @@ var _ = Describe("BucketProxy", func() {
         })
 
         Describe("#MerkleTree", func() {
-            Specify("Should return a LocalMerkleTreeProxy which proxy for the MerkleTree of the Bucket", func() {
+            Specify("Should return a DirectMerkleTreeProxy which proxy for the MerkleTree of the Bucket", func() {
                 merkleTree, _ := NewMerkleTree(MerkleMinDepth)
-                localBucketProxy := &LocalBucketProxy{
+                localBucketProxy := &RelayBucketProxy{
                     Bucket: &DummyBucket{
                         name: "default",
                         merkleTree: merkleTree,
@@ -324,16 +330,16 @@ var _ = Describe("BucketProxy", func() {
                 }
 
                 merkleTreeProxy := localBucketProxy.MerkleTree()
-                _, ok := merkleTreeProxy.(*LocalMerkleTreeProxy)
+                _, ok := merkleTreeProxy.(*DirectMerkleTreeProxy)
 
                 Expect(ok).Should(BeTrue())
-                Expect(merkleTreeProxy.(*LocalMerkleTreeProxy).MerkleTree()).Should(Equal(merkleTree))
+                Expect(merkleTreeProxy.(*DirectMerkleTreeProxy).MerkleTree()).Should(Equal(merkleTree))
             })
         })
 
         Describe("#GetSyncChildren", func() {
             Specify("Should return the result of GetSyncChildren of the Bucket it is a proxy for", func() {
-               localBucketProxy := &LocalBucketProxy{
+               localBucketProxy := &RelayBucketProxy{
                     Bucket: &DummyBucket{
                         name: "default",
                     },
@@ -346,9 +352,35 @@ var _ = Describe("BucketProxy", func() {
             })
         })
 
+        Describe("#Merge", func() {
+            Specify("Should call the Merge() method of the Bucekt it is a proxy for", func() {
+                localBucketProxy := &RelayBucketProxy{
+                    Bucket: &DummyBucket{
+                        name: "default",
+                    },
+                }
+
+                Expect(localBucketProxy.Merge(map[string]*SiblingSet{ "a": NewSiblingSet(map[*Sibling]bool{ }) })).Should(BeNil())
+                Expect(localBucketProxy.Bucket.(*DummyBucket).mergeCalls).Should(Equal(1))
+            })
+        })
+
+        Describe("#Forget", func() {
+            Specify("Should call the Forget() method of the Bucket it is a proxy for", func() {
+                localBucketProxy := &RelayBucketProxy{
+                    Bucket: &DummyBucket{
+                        name: "default",
+                    },
+                }
+
+                Expect(localBucketProxy.Forget([][]byte{ []byte("a") })).Should(BeNil())
+                Expect(localBucketProxy.Bucket.(*DummyBucket).forgetCalls).Should(Equal(1))
+            })
+        })
+
         Describe("#Close", func() {
             Specify("Should release the associated site in the site pool", func() {
-                localBucketProxy := &LocalBucketProxy{
+                localBucketProxy := &RelayBucketProxy{
                     SitePool: &DummySitePool{
                     },
                     Bucket: &DummyBucket{
@@ -364,10 +396,10 @@ var _ = Describe("BucketProxy", func() {
         })
     })
 
-    Describe("RemoteBucketProxy", func() {
+    Describe("CloudResponderBucketProxy", func() {
         Describe("#Name", func() {
             Specify("Should return the result of Name of the Bucket it is a proxy for", func() {
-                remoteBucketProxy := &RemoteBucketProxy{
+                remoteBucketProxy := &CloudResponderBucketProxy{
                     BucketName: "default",
                 }
 
@@ -379,7 +411,7 @@ var _ = Describe("BucketProxy", func() {
             var httpServer *TestHTTPServer
             var bucketSyncHTTP *BucketSyncHTTP
             var remoteBucket Bucket
-            var remoteBucketProxy *RemoteBucketProxy
+            var remoteBucketProxy *CloudResponderBucketProxy
 
             BeforeEach(func() {
                 httpServer = NewTestHTTPServer(9000)
@@ -390,7 +422,7 @@ var _ = Describe("BucketProxy", func() {
                     name: "default",
                     merkleTree: merkleTree,
                     syncChildren: map[uint32]SiblingSetIterator{
-                        merkleTree.RootNode(): &RemoteMerkleNodeSiblingSetIterator{
+                        merkleTree.RootNode(): &CloudResponderMerkleNodeIterator{
                             CurrentIndex: -1,
                             MerkleKeys: rest.MerkleKeys{
                                 Keys: []rest.Key{
@@ -423,7 +455,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when there is an error performing the request to the peer specified by PeerAddress", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &RemoteBucketProxy{
+                    remoteBucketProxy = &CloudResponderBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -431,9 +463,9 @@ var _ = Describe("BucketProxy", func() {
                     }
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose Error() method returns an error", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose Error() method returns an error", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
-                    _, ok := merkleTreeProxy.(*RemoteMerkleTreeProxy)
+                    _, ok := merkleTreeProxy.(*CloudResponderMerkleTreeProxy)
 
                     Expect(ok).Should(BeTrue())
                     Expect(merkleTreeProxy.Error()).Should(Not(BeNil()))
@@ -442,7 +474,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when the request to the peer specified by PeerAddress works", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &RemoteBucketProxy{
+                    remoteBucketProxy = &CloudResponderBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -450,39 +482,39 @@ var _ = Describe("BucketProxy", func() {
                     }
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose Error() method returns nil", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose Error() method returns nil", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
-                    _, ok := merkleTreeProxy.(*RemoteMerkleTreeProxy)
+                    _, ok := merkleTreeProxy.(*CloudResponderMerkleTreeProxy)
 
                     Expect(ok).Should(BeTrue())
                     Expect(merkleTreeProxy.Error()).Should(BeNil())
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose RootNode() method returns the root node ID of the remote merkle tree", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose RootNode() method returns the root node ID of the remote merkle tree", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
 
                     Expect(merkleTreeProxy.RootNode()).Should(Equal(remoteBucket.MerkleTree().RootNode()))
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose Depth() method returns the depth of the remote merkle tree", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose Depth() method returns the depth of the remote merkle tree", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
 
                     Expect(merkleTreeProxy.Depth()).Should(Equal(remoteBucket.MerkleTree().Depth()))
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose NodeLimit() method returns the node limit of the remote merkle tree", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose NodeLimit() method returns the node limit of the remote merkle tree", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
 
                     Expect(merkleTreeProxy.NodeLimit()).Should(Equal(remoteBucket.MerkleTree().NodeLimit()))
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose NodeHash() method returns the same node hash as the remote merkle tree", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose NodeHash() method returns the same node hash as the remote merkle tree", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
 
                     Expect(merkleTreeProxy.NodeHash(remoteBucket.MerkleTree().RootNode())).Should(Equal(remoteBucket.MerkleTree().NodeHash(remoteBucket.MerkleTree().RootNode())))
                 })
 
-                It("should return a RemoteMerkleTreeProxy whose TranslateNode() method returns the same translation as the remote merkle tree", func() {
+                It("should return a CloudResponderMerkleTreeProxy whose TranslateNode() method returns the same translation as the remote merkle tree", func() {
                     merkleTreeProxy := remoteBucketProxy.MerkleTree()
 
                     Expect(merkleTreeProxy.TranslateNode(remoteBucket.MerkleTree().RootNode(), MerkleMaxDepth)).Should(Equal(remoteBucket.MerkleTree().TranslateNode(remoteBucket.MerkleTree().RootNode(), MerkleMaxDepth)))
@@ -494,7 +526,7 @@ var _ = Describe("BucketProxy", func() {
             var httpServer *TestHTTPServer
             var bucketSyncHTTP *BucketSyncHTTP
             var remoteBucket Bucket
-            var remoteBucketProxy *RemoteBucketProxy
+            var remoteBucketProxy *CloudResponderBucketProxy
 
             BeforeEach(func() {
                 httpServer = NewTestHTTPServer(9000)
@@ -505,7 +537,7 @@ var _ = Describe("BucketProxy", func() {
                     name: "default",
                     merkleTree: merkleTree,
                     syncChildren: map[uint32]SiblingSetIterator{
-                        merkleTree.RootNode(): &RemoteMerkleNodeSiblingSetIterator{
+                        merkleTree.RootNode(): &CloudResponderMerkleNodeIterator{
                             CurrentIndex: -1,
                             MerkleKeys: rest.MerkleKeys{
                                 Keys: []rest.Key{
@@ -538,7 +570,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when there is an error performing the request to the peer specified by PeerAddress", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &RemoteBucketProxy{
+                    remoteBucketProxy = &CloudResponderBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -556,7 +588,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when the request to the peer specified by PeerAddress works", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &RemoteBucketProxy{
+                    remoteBucketProxy = &CloudResponderBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -581,13 +613,13 @@ var _ = Describe("BucketProxy", func() {
         })
     })
 
-    Describe("RemoteMerkleNodeSiblingSetIterator", func() {
+    Describe("CloudResponderMerkleNodeIterator", func() {
         Describe("#Next", func() {
             Context("when the current index is >= the number of merkle keys - 1", func () {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{ },
                         },
@@ -606,10 +638,10 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index is < the number of merkle keys - 1", func () {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{ 
                                 rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
@@ -633,7 +665,7 @@ var _ = Describe("BucketProxy", func() {
 
         Describe("#Prefix", func() {
             It("Should return nil", func() {
-                remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{ }
+                remoteMerkleIterator := &CloudResponderMerkleNodeIterator{ }
 
                 Expect(remoteMerkleIterator.Prefix()).Should(BeNil())
             })
@@ -641,10 +673,10 @@ var _ = Describe("BucketProxy", func() {
 
         Describe("#Key", func() {
             Context("when the current index < 0", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{ 
                                 rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
@@ -661,10 +693,10 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index == 0 and there are no elements in the Keys list", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{},
                         },
@@ -678,10 +710,10 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index >= the number of elements in the keys list", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{
                                 rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
@@ -698,10 +730,10 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index exists in the keys list", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{
                                 rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
@@ -720,10 +752,10 @@ var _ = Describe("BucketProxy", func() {
 
         Describe("#Value", func() {
             Context("when the current index < 0", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{ 
                                 rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
@@ -740,10 +772,10 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index == 0 and there are no elements in the Keys list", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{},
                         },
@@ -757,10 +789,10 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index >= the number of elements in the keys list", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
 
                 BeforeEach(func() {
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{
                                 rest.Key{ Key: "a", Value: NewSiblingSet(map[*Sibling]bool{ }) },
@@ -777,7 +809,7 @@ var _ = Describe("BucketProxy", func() {
             })
 
             Context("when the current index exists in the keys list", func() {
-                var remoteMerkleIterator *RemoteMerkleNodeSiblingSetIterator
+                var remoteMerkleIterator *CloudResponderMerkleNodeIterator
                 var siblingSetA *SiblingSet
                 var siblingSetB *SiblingSet
 
@@ -785,7 +817,7 @@ var _ = Describe("BucketProxy", func() {
                     siblingSetA = NewSiblingSet(map[*Sibling]bool{ })
                     siblingSetB = NewSiblingSet(map[*Sibling]bool{ })
 
-                    remoteMerkleIterator = &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator = &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{
                                 rest.Key{ Key: "a", Value: siblingSetA },
@@ -804,7 +836,7 @@ var _ = Describe("BucketProxy", func() {
 
         Describe("#Error", func() {
             It("Should return nil", func() {
-                remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{ }
+                remoteMerkleIterator := &CloudResponderMerkleNodeIterator{ }
 
                 Expect(remoteMerkleIterator.Error()).Should(BeNil())
             })
@@ -816,7 +848,7 @@ var _ = Describe("BucketProxy", func() {
                     siblingSetA := NewSiblingSet(map[*Sibling]bool{ })
                     siblingSetB := NewSiblingSet(map[*Sibling]bool{ })
 
-                    remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator := &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{
                                 rest.Key{ Key: "a", Value: siblingSetA },
@@ -840,7 +872,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("The list of keys is empty", func() {
                 Specify("calls to Next() should return false and calls to Key() and Value() should return nil", func() {
-                    remoteMerkleIterator := &RemoteMerkleNodeSiblingSetIterator{
+                    remoteMerkleIterator := &CloudResponderMerkleNodeIterator{
                         MerkleKeys: rest.MerkleKeys{
                             Keys: []rest.Key{ },
                         },

@@ -740,9 +740,7 @@ func (server *CloudServer) processLocalUpdates(deltas []ClusterStateDelta) {
         case DeltaNodeLosePartitionReplica:
             // Delete that partition
         case DeltaNodeGainPartitionReplicaOwnership:
-            // Create that partition
         case DeltaNodeLosePartitionReplicaOwnership:
-            // Lock that partition
         case DeltaSiteAdded:
             // If we are responsible for the partition that this site
             // belongs to then add this site to that partition's site pool

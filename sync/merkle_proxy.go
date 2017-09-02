@@ -13,44 +13,59 @@ type MerkleTreeProxy interface {
     RootNode() uint32
     Depth() uint8
     NodeLimit() uint32
+    Level(nodeID uint32) uint8
+    LeftChild(nodeID uint32) uint32
+    RightChild(nodeID uint32) uint32
     NodeHash(nodeID uint32) Hash
     TranslateNode(nodeID uint32, depth uint8) uint32
     Error() error
 }
 
-type LocalMerkleTreeProxy struct {
+type DirectMerkleTreeProxy struct {
     merkleTree *MerkleTree
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) MerkleTree() *MerkleTree {
-    return localMerkleProxy.merkleTree
+func (directMerkleProxy *DirectMerkleTreeProxy) MerkleTree() *MerkleTree {
+    return directMerkleProxy.merkleTree
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) RootNode() uint32 {
-    return localMerkleProxy.merkleTree.RootNode()
+func (directMerkleProxy *DirectMerkleTreeProxy) RootNode() uint32 {
+    return directMerkleProxy.merkleTree.RootNode()
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) Depth() uint8 {
-    return localMerkleProxy.merkleTree.Depth()
+func (directMerkleProxy *DirectMerkleTreeProxy) Depth() uint8 {
+    return directMerkleProxy.merkleTree.Depth()
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) NodeLimit() uint32 {
-    return localMerkleProxy.merkleTree.NodeLimit()
+func (directMerkleProxy *DirectMerkleTreeProxy) NodeLimit() uint32 {
+    return directMerkleProxy.merkleTree.NodeLimit()
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) NodeHash(nodeID uint32) Hash {
-    return localMerkleProxy.merkleTree.NodeHash(nodeID)
+func (directMerkleProxy *DirectMerkleTreeProxy) Level(nodeID uint32) uint8 {
+    return directMerkleProxy.merkleTree.Level(nodeID)
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) TranslateNode(nodeID uint32, depth uint8) uint32 {
-    return localMerkleProxy.merkleTree.TranslateNode(nodeID, depth)
+func (directMerkleProxy *DirectMerkleTreeProxy) LeftChild(nodeID uint32) uint32 {
+    return directMerkleProxy.merkleTree.LeftChild(nodeID)
 }
 
-func (localMerkleProxy *LocalMerkleTreeProxy) Error() error {
+func (directMerkleProxy *DirectMerkleTreeProxy) RightChild(nodeID uint32) uint32 {
+    return directMerkleProxy.merkleTree.RightChild(nodeID)
+}
+
+func (directMerkleProxy *DirectMerkleTreeProxy) NodeHash(nodeID uint32) Hash {
+    return directMerkleProxy.merkleTree.NodeHash(nodeID)
+}
+
+func (directMerkleProxy *DirectMerkleTreeProxy) TranslateNode(nodeID uint32, depth uint8) uint32 {
+    return directMerkleProxy.merkleTree.TranslateNode(nodeID, depth)
+}
+
+func (directMerkleProxy *DirectMerkleTreeProxy) Error() error {
     return nil
 }
 
-type RemoteMerkleTreeProxy struct {
+type CloudResponderMerkleTreeProxy struct {
     err error
     client Client
     peerAddress PeerAddress
@@ -59,39 +74,63 @@ type RemoteMerkleTreeProxy struct {
     merkleTree *MerkleTree
 }
 
-func (remoteMerkleProxy *RemoteMerkleTreeProxy) RootNode() uint32 {
-    if remoteMerkleProxy.err != nil {
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) RootNode() uint32 {
+    if cloudResponderMerkleProxy.err != nil {
         return 0
     }
 
-    return remoteMerkleProxy.merkleTree.RootNode()
+    return cloudResponderMerkleProxy.merkleTree.RootNode()
 }
 
-func (remoteMerkleProxy *RemoteMerkleTreeProxy) Depth() uint8 {
-    if remoteMerkleProxy.err != nil {
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) Depth() uint8 {
+    if cloudResponderMerkleProxy.err != nil {
         return 0
     }
 
-    return remoteMerkleProxy.merkleTree.Depth()
+    return cloudResponderMerkleProxy.merkleTree.Depth()
 }
 
-func (remoteMerkleProxy *RemoteMerkleTreeProxy) NodeLimit() uint32 {
-    if remoteMerkleProxy.err != nil {
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) NodeLimit() uint32 {
+    if cloudResponderMerkleProxy.err != nil {
         return 0
     }
 
-    return remoteMerkleProxy.merkleTree.NodeLimit()
+    return cloudResponderMerkleProxy.merkleTree.NodeLimit()
 }
 
-func (remoteMerkleProxy *RemoteMerkleTreeProxy) NodeHash(nodeID uint32) Hash {
-    if remoteMerkleProxy.err != nil {
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) Level(nodeID uint32) uint8 {
+    if cloudResponderMerkleProxy.err != nil {
+        return 0
+    }
+
+    return cloudResponderMerkleProxy.merkleTree.Level(nodeID)
+}
+
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) LeftChild(nodeID uint32) uint32 {
+    if cloudResponderMerkleProxy.err != nil {
+        return 0
+    }
+
+    return cloudResponderMerkleProxy.merkleTree.LeftChild(nodeID)
+}
+
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) RightChild(nodeID uint32) uint32 {
+    if cloudResponderMerkleProxy.err != nil {
+        return 0
+    }
+
+    return cloudResponderMerkleProxy.merkleTree.RightChild(nodeID)
+}
+
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) NodeHash(nodeID uint32) Hash {
+    if cloudResponderMerkleProxy.err != nil {
         return Hash{}
     }
 
-    merkleNode, err := remoteMerkleProxy.client.MerkleTreeNode(context.TODO(), remoteMerkleProxy.peerAddress, remoteMerkleProxy.siteID, remoteMerkleProxy.bucketName, nodeID)
+    merkleNode, err := cloudResponderMerkleProxy.client.MerkleTreeNode(context.TODO(), cloudResponderMerkleProxy.peerAddress, cloudResponderMerkleProxy.siteID, cloudResponderMerkleProxy.bucketName, nodeID)
 
     if err != nil {
-        remoteMerkleProxy.err = err
+        cloudResponderMerkleProxy.err = err
 
         return Hash{}
     }
@@ -99,14 +138,14 @@ func (remoteMerkleProxy *RemoteMerkleTreeProxy) NodeHash(nodeID uint32) Hash {
     return merkleNode.Hash
 }
 
-func (remoteMerkleProxy *RemoteMerkleTreeProxy) TranslateNode(nodeID uint32, depth uint8) uint32 {
-    if remoteMerkleProxy.err != nil {
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) TranslateNode(nodeID uint32, depth uint8) uint32 {
+    if cloudResponderMerkleProxy.err != nil {
         return 0
     }
 
-    return remoteMerkleProxy.merkleTree.TranslateNode(nodeID, depth)
+    return cloudResponderMerkleProxy.merkleTree.TranslateNode(nodeID, depth)
 }
 
-func (remoteMerkleProxy *RemoteMerkleTreeProxy) Error() error {
-    return remoteMerkleProxy.err
+func (cloudResponderMerkleProxy *CloudResponderMerkleTreeProxy) Error() error {
+    return cloudResponderMerkleProxy.err
 }

@@ -405,6 +405,10 @@ func (cc *ConfigController) Stop() {
     cc.stop = nil
 }
 
+func (cc *ConfigController) ClusterController() *ClusterController {
+    return cc.clusterController
+}
+
 func (cc *ConfigController) nextCommandID() uint64 {
     return UUID64()
 }

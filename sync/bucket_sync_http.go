@@ -18,6 +18,12 @@ type BucketSyncHTTP struct {
 }
 
 func (bucketSync *BucketSyncHTTP) Attach(router *mux.Router) {
+    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merges", func(w http.ResponseWriter, r *http.Request) {
+    }).Methods("POST")
+
+    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
+    }).Methods("POST")
+
     router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle", func(w http.ResponseWriter, r *http.Request) {
         siteID := mux.Vars(r)["siteID"]
         bucketName := mux.Vars(r)["bucket"]
