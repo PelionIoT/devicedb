@@ -11,7 +11,9 @@ import (
 var ENoSuchCommand = errors.New("The cluster command type is not supported")
 var ENoSuchNode = errors.New("The node specified in the update does not exist")
 var ENoSuchSite = errors.New("The specified site does not exist")
+var ENodeDoesNotOwnReplica = errors.New("A node tried to transfer a partition replica to itself but it no longer owns that replica")
 var ECouldNotParseCommand = errors.New("The cluster command data was not properly formatted. Unable to parse it.")
+var EReplicaNumberInvalid = errors.New("The command specified an invalid replica number for a partition.")
 
 type ClusterController struct {
     LocalNodeID uint64
@@ -219,8 +221,23 @@ func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRem
 func (clusterController *ClusterController) TakePartitionReplica(clusterCommand ClusterTakePartitionReplicaBody) error {
     localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
 
+    partitionOwners := clusterController.PartitioningStrategy.Owners(clusterController.State.Tokens, clusterCommand.NodeID, clusterController.State.ClusterSettings.ReplicationFactor)
+
+    if clusterCommand.Replica >= uint64(len(partitionOwners)) || len(partitionOwners) == 0 {
+        // May be best to return an error
+        return EReplicaNumberInvalid
+    }
+
+    if partitionOwners[int(clusterCommand.Replica)] != clusterCommand.NodeID {
+        // If a node does not own a partition replica it cannot become the holder.
+        // It is ok for a node to lose ownership and remain the holder but a node
+        // must be the owner to hold it initially.
+        return ENodeDoesNotOwnReplica
+    }
+
     if err := clusterController.State.AssignPartitionReplica(clusterCommand.Partition, clusterCommand.Replica, clusterCommand.NodeID); err != nil {
         // Log Error
+        return err
     }
 
     clusterController.localDiffPartitionReplicasAndNotify(localNodePartitionReplicaSnapshot)
