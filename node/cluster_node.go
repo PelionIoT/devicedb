@@ -108,30 +108,36 @@ func (node *ClusterNode) MoveRelay(relayID, siteID string) {
 }
 
 func (node *ClusterNode) AcceptRelayConnection() {
+    // TODO
 }
 
-func (node *ClusterNode) CreateTransfer(partitionNumber uint64, nodeID uint64) error {
+func (node *ClusterNode) CreateTransfer(partitionNumber uint64, nodeID uint64) (PartitionTransfer, error) {
     node.lock.Lock()
     defer node.lock.Unlock()
 
     partition := node.Partitions.Get(partitionNumber)
 
     if partition == nil {
-        // TODO RETURN ERROR
-        return
+        return nil, ENoSuchPartition
     }
   
     transfer := node.PartitionTransferFactory.CreateTransfer(partition)
-    transfer.Upload()
+    node.Transfers[transfer.ID()] = transfer
     
-    // TODO work on this
-
-    if !partition.TransferringTo(nodeID) {
-        partition.StartTransferTo(nodeID)
-    }
+    return transfer, nil
 }
 
-func (node *ClusterNode) GetTransfer(transferID uint64) error {
+func (node *ClusterNode) GetTransfer(transferID uint64) (PartitionTransfer, error) {
+    node.lock.Lock()
+    defer node.lock.Unlock()
+
+    transfer, ok := node.Transfers[transferID]
+
+    if !ok {
+        return nil, ENoSuchTransfer
+    }
+
+    return transfer, nil
 }
 
 // We need to have some "partition replica" entity around as long as we are a holder
