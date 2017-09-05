@@ -30,14 +30,14 @@ func (encoder *TransferEncoder) Encode() (io.Reader, error) {
     }
 
     encoder.reader = &JSONPartitionReader{
-        partitionTransfer: encoder.transfer,
+        PartitionTransfer: encoder.transfer,
     }
 
     return encoder.reader, nil
 }
 
 type JSONPartitionReader struct {
-    partitionTransfer PartitionTransfer
+    PartitionTransfer PartitionTransfer
     needsDelimiter bool
     currentChunk []byte
 }
@@ -78,10 +78,14 @@ func (partitionReader *JSONPartitionReader) Read(p []byte) (n int, err error) {
 }
 
 func (partitionReader *JSONPartitionReader) nextChunk() ([]byte, error) {
-    nextChunk, err := partitionReader.partitionTransfer.NextChunk()
+    nextChunk, err := partitionReader.PartitionTransfer.NextChunk()
 
     if err != nil {
         return nil, err
+    }
+
+    if nextChunk.IsEmpty() {
+        return nil, nil
     }
 
     return json.Marshal(nextChunk)
