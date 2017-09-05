@@ -1,13 +1,8 @@
 package transfer
 
 import (
-    "bufio"
     "io"
-    "time"
     "encoding/json"
-
-    . "devicedb/data"
-    . "devicedb/partition"
 )
 
 type PartitionTransferEncoder interface {
@@ -64,7 +59,7 @@ func (partitionReader *JSONPartitionReader) Read(p []byte) (n int, err error) {
         }
 
         if partitionReader.needsDelimiter {
-            nCopied := copy(p, []byte("\n") })
+            nCopied := copy(p, []byte("\n"))
             p = p[nCopied:]
             n += nCopied
             partitionReader.needsDelimiter = false
@@ -83,10 +78,10 @@ func (partitionReader *JSONPartitionReader) Read(p []byte) (n int, err error) {
 }
 
 func (partitionReader *JSONPartitionReader) nextChunk() ([]byte, error) {
-    nextChunk := <-partitionReader.partitionTransfer.Chunks()
+    nextChunk, err := partitionReader.partitionTransfer.NextChunk()
 
-    if nextChunk == nil {
-        return nil, partitionReader.partitionTransfer.Error()
+    if err != nil {
+        return nil, err
     }
 
     return json.Marshal(nextChunk)

@@ -2,15 +2,22 @@ package transfer
 
 import (
     "io"
-    "time"
 
-    . "devicedb/data"
     . "devicedb/partition"
-
-    "github.com/gorilla/mux"
 )
 
 type PartitionTransferFactory interface {
     CreateIncomingTransfer(reader io.Reader) PartitionTransfer
-    CreateOutgoingTransfer(nodeID uint64, partition uint64) (PartitionTransfer, error)
+    CreateOutgoingTransfer(partition Partition) (PartitionTransfer, error)
+}
+
+type TransferFactory struct {
+}
+
+func (transferFactory *TransferFactory) CreateIncomingTransfer(reader io.Reader) PartitionTransfer {
+    return NewIncomingTransfer(reader)
+}
+
+func (transferFactory *TransferFactory) CreateOutgoingTransfer(partition Partition) PartitionTransfer {
+    return NewOutgoingTransfer(partition)
 }

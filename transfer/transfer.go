@@ -4,12 +4,13 @@ import (
     "bufio"
     "io"
     "errors"
+    "encoding/json"
 
     . "devicedb/data"
     . "devicedb/partition"
 )
 
-var ECancelled = errors.New("Cancelled")
+var ETransferCancelled = errors.New("Cancelled")
 
 type PartitionTransfer interface {
     NextChunk() (PartitionChunk, error)
@@ -29,15 +30,15 @@ func NewIncomingTransfer(reader io.Reader) *IncomingTransfer {
 
 func (transfer *IncomingTransfer) NextChunk() (PartitionChunk, error) {
     if transfer.err != nil {
-        return nil, transfer.err
+        return PartitionChunk{}, transfer.err
     }
 
     if !transfer.scanner.Scan() {
         if transfer.scanner.Err() != nil {
-            return nil, transfer.scanner.Err()
+            return PartitionChunk{}, transfer.scanner.Err()
         }
 
-        return nil, nil
+        return PartitionChunk{}, nil
     }
 
     encoded := transfer.scanner.Bytes()
@@ -46,7 +47,7 @@ func (transfer *IncomingTransfer) NextChunk() (PartitionChunk, error) {
     if err := json.Unmarshal(encoded, &nextPartitionChunk); err != nil {
         transfer.err = err
 
-        return nil, transfer.err
+        return PartitionChunk{}, transfer.err
     }
 
     return nextPartitionChunk, nil
@@ -62,7 +63,7 @@ type OutgoingTransfer struct {
     err error
 }
 
-func NewOutgoingTransfer(partition PartitionReplica) *OutgoingTransfer {
+func NewOutgoingTransfer(partition Partition) *OutgoingTransfer {
     return &OutgoingTransfer{
         partitionIterator: partition.Iterator(),
         chunkSize: 100,
@@ -71,7 +72,7 @@ func NewOutgoingTransfer(partition PartitionReplica) *OutgoingTransfer {
 
 func (transfer *OutgoingTransfer) NextChunk() (PartitionChunk, error) {
     if transfer.err != nil {
-        return nil, transfer.err
+        return PartitionChunk{}, transfer.err
     }
 
     entries := make([]Entry, 0, transfer.chunkSize)
@@ -87,29 +88,32 @@ func (transfer *OutgoingTransfer) NextChunk() (PartitionChunk, error) {
         entries = append(entries, entry)
 
         if len(entries) == transfer.chunkSize {
-            return &PartitionChunk{
-                Index: transfer.nextChunkIndex++,
+            index := transfer.nextChunkIndex
+            transfer.nextChunkIndex++
+
+            return PartitionChunk{
+                Index: index,
                 Entries: entries,
-                Checksum: checksum,
-            }
+                Checksum: Hash{},
+            }, nil
         }
     }
 
     if transfer.partitionIterator.Error() != nil {
         transfer.err = transfer.partitionIterator.Error()
 
-        return nil, transfer.err
+        return PartitionChunk{}, transfer.err
     }
 
     transfer.err = io.EOF
 
-    return nil, transfer.err
+    return PartitionChunk{}, transfer.err
 }
 
 func (transfer *OutgoingTransfer) Cancel() {
     if transfer.err != nil {
-        transfer.err = ECancelled
+        transfer.err = ETransferCancelled
     }
 
-    return transfer.partitionIterator.Release()
+    transfer.partitionIterator.Release()
 }

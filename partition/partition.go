@@ -2,10 +2,9 @@ package partition
 
 import (
     . "devicedb/site"
-    . "devicedb/storage"
 )
 
-type PartitionReplica interface {
+type Partition interface {
     Partition() uint64
     Replica() uint64
     Sites() SitePool
