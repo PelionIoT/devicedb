@@ -2,6 +2,7 @@ package transfer_test
 
 import (
     "fmt"
+    "io"
     "net"
     "net/http"
 
@@ -277,4 +278,44 @@ func (testServer *HTTPTestServer) Start() {
 func (testServer *HTTPTestServer) Stop() {
     testServer.listener.Close()
     <-testServer.done
+}
+
+type StringResponseHandler struct {
+    str io.Reader
+    status int
+    written int64
+    err error
+    after chan int
+}
+
+func (stringResponseHandler *StringResponseHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    if stringResponseHandler.status == 0 {
+        stringResponseHandler.status = http.StatusOK
+    }
+
+    w.Header().Set("Content-Type", "application/json; charset=utf8")
+    w.WriteHeader(stringResponseHandler.status)
+    written, err := io.Copy(w, stringResponseHandler.str)
+
+    stringResponseHandler.written = written
+    stringResponseHandler.err = err
+
+    if stringResponseHandler.after != nil {
+        stringResponseHandler.after <- 1
+    }
+}
+
+type InfiniteReader struct {
+}
+
+func NewInfiniteReader() *InfiniteReader {
+    return &InfiniteReader{ }
+}
+
+func (infiniteReader *InfiniteReader) Read(p []byte) (n int, err error) {
+    for i := 0; i < len(p); i++ {
+        p[i] = byte(0)
+    }
+
+    return len(p), nil
 }

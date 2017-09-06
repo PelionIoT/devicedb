@@ -2,7 +2,6 @@ package transfer_test
 
 import (
     "strings"
-    "io"
     "net/http"
     "time"
 
@@ -13,46 +12,6 @@ import (
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
 )
-
-type StringResponseHandler struct {
-    str io.Reader
-    status int
-    written int64
-    err error
-    after chan int
-}
-
-func (stringResponseHandler *StringResponseHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-    if stringResponseHandler.status == 0 {
-        stringResponseHandler.status = http.StatusOK
-    }
-
-    w.Header().Set("Content-Type", "application/json; charset=utf8")
-    w.WriteHeader(stringResponseHandler.status)
-    written, err := io.Copy(w, stringResponseHandler.str)
-
-    stringResponseHandler.written = written
-    stringResponseHandler.err = err
-
-    if stringResponseHandler.after != nil {
-        stringResponseHandler.after <- 1
-    }
-}
-
-type InfiniteReader struct {
-}
-
-func NewInfiniteReader() *InfiniteReader {
-    return &InfiniteReader{ }
-}
-
-func (infiniteReader *InfiniteReader) Read(p []byte) (n int, err error) {
-    for i := 0; i < len(p); i++ {
-        p[i] = byte(0)
-    }
-
-    return len(p), nil
-}
 
 var _ = Describe("TransferTransport", func() {
     Describe("HTTPTransferTransport", func() {
