@@ -1,6 +1,10 @@
 package transfer_test
 
 import (
+    "fmt"
+    "net"
+    "net/http"
+
     . "devicedb/transfer"
     . "devicedb/site"
     . "devicedb/partition"
@@ -241,4 +245,36 @@ func (errorReader *MockErrorReader) Read(p []byte) (n int, err error) {
     errorReader.errors = errorReader.errors[1:]
 
     return 0, nextError
+}
+
+type HTTPTestServer struct {
+    server *http.Server
+    listener net.Listener
+    port int
+    done chan int
+}
+
+func NewHTTPTestServer(port int, handler http.Handler) *HTTPTestServer {
+    return &HTTPTestServer{
+        port: port,
+        server: &http.Server{
+            Addr: fmt.Sprintf(":%d", port),
+            Handler: handler,
+        },
+        done: make(chan int),
+    }
+}
+
+func (testServer *HTTPTestServer) Start() {
+    go func() {
+        listener, _ := net.Listen("tcp", fmt.Sprintf(":%d", testServer.port))
+        testServer.listener = listener
+        testServer.server.Serve(listener)
+        close(testServer.done)
+    }()
+}
+
+func (testServer *HTTPTestServer) Stop() {
+    testServer.listener.Close()
+    <-testServer.done
 }
