@@ -1,8 +1,9 @@
 package transfer
 
 import (
-    "errors"
     "context"
+    "errors"
+    "fmt"
     "net/http"
     "io"
 
@@ -34,7 +35,7 @@ func (transferTransport *HTTPTransferTransport) Get(nodeID uint64, partition uin
         return nil, nil, ENoSuchNode
     }
 
-    endpointURL := peerAddress.ToHTTPURL("/partitions/{partitionID}/keys")
+    endpointURL := peerAddress.ToHTTPURL(fmt.Sprintf("/partitions/%d/keys", partition))
     request, err := http.NewRequest("GET", endpointURL, nil)
 
     if err != nil {

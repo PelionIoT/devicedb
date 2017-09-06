@@ -389,6 +389,34 @@ func (clusterController *ClusterController) ClusterMemberAddress(nodeID uint64) 
     return nodeConfig.Address
 }
 
+func (clusterController *ClusterController) PartitionOwners(partition uint64) []uint64 {
+    return nil
+}
+
+func (clusterController *ClusterController) PartitionHolders(partition uint64) []uint64 {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    if partition >= uint64(len(clusterController.State.Partitions)) {
+        return []uint64{ }
+    }
+
+    replicas := clusterController.State.Partitions[partition]
+    holders := make([]uint64, 0, len(replicas))
+    holdersMap := make(map[uint64]bool, len(replicas))
+
+    for _, partitionReplica := range replicas {
+        if partitionReplica.Holder != 0 {
+            if _, ok := holdersMap[partitionReplica.Holder]; !ok {
+                holdersMap[partitionReplica.Holder] = true
+                holders = append(holders, partitionReplica.Holder)
+            }
+        }
+    }
+
+    return holders
+}
+
 func (clusterController *ClusterController) LocalNodeOwnedPartitionReplicas() []PartitionReplica {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

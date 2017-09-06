@@ -21,7 +21,7 @@ func NewRandomTransferPartnerStrategy(configController *ConfigController) *Rando
 }
 
 func (partnerStrategy *RandomTransferPartnerStrategy) ChooseTransferPartner(partition uint64) uint64 {
-    holders := []uint64{ }//partnerStrategy.configController.ClusterController().PartitionHolders(partition)
+    holders := partnerStrategy.configController.ClusterController().PartitionHolders(partition)
 
     if len(holders) == 0 {
         return 0
