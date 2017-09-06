@@ -4,6 +4,8 @@ import (
     . "devicedb/data"
 )
 
+const DefaultChunkSize = 100
+
 type Entry struct {
     Site string
     Bucket string

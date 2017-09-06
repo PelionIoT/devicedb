@@ -19,5 +19,5 @@ func (transferFactory *TransferFactory) CreateIncomingTransfer(reader io.Reader)
 }
 
 func (transferFactory *TransferFactory) CreateOutgoingTransfer(partition Partition) PartitionTransfer {
-    return NewOutgoingTransfer(partition)
+    return NewOutgoingTransfer(partition, 0)
 }

@@ -2,6 +2,9 @@ package transfer_test
 
 import (
     . "devicedb/transfer"
+    . "devicedb/site"
+    . "devicedb/partition"
+    . "devicedb/data"
 )
 
 type mockNextChunkResponse struct {
@@ -52,4 +55,190 @@ func (mockPartitionTransfer *MockPartitionTransfer) NextChunk() (PartitionChunk,
 
 func (mockPartitionTransfer *MockPartitionTransfer) Cancel() {
     mockPartitionTransfer.cancelCalls++
+}
+
+type MockPartition struct {
+    partition uint64
+    replica uint64
+    iterator *MockPartitionIterator
+}
+
+func NewMockPartition(partition uint64, replica uint64) *MockPartition {
+    return &MockPartition{
+        partition: partition,
+        replica: replica,
+        iterator: NewMockPartitionIterator(),
+    }
+}
+
+func (partition *MockPartition) Partition() uint64 {
+    return partition.partition
+}
+
+func (partition *MockPartition) Replica() uint64 {
+    return partition.replica
+}
+
+func (partition *MockPartition) Sites() SitePool {
+    return nil
+}
+
+func (partition *MockPartition) Iterator() PartitionIterator {
+    return partition.iterator
+}
+
+func (partition *MockPartition) MockIterator() *MockPartitionIterator {
+    return partition.iterator
+}
+
+func (partition *MockPartition) LockWrites() {
+}
+
+func (partition *MockPartition) UnlockWrites() {
+}
+
+func (partition *MockPartition) LockReads() {
+}
+
+func (partition *MockPartition) UnlockReads() {
+}
+
+type mockIteratorState struct {
+    next bool
+    site string
+    bucket string
+    key string
+    value *SiblingSet
+    checksum Hash
+    err error
+}
+
+type MockPartitionIterator struct {
+    nextCalls int
+    siteCalls int
+    bucketCalls int
+    keyCalls int
+    valueCalls int
+    checksumCalls int
+    releaseCalls int
+    errorCalls int
+    currentState int
+    states []mockIteratorState
+}
+
+func NewMockPartitionIterator() *MockPartitionIterator {
+    return &MockPartitionIterator{
+        currentState: -1,
+        states: make([]mockIteratorState, 0),
+    }
+}
+
+func (partitionIterator *MockPartitionIterator) AppendNextState(next bool, site string, bucket string, key string, value *SiblingSet, checksum Hash, err error) *MockPartitionIterator {
+    partitionIterator.states = append(partitionIterator.states, mockIteratorState{
+        next: next,
+        site: site,
+        bucket: bucket,
+        key: key,
+        value: value,
+        checksum: checksum,
+        err: err,
+    })
+
+    return partitionIterator
+}
+
+func (partitionIterator *MockPartitionIterator) Next() bool {
+    partitionIterator.nextCalls++
+    partitionIterator.currentState++
+
+    return partitionIterator.states[partitionIterator.currentState].next
+}
+
+func (partitionIterator *MockPartitionIterator) NextCallCount() int {
+    return partitionIterator.nextCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Site() string {
+    partitionIterator.siteCalls++
+
+    return partitionIterator.states[partitionIterator.currentState].site
+}
+
+func (partitionIterator *MockPartitionIterator) SiteCallCount() int {
+    return partitionIterator.siteCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Bucket() string {
+    partitionIterator.bucketCalls++
+
+    return partitionIterator.states[partitionIterator.currentState].bucket
+}
+
+func (partitionIterator *MockPartitionIterator) BucketCallCount() int {
+    return partitionIterator.bucketCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Key() string {
+    partitionIterator.keyCalls++
+
+    return partitionIterator.states[partitionIterator.currentState].key
+}
+
+func (partitionIterator *MockPartitionIterator) KeyCallCount() int {
+    return partitionIterator.keyCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Value() *SiblingSet {
+    partitionIterator.valueCalls++
+
+    return partitionIterator.states[partitionIterator.currentState].value
+}
+
+func (partitionIterator *MockPartitionIterator) ValueCallCount() int {
+    return partitionIterator.valueCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Checksum() Hash {
+    partitionIterator.checksumCalls++
+
+    return partitionIterator.states[partitionIterator.currentState].checksum
+}
+
+func (partitionIterator *MockPartitionIterator) ChecksumCallCount() int {
+    return partitionIterator.checksumCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Release() {
+    partitionIterator.releaseCalls++
+}
+
+func (partitionIterator *MockPartitionIterator) ReleaseCallCount() int {
+    return partitionIterator.releaseCalls
+}
+
+func (partitionIterator *MockPartitionIterator) Error() error {
+    partitionIterator.errorCalls++
+
+    return partitionIterator.states[partitionIterator.currentState].err
+}
+
+func (partitionIterator *MockPartitionIterator) ErrorCallCount() int {
+    return partitionIterator.errorCalls
+}
+
+type MockErrorReader struct {
+    errors []error
+}
+
+func NewMockErrorReader(errors []error) *MockErrorReader {
+    return &MockErrorReader{
+        errors: errors,
+    }
+}
+
+func (errorReader *MockErrorReader) Read(p []byte) (n int, err error) {
+    nextError := errorReader.errors[0]
+    errorReader.errors = errorReader.errors[1:]
+
+    return 0, nextError
 }

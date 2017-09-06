@@ -201,4 +201,7 @@ var _ = Describe("TransferEncoding", func() {
             })
         })
     })
+
+    Describe("#TransferDecoder", func() {
+    })
 })

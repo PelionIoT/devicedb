@@ -9,7 +9,6 @@ type Partition interface {
     Replica() uint64
     Sites() SitePool
     Iterator() PartitionIterator
-    IsLocked()
     LockWrites()
     UnlockWrites()
     LockReads()
