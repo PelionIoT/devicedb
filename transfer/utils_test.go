@@ -1,6 +1,7 @@
 package transfer_test
 
 import (
+    "errors"
     "fmt"
     "io"
     "net"
@@ -10,7 +11,85 @@ import (
     . "devicedb/site"
     . "devicedb/partition"
     . "devicedb/data"
+    . "devicedb/merkle"
+    . "devicedb/bucket"
 )
+
+type MockPartitionTransferFactory struct {
+    createIncomingTransferResponses []PartitionTransfer
+    createOutgoingTransferResponses []PartitionTransfer
+    createIncomingTransferCB func(reader io.Reader)
+    createOutgoingTransferCB func(partition Partition)
+    createIncomingTransferCalls int
+    createOutgoingTransferCalls int
+}
+
+func NewMockPartitionTransferFactory() *MockPartitionTransferFactory {
+    return &MockPartitionTransferFactory{
+        createIncomingTransferResponses: make([]PartitionTransfer, 0),
+        createOutgoingTransferResponses: make([]PartitionTransfer, 0),
+    }
+}
+
+func (transferFactory *MockPartitionTransferFactory) onCreateIncomingTransfer(cb func(reader io.Reader)) {
+    transferFactory.createIncomingTransferCB = cb
+}
+
+func (transferFactory *MockPartitionTransferFactory) notifyCreateIncomingTransfer(reader io.Reader) {
+    if transferFactory.createIncomingTransferCB == nil {
+        return
+    }
+
+    transferFactory.createIncomingTransferCB(reader)
+}
+
+func (transferFactory *MockPartitionTransferFactory) CreateIncomingTransfer(reader io.Reader) PartitionTransfer {
+    transferFactory.createIncomingTransferCalls++
+    transferFactory.notifyCreateIncomingTransfer(reader)
+
+    if len(transferFactory.createIncomingTransferResponses) == 0 {
+        return nil
+    }
+
+    response := transferFactory.createIncomingTransferResponses[0]
+    transferFactory.createIncomingTransferResponses = transferFactory.createIncomingTransferResponses[1:]
+    
+    return response
+}
+
+func (transferFactory *MockPartitionTransferFactory) AppendNextIncomingTransfer(partitionTransfer PartitionTransfer) {
+    transferFactory.createIncomingTransferResponses = append(transferFactory.createIncomingTransferResponses, partitionTransfer)
+}
+
+func (transferFactory *MockPartitionTransferFactory) onCreateOutgoingTransfer(cb func(partition Partition)) {
+    transferFactory.createOutgoingTransferCB = cb
+}
+
+func (transferFactory *MockPartitionTransferFactory) notifyCreateOutgoingTransfer(partition Partition) {
+    if transferFactory.createOutgoingTransferCB == nil {
+        return
+    }
+
+    transferFactory.createOutgoingTransferCB(partition)
+}
+
+func (transferFactory *MockPartitionTransferFactory) CreateOutgoingTransfer(partition Partition) (PartitionTransfer, error) {
+    transferFactory.createOutgoingTransferCalls++
+    transferFactory.notifyCreateOutgoingTransfer(partition)
+
+    if len(transferFactory.createOutgoingTransferResponses) == 0 {
+        return nil, nil
+    }
+
+    response := transferFactory.createOutgoingTransferResponses[0]
+    transferFactory.createOutgoingTransferResponses = transferFactory.createOutgoingTransferResponses[1:]
+    
+    return response, nil
+}
+
+func (transferFactory *MockPartitionTransferFactory) AppendNextOutgoingTransfer(partitionTransfer PartitionTransfer) {
+    transferFactory.createOutgoingTransferResponses = append(transferFactory.createOutgoingTransferResponses, partitionTransfer)
+}
 
 type mockNextChunkResponse struct {
     chunk PartitionChunk
@@ -62,9 +141,183 @@ func (mockPartitionTransfer *MockPartitionTransfer) Cancel() {
     mockPartitionTransfer.cancelCalls++
 }
 
+type MockBucket struct {
+    name string
+    mergeResponses []error
+    mergeCalls int
+    mergeCB func(siblingSets map[string]*SiblingSet)
+}
+
+func NewMockBucket(name string) *MockBucket {
+    return &MockBucket{
+        mergeResponses: make([]error, 0),
+        name: name,
+    }
+}
+
+func (bucket *MockBucket) Name() string {
+    return bucket.name
+}
+
+func (bucket *MockBucket) ShouldReplicateOutgoing(peerID string) bool {
+    return false
+}
+
+func (bucket *MockBucket) ShouldReplicateIncoming(peerID string) bool {
+    return false
+}
+
+func (bucket *MockBucket) ShouldAcceptWrites(clientID string) bool {
+    return false
+}
+
+func (bucket *MockBucket) ShouldAcceptReads(clientID string) bool {
+    return false
+}
+
+func (bucket *MockBucket) RecordMetadata() error {
+    return nil
+}
+
+func (bucket *MockBucket) RebuildMerkleLeafs() error {
+    return nil
+}
+
+func (bucket *MockBucket) MerkleTree() *MerkleTree {
+    return nil
+}
+
+func (bucket *MockBucket) GarbageCollect(tombstonePurgeAge uint64) error {
+    return nil
+}
+
+func (bucket *MockBucket) Get(keys [][]byte) ([]*SiblingSet, error) {
+    return nil, nil
+}
+
+func (bucket *MockBucket) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
+    return nil, nil
+}
+
+func (bucket *MockBucket) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
+    return nil, nil
+}
+
+func (bucket *MockBucket) Forget(keys [][]byte) error {
+    return nil
+}
+
+func (bucket *MockBucket) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
+    return nil, nil
+}
+
+func (bucket *MockBucket) Merge(siblingSets map[string]*SiblingSet) error {
+    bucket.mergeCalls++
+    bucket.notifyMerge(siblingSets)
+
+    if len(bucket.mergeResponses) == 0 {
+        return errors.New("No responses")
+    }
+
+    result := bucket.mergeResponses[0]
+    bucket.mergeResponses = bucket.mergeResponses[1:]
+
+    return result
+}
+
+func (bucket *MockBucket) MergeCallCount() int {
+    return bucket.mergeCalls
+}
+
+func (bucket *MockBucket) onMerge(cb func(siblingSets map[string]*SiblingSet)) {
+    bucket.mergeCB = cb
+}
+
+func (bucket *MockBucket) notifyMerge(siblingSets map[string]*SiblingSet) {
+    if bucket.mergeCB == nil {
+        return
+    }
+
+    bucket.mergeCB(siblingSets)
+}
+
+func (bucket *MockBucket) AppendNextMergeResponse(err error) {
+    bucket.mergeResponses = append(bucket.mergeResponses, err)
+}
+
+type MockSite struct {
+    buckets *BucketList
+}
+
+func NewMockSite(buckets *BucketList) *MockSite {
+    return &MockSite{
+        buckets: buckets,
+    }
+}
+
+func (site *MockSite) Buckets() *BucketList {
+    return site.buckets
+}
+
+type MockSitePool struct {
+    acquireResponses []Site
+    acquireCB func(siteID string)
+    acquireCalls int
+}
+
+func NewMockSitePool() *MockSitePool {
+    return &MockSitePool{
+        acquireResponses: make([]Site, 0),
+    }
+}
+
+func (sitePool *MockSitePool) Acquire(siteID string) Site {
+    sitePool.acquireCalls++
+    sitePool.notifyAcquire(siteID)
+
+    if len(sitePool.acquireResponses) == 0 {
+        return nil
+    }
+
+    result := sitePool.acquireResponses[0]
+    sitePool.acquireResponses = sitePool.acquireResponses[1:]
+
+    return result
+}
+
+func (sitePool *MockSitePool) AcquireCallCount() int {
+    return sitePool.acquireCalls
+}
+
+func (sitePool *MockSitePool) onAcquire(cb func(siteID string)) {
+    sitePool.acquireCB = cb
+}
+
+func (sitePool *MockSitePool) notifyAcquire(siteID string) {
+    if sitePool.acquireCB == nil {
+        return
+    }
+
+    sitePool.acquireCB(siteID)
+}
+
+func (sitePool *MockSitePool) AppendNextAcquireResponse(site Site) {
+    sitePool.acquireResponses = append(sitePool.acquireResponses, site)
+}
+
+func (sitePool *MockSitePool) Release(siteID string) {
+}
+
+func (sitePool *MockSitePool) Add(siteID string) {
+}
+
+func (sitePool *MockSitePool) Remove(siteID string) {
+}
+
 type MockPartition struct {
     partition uint64
     replica uint64
+    sitePool SitePool
     iterator *MockPartitionIterator
 }
 
@@ -85,7 +338,11 @@ func (partition *MockPartition) Replica() uint64 {
 }
 
 func (partition *MockPartition) Sites() SitePool {
-    return nil
+    return partition.sitePool
+}
+
+func (partition *MockPartition) SetSites(sites SitePool) {
+    partition.sitePool = sites
 }
 
 func (partition *MockPartition) Iterator() PartitionIterator {
@@ -106,6 +363,48 @@ func (partition *MockPartition) LockReads() {
 }
 
 func (partition *MockPartition) UnlockReads() {
+}
+
+type MockPartitionPool struct {
+    partitions map[uint64]Partition
+    onGetCB func(partitionNumber uint64)
+    getCalls int
+}
+
+func NewMockPartitionPool() *MockPartitionPool {
+    return &MockPartitionPool{
+        partitions: make(map[uint64]Partition),
+    }
+}
+
+func (partitionPool *MockPartitionPool) Add(partition Partition) {
+    partitionPool.partitions[partition.Partition()] = partition
+}
+
+func (partitionPool *MockPartitionPool) Remove(partitionNumber uint64) {
+    delete(partitionPool.partitions, partitionNumber)
+}
+
+func (partitionPool *MockPartitionPool) Get(partitionNumber uint64) Partition {
+    partitionPool.getCalls++
+
+    return partitionPool.partitions[partitionNumber]
+}
+
+func (partitionPool *MockPartitionPool) GetCallCount() int {
+    return partitionPool.getCalls
+}
+
+func (partitionPool *MockPartitionPool) onGet(cb func(partitionNumber uint64)) {
+    partitionPool.onGetCB = cb
+}
+
+func (partitionPool *MockPartitionPool) notifyGet(partitionNumber uint64) {
+    if partitionPool.onGetCB == nil {
+        return
+    }
+
+    partitionPool.onGetCB(partitionNumber)
 }
 
 type mockIteratorState struct {
@@ -318,4 +617,107 @@ func (infiniteReader *InfiniteReader) Read(p []byte) (n int, err error) {
     }
 
     return len(p), nil
+}
+
+type mockTransferTransportResponse struct {
+    reader io.Reader
+    cancel func()
+    err error
+}
+
+type MockTransferTransport struct {
+    responses []mockTransferTransportResponse
+    getCalls int
+    getCB func(nodeID uint64, partition uint64)
+}
+
+func NewMockTransferTransport() *MockTransferTransport {
+    return &MockTransferTransport{
+        responses: make([]mockTransferTransportResponse, 0),
+    }
+}
+
+func (transferTransport *MockTransferTransport) onGet(cb func(node uint64, partition uint64)) {
+    transferTransport.getCB = cb
+}
+
+func (transferTransport *MockTransferTransport) notifyGet(node uint64, partition uint64) {
+    if transferTransport.getCB != nil {
+        transferTransport.getCB(node, partition)
+    }
+}
+
+func (transferTransport *MockTransferTransport) Get(nodeID uint64, partition uint64) (io.Reader, func(), error) {
+    transferTransport.getCalls++
+    defer transferTransport.notifyGet(nodeID, partition)
+
+    if len(transferTransport.responses) == 0 {
+        return nil, nil, errors.New("No responses")
+    }
+
+    response := transferTransport.responses[0]
+    transferTransport.responses = transferTransport.responses[1:]
+
+    return response.reader, response.cancel, response.err
+}
+
+func (transferTransport *MockTransferTransport) GetCallCount() int {
+    return transferTransport.getCalls
+}
+
+func (transferTransport *MockTransferTransport) AppendNextGetResponse(reader io.Reader, cancel func(), err error) *MockTransferTransport {
+    transferTransport.responses = append(transferTransport.responses, mockTransferTransportResponse{
+        reader: reader,
+        cancel: cancel,
+        err: err,
+    })
+
+    return transferTransport
+}
+
+type MockTransferPartnerStrategy struct {
+    responses []uint64
+    chooseTransferPartnerCalls int
+    chooseTransferPartnerCB func(partition uint64)
+}
+
+func NewMockTransferPartnerStrategy() *MockTransferPartnerStrategy {
+    return &MockTransferPartnerStrategy{
+        responses: make([]uint64, 0),
+    }
+}
+
+// Callback adds tooling so the flow of execution in downloader can be tracked
+func (partnerStrategy *MockTransferPartnerStrategy) onChooseTransferPartner(cb func(partition uint64)) {
+    partnerStrategy.chooseTransferPartnerCB = cb
+}
+
+func (partnerStrategy *MockTransferPartnerStrategy) notifyChooseTransferPartner(partition uint64) {
+    if partnerStrategy.chooseTransferPartnerCB != nil {
+        partnerStrategy.chooseTransferPartnerCB(partition)
+    }
+}
+
+func (partnerStrategy *MockTransferPartnerStrategy) ChooseTransferPartner(partition uint64) uint64 {
+    partnerStrategy.chooseTransferPartnerCalls++
+    defer partnerStrategy.notifyChooseTransferPartner(partition)
+
+    if len(partnerStrategy.responses) == 0 {
+        return 0
+    }
+
+    response := partnerStrategy.responses[0]
+    partnerStrategy.responses = partnerStrategy.responses[1:]
+
+    return response
+}
+
+func (partnerStrategy *MockTransferPartnerStrategy) ChooseTransferPartnerCalls() int {
+    return partnerStrategy.chooseTransferPartnerCalls
+}
+
+func (partnerStrategy *MockTransferPartnerStrategy) AppendNextTransferPartner(node uint64) *MockTransferPartnerStrategy {
+    partnerStrategy.responses = append(partnerStrategy.responses, node)
+
+    return partnerStrategy
 }

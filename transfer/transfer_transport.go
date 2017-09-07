@@ -10,6 +10,7 @@ import (
     . "devicedb/cluster"
 )
 
+const DefaultEndpointURL = "/partitions/%d/keys"
 var EBadResponse = errors.New("Node responded with a bad response")
 
 type PartitionTransferTransport interface {
@@ -19,13 +20,21 @@ type PartitionTransferTransport interface {
 type HTTPTransferTransport struct {
     httpClient *http.Client
     configController *ConfigController
+    endpointURL string
 }
 
 func NewHTTPTransferTransport(configController *ConfigController, httpClient *http.Client) *HTTPTransferTransport {
     return &HTTPTransferTransport{
         httpClient: httpClient,
         configController: configController,
+        endpointURL: DefaultEndpointURL,
     }
+}
+
+func (transferTransport *HTTPTransferTransport) SetEndpointURL(endpointURL string) *HTTPTransferTransport {
+    transferTransport.endpointURL = endpointURL
+
+    return transferTransport
 }
 
 func (transferTransport *HTTPTransferTransport) Get(nodeID uint64, partition uint64) (io.Reader, func(), error) {
@@ -35,7 +44,7 @@ func (transferTransport *HTTPTransferTransport) Get(nodeID uint64, partition uin
         return nil, nil, ENoSuchNode
     }
 
-    endpointURL := peerAddress.ToHTTPURL(fmt.Sprintf("/partitions/%d/keys", partition))
+    endpointURL := peerAddress.ToHTTPURL(fmt.Sprintf(transferTransport.endpointURL, partition))
     request, err := http.NewRequest("GET", endpointURL, nil)
 
     if err != nil {

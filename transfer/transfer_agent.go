@@ -5,7 +5,6 @@ import (
     "io"
     "sync"
     "time"
-    "context"
 
     . "devicedb/cluster"
     . "devicedb/logging"
@@ -15,7 +14,11 @@ import (
 const RetryTimeoutMax = 32
 
 type PartitionTransferAgent interface {
+    // Tell the partition transfer agent to start the holdership transfer process for this partition replica
     StartTransfer(partition uint64, replica uint64)
+    // Tell the partition transfer agent that this partition replica has been acquired. This 
+    AcquirePartitionReplica(partition uint64, replica uint64) // IS THIS REDUNDANT? STOP TRANSFER?
+    // Tell the partition transfer agent to stop any holdership transfer processes for this partition replica
     StopTransfer(partition uint64, replica uint64)
     Stop()
 }
@@ -48,57 +51,7 @@ func (transferAgent *HTTPTransferAgent) StartTransfer(partition uint64, replica 
     transferAgent.lock.Lock()
     defer transferAgent.lock.Unlock()
 
-    transferCancel := make(chan int, 1)
-
-    if _, ok := transferAgent.transferCancelers[partition]; !ok {
-        transferAgent.transferCancelers[partition] = make(map[uint64]chan int, 0)
-    }
-
-    transferAgent.transferCancelers[partition][replica] = transferCancel
-    transferAgent.proposeTransferAfter(partition, replica, transferCancel, transferAgent.downloadPartition(partition))
-}
-
-func (transferAgent *HTTPTransferAgent) proposeTransferAfter(partition uint64, replica uint64, cancel chan int, after chan int) {
-    go func() {
-        defer func() {
-            transferAgent.lock.Lock()
-            defer transferAgent.lock.Unlock()
-
-            // Delete any cancels from any maps
-            if _, ok := transferAgent.transferCancelers[partition]; !ok {
-                return
-            }
-
-            // It is possible that this proposal was cancelled but then one for the
-            // same replica was started before this cleanup function was called. In
-            // this case the map might contain a new canceller for a new proposal for
-            // the same replica. This requires an equality check so this proposal doesn't
-            // step on the toes of another one
-            if transferAgent.transferCancelers[partition][replica] == cancel {
-                delete(transferAgent.transferCancelers[partition], replica)
-            }
-        }()
-
-        if after != nil {
-            select {
-            case <-after:
-            case <-cancel:
-                return
-            }
-        }
-
-        ctx, ctxCancel := context.WithCancel(context.Background())
-
-        go func() {
-            select {
-            case <-ctx.Done():
-            case <-cancel:
-                ctxCancel()
-            }
-        }()
-
-        transferAgent.transferProposer.ProposeTransfer(ctx, partition, replica)
-    }()
+    transferAgent.transferProposer.QueueTransferProposal(partition, replica, transferAgent.downloadPartition(partition))
 }
 
 // If this function results in a new download occurring it should return a channel that closes when
@@ -107,18 +60,22 @@ func (transferAgent *HTTPTransferAgent) proposeTransferAfter(partition uint64, r
 // be no new one since it was already downloaded successfully in the past then return a nil channel
 // to indicate there is nothing to wait for before proposing a replica transfer
 func (transferAgent *HTTPTransferAgent) downloadPartition(partition uint64) chan int {
-    node := transferAgent.configController.ClusterController().State.Nodes[transferAgent.configController.ClusterController().LocalNodeID]
-
-    if _, ok := node.PartitionReplicas[partition]; ok {
-        return nil
-    }
-
+    // A download is already underway for this partition
     if _, ok := transferAgent.currentDownloads[partition]; ok {
         return transferAgent.currentDownloads[partition]
     }
 
-    cancel := make(chan int, 1)
+    node := transferAgent.configController.ClusterController().State.Nodes[transferAgent.configController.ClusterController().LocalNodeID]
     done := make(chan int)
+    cancel := make(chan int, 1)
+
+    // Since this node is already a holder of this partition there is no need to
+    // start a download. Just propose any pending transfers straight away
+    if _, ok := node.PartitionReplicas[partition]; ok {
+        close(done)
+
+        return done
+    }
 
     transferAgent.downloadCancelers[partition] = cancel
     transferAgent.currentDownloads[partition] = done
@@ -134,7 +91,9 @@ func (transferAgent *HTTPTransferAgent) downloadPartition(partition uint64) chan
 
             if transferAgent.downloadCancelers[partition] == cancel {
                 delete(transferAgent.downloadCancelers, partition)
-                delete(transferAgent.currentDownloads, partition)
+                // Don't delete this because we just keep it around to indicate that
+                // it is ok to download
+                //delete(transferAgent.currentDownloads, partition)
             }
         }()
 
@@ -242,6 +201,8 @@ func (transferAgent *HTTPTransferAgent) downloadPartition(partition uint64) chan
         // proposers that the data transfer has finished and now
         // is time to propose the raft log transfer
         close(done)
+
+        // wait until at least one
     }()
 
     return done
@@ -274,6 +235,8 @@ func (transferAgent *HTTPTransferAgent) stopTransfer(partition, replica uint64) 
             cancel <- 1
 
             delete(transferAgent.downloadCancelers, partition)
+
+            // TODO should we delete this?
             delete(transferAgent.currentDownloads, partition)
         }
     }
