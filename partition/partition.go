@@ -11,6 +11,7 @@ type Partition interface {
     Iterator() PartitionIterator
     LockWrites()
     UnlockWrites()
+    // TODO need LockReads() to close all
     LockReads()
     UnlockReads()
 }

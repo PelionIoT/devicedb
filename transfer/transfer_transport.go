@@ -58,7 +58,10 @@ func (transferTransport *HTTPTransferTransport) Get(nodeID uint64, partition uin
 
     if err != nil {
         cancel()
-        resp.Body.Close()
+
+        if resp != nil && resp.Body != nil {
+            resp.Body.Close()
+        }
 
         return nil, nil, err
     }

@@ -111,35 +111,6 @@ func (node *ClusterNode) AcceptRelayConnection() {
     // TODO
 }
 
-func (node *ClusterNode) CreateTransfer(partitionNumber uint64, nodeID uint64) (PartitionTransfer, error) {
-    node.lock.Lock()
-    defer node.lock.Unlock()
-
-    partition := node.Partitions.Get(partitionNumber)
-
-    if partition == nil {
-        return nil, ENoSuchPartition
-    }
-  
-    transfer := node.PartitionTransferFactory.CreateTransfer(partition)
-    node.Transfers[transfer.ID()] = transfer
-    
-    return transfer, nil
-}
-
-func (node *ClusterNode) GetTransfer(transferID uint64) (PartitionTransfer, error) {
-    node.lock.Lock()
-    defer node.lock.Unlock()
-
-    transfer, ok := node.Transfers[transferID]
-
-    if !ok {
-        return nil, ENoSuchTransfer
-    }
-
-    return transfer, nil
-}
-
 // We need to have some "partition replica" entity around as long as we are a holder
 // only unlocked if we own and hold the partition replica
 // What if we own all replicas of a partition and another node comes online and needs

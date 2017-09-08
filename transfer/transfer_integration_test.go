@@ -372,6 +372,7 @@ var _ = Describe("TransferIntegrationTest", func() {
 
             transferAgentRequester := NewHTTPTransferAgent(requesterConfigController, transferProposer, downloader, transferFactory, partitionPool)
             transferAgentHolder := NewHTTPTransferAgent(holderConfigController, nil, nil, transferFactory, holderPartitionPool)
+            transferAgentHolder.EnableOutgoingTransfers(0)
 
             router := mux.NewRouter()
             transferAgentHolder.Attach(router)

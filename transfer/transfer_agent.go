@@ -20,7 +20,14 @@ type PartitionTransferAgent interface {
     StartTransfer(partition uint64, replica uint64)
     // Tell the partition transfer agent to stop any holdership transfer processes for this partition replica
     StopTransfer(partition uint64, replica uint64)
+    // Stop all holdership transfers for all partition replicas
     StopAllTransfers()
+    // Allow downloads of this partition from this node
+    EnableOutgoingTransfers(partition uint64)
+    // Disallow future downloads of this partition from this node and cancel any currently running ones
+    DisableOutgoingTransfers(partition uint64)
+    // Disallow future downloads of all partition from this node and cancel any currently running ones
+    DisableAllOutgoingTransfers()
 }
 
 type HTTPTransferAgent struct {
@@ -29,6 +36,8 @@ type HTTPTransferAgent struct {
     partitionDownloader PartitionDownloader
     transferFactory PartitionTransferFactory
     partitionPool PartitionPool
+    transferrablePartitions map[uint64]bool
+    outgoingTransfers map[uint64]map[PartitionTransfer]bool
     lock sync.Mutex
 }
 
@@ -39,6 +48,8 @@ func NewHTTPTransferAgent(configController ClusterConfigController, transferProp
         partitionDownloader: partitionDownloader,
         transferFactory: transferFactory,
         partitionPool: partitionPool,
+        transferrablePartitions: make(map[uint64]bool, 0),
+        outgoingTransfers: make(map[uint64]map[PartitionTransfer]bool, 0),
     }
 }
 
@@ -77,6 +88,65 @@ func (transferAgent *HTTPTransferAgent) StopAllTransfers() {
     }
 }
 
+func (transferAgent *HTTPTransferAgent) EnableOutgoingTransfers(partition uint64) {
+    transferAgent.lock.Lock()
+    defer transferAgent.lock.Unlock()
+
+    transferAgent.transferrablePartitions[partition] = true
+}
+
+func (transferAgent *HTTPTransferAgent) DisableOutgoingTransfers(partition uint64) {
+    transferAgent.lock.Lock()
+    defer transferAgent.lock.Unlock()
+
+    transferAgent.disableOutgoingTransfers(partition)
+}
+
+func (transferAgent *HTTPTransferAgent) disableOutgoingTransfers(partition uint64) {
+    delete(transferAgent.transferrablePartitions, partition)
+
+    for transfer, _ := range transferAgent.outgoingTransfers[partition] {
+        transfer.Cancel()
+
+        delete(transferAgent.outgoingTransfers[partition], transfer)
+    }
+
+    delete(transferAgent.outgoingTransfers, partition)
+}
+
+func (transferAgent *HTTPTransferAgent) DisableAllOutgoingTransfers() {
+    transferAgent.lock.Lock()
+    defer transferAgent.lock.Unlock()
+
+    for partition, _ := range transferAgent.transferrablePartitions {
+        transferAgent.disableOutgoingTransfers(partition)
+    }
+}
+
+func (transferAgent *HTTPTransferAgent) partitionIsTransferrable(partition uint64) bool {
+    _, ok := transferAgent.transferrablePartitions[partition]
+
+    return ok
+}
+
+func (transferAgent *HTTPTransferAgent) registerOutgoingTransfer(partition uint64, transfer PartitionTransfer) {
+    if _, ok := transferAgent.outgoingTransfers[partition]; !ok {
+        transferAgent.outgoingTransfers[partition] = make(map[PartitionTransfer]bool, 0)
+    }
+    
+    transferAgent.outgoingTransfers[partition][transfer] = true
+}
+
+func (transferAgent *HTTPTransferAgent) unregisterOutgoingTransfer(partition uint64, transfer PartitionTransfer) {
+    if _, ok := transferAgent.outgoingTransfers[partition]; ok {
+        delete(transferAgent.outgoingTransfers[partition], transfer)
+    }
+
+    if len(transferAgent.outgoingTransfers[partition]) == 0 {
+        delete(transferAgent.outgoingTransfers, partition)
+    }
+}
+
 func (transferAgent *HTTPTransferAgent) Attach(router *mux.Router) {
     router.HandleFunc("/partitions/{partition}/keys", func(w http.ResponseWriter, req *http.Request) {
         partitionNumber, err := strconv.ParseUint(mux.Vars(req)["partition"], 10, 64)
@@ -88,20 +158,25 @@ func (transferAgent *HTTPTransferAgent) Attach(router *mux.Router) {
             w.WriteHeader(http.StatusBadRequest)
             io.WriteString(w, "\n")
 
+
             return
         }
 
+        transferAgent.lock.Lock()
         partition := transferAgent.partitionPool.Get(partitionNumber)
 
-        if partition == nil {
+        if partition == nil || !transferAgent.partitionIsTransferrable(partitionNumber) {
             Log.Warningf("The specified partition (%d) does not exist at this node. Unable to fulfill transfer request", partitionNumber)
 
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusNotFound)
             io.WriteString(w, "\n")
 
+            transferAgent.lock.Unlock()
+
             return
         }
+
 
         transfer, _ := transferAgent.transferFactory.CreateOutgoingTransfer(partition)
         transfer.UseFilter(func(entry Entry) bool {
@@ -113,6 +188,15 @@ func (transferAgent *HTTPTransferAgent) Attach(router *mux.Router) {
 
             return true
         })
+
+        transferAgent.registerOutgoingTransfer(partitionNumber, transfer)
+        transferAgent.lock.Unlock()
+
+        defer func() {
+            transferAgent.lock.Lock()
+            transferAgent.unregisterOutgoingTransfer(partitionNumber, transfer)
+            transferAgent.lock.Unlock()
+        }()
 
         transferEncoder := NewTransferEncoder(transfer)
         r, err := transferEncoder.Encode()
