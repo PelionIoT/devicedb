@@ -417,6 +417,15 @@ func (clusterController *ClusterController) PartitionHolders(partition uint64) [
     return holders
 }
 
+func (clusterController *ClusterController) SiteExists(siteID string) bool {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    _, ok := clusterController.State.Sites[siteID]
+
+    return ok
+}
+
 func (clusterController *ClusterController) LocalNodeOwnedPartitionReplicas() []PartitionReplica {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

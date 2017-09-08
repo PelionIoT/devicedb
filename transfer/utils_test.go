@@ -139,6 +139,9 @@ func (mockPartitionTransfer *MockPartitionTransfer) CancelCallCount() int {
     return mockPartitionTransfer.cancelCalls
 }
 
+func (mockPartitionTransfer *MockPartitionTransfer) UseFilter(entryFilter EntryFilter) {
+}
+
 func (mockPartitionTransfer *MockPartitionTransfer) NextChunk() (PartitionChunk, error) {
     mockPartitionTransfer.nextChunkCalls++
 
@@ -844,4 +847,112 @@ func (configController *MockConfigController) Stop() {
 }
 
 func (configController *MockConfigController) CancelProposals() {
+}
+
+type MockPartitionDownloader struct {
+    downloads map[uint64]chan int
+    downloadCB func(partition uint64)
+    cancelDownloadCB func(partition uint64)
+}
+
+func NewMockPartitionDownloader() *MockPartitionDownloader {
+    return &MockPartitionDownloader{
+        downloads: make(map[uint64]chan int, 0),
+    }
+}
+
+func (downloader *MockPartitionDownloader) Download(partition uint64) <-chan int {
+    downloader.notifyDownload(partition)
+
+    if _, ok := downloader.downloads[partition]; !ok {
+        downloader.downloads[partition] = make(chan int)
+    }
+
+    return downloader.downloads[partition]
+}
+
+func (downloader *MockPartitionDownloader) notifyDownload(partition uint64) {
+    if downloader.downloadCB == nil {
+        return
+    }
+
+    downloader.downloadCB(partition)
+}
+
+func (downloader *MockPartitionDownloader) onDownload(cb func(partition uint64)) {
+    downloader.downloadCB = cb
+}
+
+func (downloader *MockPartitionDownloader) IsDownloading(partition uint64) bool {
+    _, ok := downloader.downloads[partition]
+
+    return ok
+}
+
+func (downloader *MockPartitionDownloader) CancelDownload(partition uint64) {
+    downloader.notifyCancelDownload(partition)
+
+    delete(downloader.downloads, partition)
+}
+
+func (downloader *MockPartitionDownloader) notifyCancelDownload(partition uint64) {
+    if downloader.cancelDownloadCB == nil {
+        return
+    }
+
+    downloader.cancelDownloadCB(partition)
+}
+
+func (downloader *MockPartitionDownloader) onCancelDownload(cb func(partition uint64)) {
+    downloader.cancelDownloadCB = cb
+}
+
+type MockPartitionTransferProposer struct {
+    proposals map[uint64]map[uint64]bool
+    queueTransferProposalCB func(uint64, uint64, <-chan int)
+}
+
+func NewMockPartitionTransferProposer() *MockPartitionTransferProposer {
+    return &MockPartitionTransferProposer{
+        proposals: make(map[uint64]map[uint64]bool, 0),
+    }
+}
+
+func (transferProposer *MockPartitionTransferProposer) QueueTransferProposal(partition uint64, replica uint64, after <-chan int) <-chan error {
+    transferProposer.notifyQueueTransferProposal(partition, replica, after)
+
+    if _, ok := transferProposer.proposals[partition]; !ok {
+        transferProposer.proposals[partition] = make(map[uint64]bool, 0)
+    }
+
+    transferProposer.proposals[partition][replica] = true
+
+    return nil
+}
+
+func (transferProposer *MockPartitionTransferProposer) notifyQueueTransferProposal(partition uint64, replica uint64, after <-chan int) {
+    if transferProposer.queueTransferProposalCB == nil {
+        return
+    }
+
+    transferProposer.queueTransferProposalCB(partition, replica, after)
+}
+
+func (transferProposer *MockPartitionTransferProposer) onQueueTransferProposal(cb func(partition uint64, replica uint64, after <-chan int)) {
+    transferProposer.queueTransferProposalCB = cb
+}
+
+func (transferProposer *MockPartitionTransferProposer) CancelTransferProposal(partition uint64, replica uint64) {
+    delete(transferProposer.proposals[partition], replica)
+}
+
+func (transferProposer *MockPartitionTransferProposer) CancelTransferProposals(partition uint64) {
+}
+
+func (transferProposer *MockPartitionTransferProposer) PendingProposals(partition uint64) int {
+    return len(transferProposer.proposals[partition])
+}
+
+func (transferProposer *MockPartitionTransferProposer) QueuedProposals() map[uint64]map[uint64]bool {
+    return transferProposer.proposals
 }

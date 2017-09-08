@@ -1,14 +1,16 @@
 package transfer
 
 import (
-    "net/http"
     "io"
+    "net/http"
+    "strconv"
     "sync"
-    "time"
 
     . "devicedb/cluster"
     . "devicedb/logging"
     . "devicedb/partition"
+
+    "github.com/gorilla/mux"
 )
 
 const RetryTimeoutMax = 32
@@ -16,34 +18,27 @@ const RetryTimeoutMax = 32
 type PartitionTransferAgent interface {
     // Tell the partition transfer agent to start the holdership transfer process for this partition replica
     StartTransfer(partition uint64, replica uint64)
-    // Tell the partition transfer agent that this partition replica has been acquired. This 
-    AcquirePartitionReplica(partition uint64, replica uint64) // IS THIS REDUNDANT? STOP TRANSFER?
     // Tell the partition transfer agent to stop any holdership transfer processes for this partition replica
     StopTransfer(partition uint64, replica uint64)
-    Stop()
+    StopAllTransfers()
 }
 
 type HTTPTransferAgent struct {
-    transferFactory PartitionTransferFactory
-    configController *ConfigController
-    partitionPool PartitionPool
-    transferPartnerStrategy PartitionTransferPartnerStrategy
+    configController ClusterConfigController
     transferProposer PartitionTransferProposer
-    transferTransport PartitionTransferTransport
-    currentDownloads map[uint64]chan int
-    downloadCancelers map[uint64]chan int
-    transferCancelers map[uint64]map[uint64]chan int
+    partitionDownloader PartitionDownloader
+    transferFactory PartitionTransferFactory
+    partitionPool PartitionPool
     lock sync.Mutex
 }
 
-func NewHTTPTransferAgent(transferFactory PartitionTransferFactory, partitionPool PartitionPool, transferPartnerStrategy PartitionTransferPartnerStrategy, transferProposer PartitionTransferProposer, transport PartitionTransferTransport, configController *ConfigController) *HTTPTransferAgent {
+func NewHTTPTransferAgent(configController ClusterConfigController, transferProposer PartitionTransferProposer, partitionDownloader PartitionDownloader, transferFactory PartitionTransferFactory, partitionPool PartitionPool) *HTTPTransferAgent {
     return &HTTPTransferAgent{
-        transferTransport: transport,
+        configController: configController,
+        transferProposer: transferProposer,
+        partitionDownloader: partitionDownloader,
         transferFactory: transferFactory,
         partitionPool: partitionPool,
-        configController: configController,
-        transferPartnerStrategy: transferPartnerStrategy,
-        transferProposer: transferProposer,
     }
 }
 
@@ -51,161 +46,7 @@ func (transferAgent *HTTPTransferAgent) StartTransfer(partition uint64, replica 
     transferAgent.lock.Lock()
     defer transferAgent.lock.Unlock()
 
-    transferAgent.transferProposer.QueueTransferProposal(partition, replica, transferAgent.downloadPartition(partition))
-}
-
-// If this function results in a new download occurring it should return a channel that closes when
-// the download is complete. If a download already exists for this partition then return the after
-// channel for that download. If there is not currently a download for this partition and there should
-// be no new one since it was already downloaded successfully in the past then return a nil channel
-// to indicate there is nothing to wait for before proposing a replica transfer
-func (transferAgent *HTTPTransferAgent) downloadPartition(partition uint64) chan int {
-    // A download is already underway for this partition
-    if _, ok := transferAgent.currentDownloads[partition]; ok {
-        return transferAgent.currentDownloads[partition]
-    }
-
-    node := transferAgent.configController.ClusterController().State.Nodes[transferAgent.configController.ClusterController().LocalNodeID]
-    done := make(chan int)
-    cancel := make(chan int, 1)
-
-    // Since this node is already a holder of this partition there is no need to
-    // start a download. Just propose any pending transfers straight away
-    if _, ok := node.PartitionReplicas[partition]; ok {
-        close(done)
-
-        return done
-    }
-
-    transferAgent.downloadCancelers[partition] = cancel
-    transferAgent.currentDownloads[partition] = done
-
-    go func() {
-        defer func() {
-            transferAgent.lock.Lock()
-            defer transferAgent.lock.Unlock()
-
-            if _, ok := transferAgent.downloadCancelers[partition]; !ok {
-                return
-            }
-
-            if transferAgent.downloadCancelers[partition] == cancel {
-                delete(transferAgent.downloadCancelers, partition)
-                // Don't delete this because we just keep it around to indicate that
-                // it is ok to download
-                //delete(transferAgent.currentDownloads, partition)
-            }
-        }()
-
-        retryTimeoutSeconds := 0
-
-        Log.Infof("Local node (id = %d) starting transfer to obtain a replica of partition %d", transferAgent.configController.ClusterController().LocalNodeID, partition)
-
-        for {
-            if retryTimeoutSeconds != 0 {
-                Log.Infof("Local node (id = %d) will attempt to obtain a replica of partition %d again in %d seconds", transferAgent.configController.ClusterController().LocalNodeID, partition, retryTimeoutSeconds)
-
-                select {
-                    case <-time.After(time.Second * time.Duration(retryTimeoutSeconds)):
-                    case <-cancel:
-                        Log.Infof("Local node (id = %d) cancelled all transfers for partition %d. Cancelling download.", transferAgent.configController.ClusterController().LocalNodeID, partition)
-                        return
-                }
-            }
-
-            partnerID := transferAgent.transferPartnerStrategy.ChooseTransferPartner(partition)
-
-            if partnerID == 0 {
-                // No other node holds a replica of this partition. Move onto the phase where we propose
-                // a transfer in the raft log
-                break
-            }
-
-            Log.Infof("Local node (id = %d) starting transfer of partition %d from node %d", transferAgent.configController.ClusterController().LocalNodeID, partition, partnerID)
-            reader, closeReader, err := transferAgent.transferTransport.Get(partnerID, partition)
-
-            if err != nil {
-                Log.Warningf("Local node (id = %d) unable to obtain a replica of partition %d from node %d: %v", transferAgent.configController.ClusterController().LocalNodeID, partition, partnerID, err.Error())
-                
-                if retryTimeoutSeconds == 0 {
-                    retryTimeoutSeconds = 1
-                } else if retryTimeoutSeconds != RetryTimeoutMax {
-                    retryTimeoutSeconds *= 2
-                }
-
-                continue
-            }
-
-            retryTimeoutSeconds = 0
-            partitionTransfer := transferAgent.transferFactory.CreateIncomingTransfer(reader)
-            chunks := make(chan PartitionChunk)
-            errors := make(chan error)
-
-            go func() {
-                for {
-                    nextChunk, err := partitionTransfer.NextChunk()
-
-                    if !nextChunk.IsEmpty() {
-                        chunks <- nextChunk
-                    }
-
-                    if err != nil {
-                        errors <- err
-                        break
-                    }
-                }
-
-                errors <- nil
-            }()
-
-            run := true
-            retry := false
-
-            for run {
-                select {
-                case chunk := <-chunks:
-                    // TODO write to partition
-                    Log.Infof("%v", chunk)
-
-                case err := <-errors:
-                    if err == nil {
-                        // indicates that the loop reading chunks from the transfer
-                        // has terminated and no more errors will be read from errors
-                        run = false
-                        break
-                    }
-
-                    // If any error occurs other than an indication of the end of the stream
-                    // the the transfer needs to be restarted and tried again
-                    retry = (err == io.EOF)
-                case <-cancel:
-                    partitionTransfer.Cancel()
-                    closeReader()
-                }
-            }
-
-            if !retry {
-                // The download was successful
-                break
-            }
-
-            // Need to try again 
-            if retryTimeoutSeconds == 0 {
-                retryTimeoutSeconds = 1
-            } else if retryTimeoutSeconds != RetryTimeoutMax {
-                retryTimeoutSeconds *= 2
-            }
-        }
-
-        // closing done signals to any pending replica transfer
-        // proposers that the data transfer has finished and now
-        // is time to propose the raft log transfer
-        close(done)
-
-        // wait until at least one
-    }()
-
-    return done
+    transferAgent.transferProposer.QueueTransferProposal(partition, replica, transferAgent.partitionDownloader.Download(partition))
 }
 
 func (transferAgent *HTTPTransferAgent) StopTransfer(partition uint64, replica uint64) {
@@ -216,37 +57,20 @@ func (transferAgent *HTTPTransferAgent) StopTransfer(partition uint64, replica u
 }
 
 func (transferAgent *HTTPTransferAgent) stopTransfer(partition, replica uint64) {
-    if _, ok := transferAgent.transferCancelers[partition]; !ok {
-        return
-    }
+    transferAgent.transferProposer.CancelTransferProposal(partition, replica)
 
-    if cancel, ok := transferAgent.transferCancelers[partition][replica]; ok {
-        delete(transferAgent.transferCancelers[partition], replica)
-
-        cancel <- 1
-    }
-
-    if len(transferAgent.transferCancelers[partition]) == 0 {
-        delete(transferAgent.transferCancelers, partition)
-
-        // If there are no more pending transfers for this partition then
-        // any existing download for this partition should be cancelled
-        if cancel, ok := transferAgent.downloadCancelers[partition]; ok {
-            cancel <- 1
-
-            delete(transferAgent.downloadCancelers, partition)
-
-            // TODO should we delete this?
-            delete(transferAgent.currentDownloads, partition)
-        }
+    if transferAgent.transferProposer.PendingProposals(partition) == 0 {
+        transferAgent.partitionDownloader.CancelDownload(partition)
     }
 }
 
-func (transferAgent *HTTPTransferAgent) Stop() {
+func (transferAgent *HTTPTransferAgent) StopAllTransfers() {
     transferAgent.lock.Lock()
     defer transferAgent.lock.Unlock()
 
-    for partition, replicas := range transferAgent.transferCancelers {
+    queuedProposals := transferAgent.transferProposer.QueuedProposals()
+
+    for partition, replicas := range queuedProposals {
         for replica, _ := range replicas {
             transferAgent.stopTransfer(partition, replica)
         }
@@ -255,6 +79,62 @@ func (transferAgent *HTTPTransferAgent) Stop() {
 
 func (transferAgent *HTTPTransferAgent) Handler() func(http.ResponseWriter, *http.Request) {
     return func(w http.ResponseWriter, req *http.Request) {
+        partitionNumber, err := strconv.ParseUint(mux.Vars(req)["partition"], 10, 64)
 
+        if err != nil {
+            Log.Warningf("Invalid partition number specified in partition transfer HTTP request. Value cannot be parsed as uint64: %s", mux.Vars(req)["partition"])
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, "\n")
+
+            return
+        }
+
+        partition := transferAgent.partitionPool.Get(partitionNumber)
+
+        if partition == nil {
+            Log.Warningf("The specified partition (%d) does not exist at this node. Unable to fulfill transfer request", partitionNumber)
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, "\n")
+
+            return
+        }
+
+        transfer, _ := transferAgent.transferFactory.CreateOutgoingTransfer(partition)
+        transfer.UseFilter(func(entry Entry) bool {
+            Log.Debugf("Transfer of partition %d ignoring entry from site %s since that site was removed", partitionNumber, entry.Site)
+
+            return transferAgent.configController.ClusterController().SiteExists(entry.Site)
+        })
+
+        transferEncoder := NewTransferEncoder(transfer)
+        r, err := transferEncoder.Encode()
+
+        if err != nil {
+            Log.Warningf("An error occurred while encoding partition %d. Unable to fulfill transfer request: %v", partitionNumber, err.Error())
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, "\n")
+
+            return
+        }
+
+        Log.Infof("Start sending partition %d to remote node...", partitionNumber)
+
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        written, err := io.Copy(w, r)
+
+        if err != nil {
+            Log.Errorf("An error occurred while sending partition %d to requesting node after sending %d bytes: %v", partitionNumber, written, err.Error())
+
+            return
+        }
+
+        Log.Infof("Done sending partition %d to remote node. Bytes written: %d", partitionNumber, written)
     }
 }

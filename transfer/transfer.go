@@ -17,8 +17,11 @@ const (
     DefaultScanBufferSize = 100
 )
 
+type EntryFilter func(Entry) bool
+
 type PartitionTransfer interface {
     NextChunk() (PartitionChunk, error)
+    UseFilter(EntryFilter)
     Cancel()
 }
 
@@ -34,6 +37,9 @@ func NewIncomingTransfer(reader io.Reader) *IncomingTransfer {
     return &IncomingTransfer{
         scanner: scanner,
     }
+}
+
+func (transfer *IncomingTransfer) UseFilter(entryFilter EntryFilter) {
 }
 
 func (transfer *IncomingTransfer) NextChunk() (PartitionChunk, error) {
@@ -69,6 +75,7 @@ type OutgoingTransfer struct {
     partitionIterator PartitionIterator
     chunkSize int
     nextChunkIndex uint64
+    entryFilter EntryFilter
     err error
 }
 
@@ -84,6 +91,10 @@ func NewOutgoingTransfer(partition Partition, chunkSize int) *OutgoingTransfer {
     }
 }
 
+func (transfer *OutgoingTransfer) UseFilter(entryFilter EntryFilter) {
+    transfer.entryFilter = entryFilter
+}
+
 func (transfer *OutgoingTransfer) NextChunk() (PartitionChunk, error) {
     if transfer.err != nil {
         return PartitionChunk{}, transfer.err
@@ -97,6 +108,11 @@ func (transfer *OutgoingTransfer) NextChunk() (PartitionChunk, error) {
             Bucket: transfer.partitionIterator.Bucket(),
             Key: transfer.partitionIterator.Key(),
             Value: transfer.partitionIterator.Value(),
+        }
+
+        // See if this value should be allowed or if it should be filtered out
+        if transfer.entryFilter != nil && !transfer.entryFilter(entry) {
+            continue
         }
 
         entries = append(entries, entry)

@@ -8,10 +8,11 @@ import (
 )
 
 type PartitionTransferProposer interface {
-    QueueTransferProposal(partition uint64, replica uint64, after chan int) <-chan error
+    QueueTransferProposal(partition uint64, replica uint64, after <-chan int) <-chan error
     CancelTransferProposal(partition uint64, replica uint64)
     CancelTransferProposals(partition uint64)
     PendingProposals(partition uint64) int
+    QueuedProposals() map[uint64]map[uint64]bool
 }
 
 type TransferProposer struct {
@@ -27,7 +28,7 @@ func NewTransferProposer(configController ClusterConfigController) *TransferProp
     }
 }
 
-func (transferProposer *TransferProposer) QueueTransferProposal(partition uint64, replica uint64, after chan int) <-chan error {
+func (transferProposer *TransferProposer) QueueTransferProposal(partition uint64, replica uint64, after <-chan int) <-chan error {
     transferProposer.lock.Lock()
     defer transferProposer.lock.Unlock()
 
@@ -52,7 +53,7 @@ func (transferProposer *TransferProposer) QueueTransferProposal(partition uint64
         err := transferProposer.configController.ClusterCommand(ctx, ClusterTakePartitionReplicaBody{ NodeID: transferProposer.configController.ClusterController().LocalNodeID, Partition: partition, Replica: replica })
 
         transferProposer.lock.Lock()
-        
+
         defer func() {
             transferProposer.lock.Unlock()
             result <- err
@@ -114,4 +115,21 @@ func (transferProposer *TransferProposer) PendingProposals(partition uint64) int
     defer transferProposer.lock.Unlock()
 
     return len(transferProposer.transferCancelers[partition])
+}
+
+func (transferProposer *TransferProposer) QueuedProposals() map[uint64]map[uint64]bool {
+    transferProposer.lock.Lock()
+    defer transferProposer.lock.Unlock()
+
+    allProposals := make(map[uint64]map[uint64]bool, 0)
+
+    for partition, replicas := range transferProposer.transferCancelers {
+        allProposals[partition] = make(map[uint64]bool, 0)
+
+        for replica, _ := range replicas {
+            allProposals[partition][replica] = true
+        }
+    }
+
+    return allProposals
 }
