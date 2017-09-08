@@ -15,6 +15,18 @@ import (
     "sync"
 )
 
+type ClusterConfigController interface {
+    AddNode(ctx context.Context, nodeConfig NodeConfig) error
+    ReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error
+    RemoveNode(ctx context.Context, nodeID uint64) error
+    ClusterCommand(ctx context.Context, commandBody interface{}) error
+    OnLocalUpdates(cb func(deltas []ClusterStateDelta))
+    ClusterController() *ClusterController
+    Start()
+    Stop()
+    CancelProposals()
+}
+
 var EBadContext = errors.New("The node addition or removal had an invalid context")
 var ERaftNodeStartup = errors.New("Encountered an error while starting up raft controller")
 var ERaftProtocolError = errors.New("Raft controller encountered a protocol error")

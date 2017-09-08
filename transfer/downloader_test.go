@@ -1,6 +1,7 @@
 package transfer_test
 
 import (
+    "errors"
     "io"
     "time"
 
@@ -399,26 +400,6 @@ var _ = Describe("Downloader", func() {
                                     Key: "aa",
                                     Value: nil,
                                 },
-                                Entry{ 
-                                    Site: "siteA",
-                                    Bucket: "default",
-                                    Key: "bb",
-                                    Value: nil,
-                                },
-                            } }, nil)
-                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 2, Checksum: Hash{ }, Entries: []Entry{ 
-                                Entry{ 
-                                    Site: "siteB",
-                                    Bucket: "default",
-                                    Key: "aa",
-                                    Value: nil,
-                                },
-                                Entry{ 
-                                    Site: "siteB",
-                                    Bucket: "default",
-                                    Key: "bb",
-                                    Value: nil,
-                                },
                             } }, nil)
                             incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
                             transferFactory := NewMockPartitionTransferFactory()
@@ -464,27 +445,7 @@ var _ = Describe("Downloader", func() {
                             transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
                             incomingTransfer := NewMockPartitionTransfer()
                             incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
-                                Entry{ 
-                                    Site: "siteA",
-                                    Bucket: "default",
-                                    Key: "aa",
-                                    Value: nil,
-                                },
-                                Entry{ 
-                                    Site: "siteA",
-                                    Bucket: "default",
-                                    Key: "bb",
-                                    Value: nil,
-                                },
-                            } }, nil)
-                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 2, Checksum: Hash{ }, Entries: []Entry{ 
-                                Entry{ 
-                                    Site: "siteB",
-                                    Bucket: "default",
-                                    Key: "aa",
-                                    Value: nil,
-                                },
-                                Entry{ 
+                                Entry{
                                     Site: "siteB",
                                     Bucket: "default",
                                     Key: "bb",
@@ -515,59 +476,679 @@ var _ = Describe("Downloader", func() {
 
                     Context("And if that site is not in the partition at the local node", func() {
                         It("Should ensure the transport cleans up by calling its closer function", func() {
-                            Fail("Not implemented")
+                            transferCancelHappened := make(chan int)
+                            transportCancelHappened := make(chan int)
+                            sitePool := NewMockSitePool()
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transportCancel := func() {
+                                transportCancelHappened <- 1
+                            }
+                            transferTransport.AppendNextGetResponse(infiniteReader, transportCancel, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.onCancel(func() {
+                                transferCancelHappened <- 1
+                            })
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, nil)
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            select {
+                            case <-transportCancelHappened:
+                                select {
+                                case <-transferCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-transferCancelHappened:
+                                select {
+                                case <-transportCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
 
                         It("Should wait for some period of time before again choosing a transfer partner and attempting to restart the download", func() {
-                            Fail("Not implemented")
+                            chooseTransferPartnerCalled := make(chan int)
+                            getCalled := make(chan int)
+                            sitePool := NewMockSitePool()
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            partnerStrategy.onChooseTransferPartner(func(partition uint64) {
+                                defer GinkgoRecover()
+                                Expect(partition).Should(Equal(uint64(0)))
+                                chooseTransferPartnerCalled <- 1
+                            })
+                            transferTransport := NewMockTransferTransport()
+                            transferTransport.onGet(func(node uint64, partition uint64) {
+                                defer GinkgoRecover()
+                                Expect(node).Should(Equal(uint64(2)))
+                                Expect(partition).Should(Equal(uint64(0)))
+                                getCalled <- 1
+                            })
+                            infiniteReader := NewInfiniteReader()
+                            transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
+                            transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, nil)
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, nil)
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            select {
+                            case <-chooseTransferPartnerCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-getCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-chooseTransferPartnerCalled:
+                            // Wait period should be no more than 2 seconds
+                            case <-time.After(time.Second * 2):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-getCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
                     })
 
                     Context("And if an error occurs while writing to the partition", func() {
                         It("Should ensure the transport cleans up by calling its closer function", func() {
-                            Fail("Not implemented")
+                            transferCancelHappened := make(chan int)
+                            transportCancelHappened := make(chan int)
+                            siteADefaultBucket := NewMockBucket("default")
+                            siteADefaultBucket.AppendNextMergeResponse(errors.New("Something bad happened"))
+                            siteABuckets := NewBucketList()
+                            siteABuckets.AddBucket(siteADefaultBucket)
+                            siteA := NewMockSite(siteABuckets)
+                            sitePool := NewMockSitePool()
+                            sitePool.AppendNextAcquireResponse(siteA)
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transportCancel := func() {
+                                transportCancelHappened <- 1
+                            }
+                            transferTransport.AppendNextGetResponse(infiniteReader, transportCancel, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.onCancel(func() {
+                                transferCancelHappened <- 1
+                            })
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, nil)
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            select {
+                            case <-transportCancelHappened:
+                                select {
+                                case <-transferCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-transferCancelHappened:
+                                select {
+                                case <-transportCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
 
                         It("Should wait for some period of time before again choosing a transfer partner and attempting to restart the download", func() {
-                            Fail("Not implemented")
+                            chooseTransferPartnerCalled := make(chan int)
+                            getCalled := make(chan int)
+                            siteADefaultBucket := NewMockBucket("default")
+                            siteADefaultBucket.AppendNextMergeResponse(errors.New("Something bad happened"))
+                            siteADefaultBucket.AppendNextMergeResponse(errors.New("Something bad happened"))
+                            siteABuckets := NewBucketList()
+                            siteABuckets.AddBucket(siteADefaultBucket)
+                            siteA := NewMockSite(siteABuckets)
+                            sitePool := NewMockSitePool()
+                            sitePool.AppendNextAcquireResponse(siteA)
+                            sitePool.AppendNextAcquireResponse(siteA)
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.onChooseTransferPartner(func(partition uint64) {
+                                defer GinkgoRecover()
+                                Expect(partition).Should(Equal(uint64(0)))
+                                chooseTransferPartnerCalled <- 1
+                            })
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            transferTransport.onGet(func(node uint64, partition uint64) {
+                                defer GinkgoRecover()
+                                Expect(node).Should(Equal(uint64(2)))
+                                Expect(partition).Should(Equal(uint64(0)))
+                                getCalled <- 1
+                            })
+                            infiniteReader := NewInfiniteReader()
+                            transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
+                            transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, nil)
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 2, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, nil)
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            select {
+                            case <-chooseTransferPartnerCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-getCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-chooseTransferPartnerCalled:
+                            // Wait period should be no more than 2 seconds
+                            case <-time.After(time.Second * 2):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-getCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
                     })
 
                     Context("And if there is a problem encountered while decoding the incoming transfer", func() {
                         It("Should ensure the transport cleans up by calling its closer function", func() {
-                            Fail("Not implemented")
+                            transferCancelHappened := make(chan int)
+                            transportCancelHappened := make(chan int)
+                            siteADefaultBucket := NewMockBucket("default")
+                            siteADefaultBucket.AppendNextMergeResponse(nil)
+                            siteABuckets := NewBucketList()
+                            siteABuckets.AddBucket(siteADefaultBucket)
+                            siteA := NewMockSite(siteABuckets)
+                            sitePool := NewMockSitePool()
+                            sitePool.AppendNextAcquireResponse(siteA)
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transportCancel := func() {
+                                transportCancelHappened <- 1
+                            }
+                            transferTransport.AppendNextGetResponse(infiniteReader, transportCancel, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.onCancel(func() {
+                                transferCancelHappened <- 1
+                            })
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, errors.New("Something terrible happened"))
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            select {
+                            case <-transportCancelHappened:
+                                select {
+                                case <-transferCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-transferCancelHappened:
+                                select {
+                                case <-transportCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
 
                         It("Should wait for some period of time before again choosing a transfer partner and attempting to restart the download", func() {
-                            Fail("Not implemented")
+                            chooseTransferPartnerCalled := make(chan int)
+                            getCalled := make(chan int)
+                            siteADefaultBucket := NewMockBucket("default")
+                            siteADefaultBucket.AppendNextMergeResponse(nil)
+                            siteABuckets := NewBucketList()
+                            siteABuckets.AddBucket(siteADefaultBucket)
+                            siteA := NewMockSite(siteABuckets)
+                            sitePool := NewMockSitePool()
+                            sitePool.AppendNextAcquireResponse(siteA)
+                            sitePool.AppendNextAcquireResponse(siteA)
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.onChooseTransferPartner(func(partition uint64) {
+                                defer GinkgoRecover()
+                                Expect(partition).Should(Equal(uint64(0)))
+                                chooseTransferPartnerCalled <- 1
+                            })
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            transferTransport.onGet(func(node uint64, partition uint64) {
+                                defer GinkgoRecover()
+                                Expect(node).Should(Equal(uint64(2)))
+                                Expect(partition).Should(Equal(uint64(0)))
+                                getCalled <- 1
+                            })
+                            infiniteReader := NewInfiniteReader()
+                            transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
+                            transferTransport.AppendNextGetResponse(infiniteReader, func() { }, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 1, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, errors.New("Something terrible happened"))
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ Index: 2, Checksum: Hash{ }, Entries: []Entry{ 
+                                Entry{ 
+                                    Site: "siteA",
+                                    Bucket: "default",
+                                    Key: "aa",
+                                    Value: nil,
+                                },
+                            } }, errors.New("Something terrible happened"))
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            select {
+                            case <-chooseTransferPartnerCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-getCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-chooseTransferPartnerCalled:
+                            // Wait period should be no more than 2 seconds
+                            case <-time.After(time.Second * 2):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-getCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
                     })
 
                     Context("And when the download is finished successfully", func() {
                         It("Should ensure the transport cleans up by calling its closer function", func() {
-                            Fail("Not implemented")
+                            transferCancelHappened := make(chan int)
+                            transportCancelHappened := make(chan int)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transportCancel := func() {
+                                transportCancelHappened <- 1
+                            }
+                            transferTransport.AppendNextGetResponse(infiniteReader, transportCancel, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.onCancel(func() {
+                                transferCancelHappened <- 1
+                            })
+                            // io.EOF indicates the end of the transfer
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, nil)
+                            downloader.Download(0)
+
+                            select {
+                            case <-transportCancelHappened:
+                                select {
+                                case <-transferCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-transferCancelHappened:
+                                select {
+                                case <-transportCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
                         })
 
                         It("Should close the done channel for this partition download", func() {
-                            Fail("Not implemented")
+                            transferCancelHappened := make(chan int)
+                            transportCancelHappened := make(chan int)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.AppendNextTransferPartner(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transportCancel := func() {
+                                transportCancelHappened <- 1
+                            }
+                            transferTransport.AppendNextGetResponse(infiniteReader, transportCancel, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.onCancel(func() {
+                                transferCancelHappened <- 1
+                            })
+                            // io.EOF indicates the end of the transfer
+                            incomingTransfer.AppendNextChunkResponse(PartitionChunk{ }, io.EOF)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.AppendNextIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, nil)
+                            done := downloader.Download(0)
+
+                            select {
+                            case <-transportCancelHappened:
+                                select {
+                                case <-transferCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-transferCancelHappened:
+                                select {
+                                case <-transportCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-done:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
                         })
                     })
 
                     Context("And if Cancel is called for that partition while the download is in progress", func() {
                         It("Should call Cancel on the incoming transfer", func() {
-                            Fail("Not implemented")
-                        })
+                            mergeCalled := make(chan int)
+                            siteADefaultBucket := NewMockBucket("default")
+                            siteADefaultBucket.onMerge(func(siblingSets map[string]*SiblingSet) {
+                                // This condition ensures that future calls to merge do not block, allowing
+                                // cancel to work
+                                if siteADefaultBucket.MergeCallCount() <= 2 {
+                                    mergeCalled <- 1
+                                }
+                            })
+                            siteADefaultBucket.SetDefaultMergeResponse(nil)
+                            siteABuckets := NewBucketList()
+                            siteABuckets.AddBucket(siteADefaultBucket)
+                            siteA := NewMockSite(siteABuckets)
+                            sitePool := NewMockSitePool()
+                            sitePool.SetDefaultAcquireResponse(siteA)
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
 
-                        It("Should ensure the transport cleans up by calling its closer function", func() {
-                            Fail("Not implemented")
-                        })
+                            transferCancelHappened := make(chan int)
+                            transportCancelHappened := make(chan int)
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transportCancel := func() {
+                                transportCancelHappened <- 1
+                            }
+                            transferTransport.SetDefaultGetResponse(infiniteReader, transportCancel, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            incomingTransfer.onCancel(func() {
+                                transferCancelHappened <- 1
+                            })
+                            // Default response ensures the transfer never ends on its own. We will have to call cancel in order for things to wrap up
+                            incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ Index: 1, Entries: []Entry{ Entry{ 
+                                Site: "siteA",
+                                Bucket: "default",
+                                Key: "aa",
+                                Value: nil,
+                            } } }, nil)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
 
-                        It("Should stop all attempts to download the partition", func() {
-                            Fail("Not implemented")
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            downloader.Download(0)
+
+                            // Wait for merge to be called two times to know it's working
+                            select {
+                            case <-mergeCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-mergeCalled:
+                                siteADefaultBucket.onMerge(nil)
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            // Cancel and wait for the shutdown prodedure
+                            downloader.CancelDownload(0)
+
+                            select {
+                            case <-transportCancelHappened:
+                                select {
+                                case <-transferCancelHappened:
+                                case <-time.After(time.Second):
+                                    Fail("Test timed out")
+                                }
+                            case <-transferCancelHappened:
+                                select {
+                                case <-transportCancelHappened:
+                                case <-time.After(time.Second * 5):
+                                    Fail("Test timed out")
+                                }
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
                         })
 
                         It("Should leave the done channel open", func() {
-                            Fail("Not implemented")
+                            mergeCalled := make(chan int)
+                            siteADefaultBucket := NewMockBucket("default")
+                            siteADefaultBucket.onMerge(func(siblingSets map[string]*SiblingSet) {
+                                // This condition ensures that future calls to merge do not block, allowing
+                                // cancel to work
+                                if siteADefaultBucket.MergeCallCount() <= 2 {
+                                    mergeCalled <- 1
+                                }
+                            })
+                            siteADefaultBucket.SetDefaultMergeResponse(nil)
+                            siteABuckets := NewBucketList()
+                            siteABuckets.AddBucket(siteADefaultBucket)
+                            siteA := NewMockSite(siteABuckets)
+                            sitePool := NewMockSitePool()
+                            sitePool.SetDefaultAcquireResponse(siteA)
+                            partition := NewMockPartition(0, 0)
+                            partition.SetSites(sitePool)
+                            partitionPool := NewMockPartitionPool()
+                            partitionPool.Add(partition)
+
+                            partnerStrategy := NewMockTransferPartnerStrategy()
+                            partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
+                            transferTransport := NewMockTransferTransport()
+                            infiniteReader := NewInfiniteReader()
+                            transferTransport.SetDefaultGetResponse(infiniteReader, func() { }, nil)
+                            incomingTransfer := NewMockPartitionTransfer()
+                            // Default response ensures the transfer never ends on its own. We will have to call cancel in order for things to wrap up
+                            incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ Index: 1, Entries: []Entry{ Entry{ 
+                                Site: "siteA",
+                                Bucket: "default",
+                                Key: "aa",
+                                Value: nil,
+                            } } }, nil)
+                            transferFactory := NewMockPartitionTransferFactory()
+                            transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
+
+                            // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                            downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                            done := downloader.Download(0)
+
+                            // Wait for merge to be called two times to know it's working
+                            select {
+                            case <-mergeCalled:
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            select {
+                            case <-mergeCalled:
+                                siteADefaultBucket.onMerge(nil)
+                            case <-time.After(time.Second):
+                                Fail("Test timed out")
+                            }
+
+                            downloader.CancelDownload(0)
+
+                            // After canceling the download ensure that the returned done channel is not closed
+                            select {
+                            case <-done:
+                                Fail("Done should not have closed")
+                            case <-time.After(time.Second):
+                            }
                         })
                     })
                 })
@@ -575,32 +1156,101 @@ var _ = Describe("Downloader", func() {
 
             Context("And there is already a download in progress for this partition", func() {
                 It("Should return the done channel for that partition", func() {
-                    Fail("Not implemented")
+                    mergeCalled := make(chan int)
+                    siteADefaultBucket := NewMockBucket("default")
+                    siteADefaultBucket.onMerge(func(siblingSets map[string]*SiblingSet) {
+                        // This condition ensures that future calls to merge do not block, allowing
+                        // cancel to work
+                        if siteADefaultBucket.MergeCallCount() <= 2 {
+                            mergeCalled <- 1
+                        }
+                    })
+                    siteADefaultBucket.SetDefaultMergeResponse(nil)
+                    siteABuckets := NewBucketList()
+                    siteABuckets.AddBucket(siteADefaultBucket)
+                    siteA := NewMockSite(siteABuckets)
+                    sitePool := NewMockSitePool()
+                    sitePool.SetDefaultAcquireResponse(siteA)
+                    partition := NewMockPartition(0, 0)
+                    partition.SetSites(sitePool)
+                    partitionPool := NewMockPartitionPool()
+                    partitionPool.Add(partition)
+
+                    partnerStrategy := NewMockTransferPartnerStrategy()
+                    partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
+                    transferTransport := NewMockTransferTransport()
+                    infiniteReader := NewInfiniteReader()
+                    transferTransport.SetDefaultGetResponse(infiniteReader, func() { }, nil)
+                    incomingTransfer := NewMockPartitionTransfer()
+                    // Default response ensures the transfer never ends on its own. We will have to call cancel in order for things to wrap up
+                    incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ Index: 1, Entries: []Entry{ Entry{ 
+                        Site: "siteA",
+                        Bucket: "default",
+                        Key: "aa",
+                        Value: nil,
+                    } } }, nil)
+                    transferFactory := NewMockPartitionTransferFactory()
+                    transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
+
+                    // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                    downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, partitionPool)
+                    done := downloader.Download(0)
+
+                    // Wait for merge to be called two times to know it's working
+                    select {
+                    case <-mergeCalled:
+                    case <-time.After(time.Second):
+                        Fail("Test timed out")
+                    }
+
+                    select {
+                    case <-mergeCalled:
+                        siteADefaultBucket.onMerge(nil)
+                    case <-time.After(time.Second):
+                        Fail("Test timed out")
+                    }
+
+                    Expect(downloader.Download(0)).Should(Equal(done))
+                    Expect(downloader.Download(0)).Should(Equal(done))
+                    Expect(downloader.Download(0)).Should(Equal(done))
+
+                    downloader.CancelDownload(0)
+
+                    // If the download is restarted it should return a new done channel
+                    Expect(downloader.Download(0)).Should(Not(Equal(done)))
+
+                    downloader.CancelDownload(0)
                 })
             })
             
             Context("And a download already successfully completed for this partition", func() {
                 It("Should return the done channel for that partition which should be closed", func() {
-                    Fail("Not implemented")
+                    partnerStrategy := NewMockTransferPartnerStrategy()
+                    partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
+                    transferTransport := NewMockTransferTransport()
+                    infiniteReader := NewInfiniteReader()
+                    transferTransport.SetDefaultGetResponse(infiniteReader, func() { }, nil)
+                    incomingTransfer := NewMockPartitionTransfer()
+                    // Default response to ensure the transfer completes right away
+                    incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ }, io.EOF)
+                    transferFactory := NewMockPartitionTransferFactory()
+                    transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
+
+                    // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                    downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, nil)
+                    done := downloader.Download(0)
+
+                    // Wait for the download to finish
+                    select {
+                    case <-done:
+                    case <-time.After(time.Second):
+                        Fail("Test timed out")
+                    }
+
+                    Expect(downloader.Download(0)).Should(Equal(done))
+                    Expect(downloader.Download(0)).Should(Equal(done))
+                    Expect(downloader.Download(0)).Should(Equal(done))
                 })
-            })
-        })
-    })
-
-    Describe("#Cancel", func() {
-        Context("When there is no download in progress for the specified partition", func() {
-            It("Should do nothing", func() {
-                Fail("Not implemented")
-            })
-        })
-
-        Context("When there is a download in progress for the specified partition", func() {
-            It("Should call the Cancel function on the canceller for that download", func() {
-                Fail("Not implemented")
-            })
-
-            It("Should remove that download", func() {
-                Fail("Not implemented")
             })
         })
     })

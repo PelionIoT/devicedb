@@ -1,6 +1,7 @@
 package transfer_test
 
 import (
+    "context"
     "errors"
     "fmt"
     "io"
@@ -11,6 +12,7 @@ import (
     . "devicedb/site"
     . "devicedb/partition"
     . "devicedb/data"
+    . "devicedb/cluster"
     . "devicedb/merkle"
     . "devicedb/bucket"
 )
@@ -22,6 +24,7 @@ type MockPartitionTransferFactory struct {
     createOutgoingTransferCB func(partition Partition)
     createIncomingTransferCalls int
     createOutgoingTransferCalls int
+    defaultIncomingTransferResponse PartitionTransfer
 }
 
 func NewMockPartitionTransferFactory() *MockPartitionTransferFactory {
@@ -48,13 +51,17 @@ func (transferFactory *MockPartitionTransferFactory) CreateIncomingTransfer(read
     transferFactory.notifyCreateIncomingTransfer(reader)
 
     if len(transferFactory.createIncomingTransferResponses) == 0 {
-        return nil
+        return transferFactory.defaultIncomingTransferResponse
     }
 
     response := transferFactory.createIncomingTransferResponses[0]
     transferFactory.createIncomingTransferResponses = transferFactory.createIncomingTransferResponses[1:]
     
     return response
+}
+
+func (transferFactory *MockPartitionTransferFactory) SetDefaultIncomingTransfer(incomingTransfer PartitionTransfer) {
+    transferFactory.defaultIncomingTransferResponse = incomingTransfer
 }
 
 func (transferFactory *MockPartitionTransferFactory) AppendNextIncomingTransfer(partitionTransfer PartitionTransfer) {
@@ -99,7 +106,9 @@ type mockNextChunkResponse struct {
 type MockPartitionTransfer struct {
     nextChunkCalls int
     cancelCalls int
+    defaultResponse mockNextChunkResponse
     expectedResponses []mockNextChunkResponse
+    cancelCB func()
 }
 
 func NewMockPartitionTransfer() *MockPartitionTransfer {
@@ -116,6 +125,12 @@ func (mockPartitionTransfer *MockPartitionTransfer) AppendNextChunkResponse(chun
     return mockPartitionTransfer
 }
 
+func (mockPartitionTransfer *MockPartitionTransfer) SetDefaultNextChunkResponse(chunk PartitionChunk, err error) *MockPartitionTransfer {
+    mockPartitionTransfer.defaultResponse = mockNextChunkResponse{ chunk: chunk, err: err }
+
+    return mockPartitionTransfer
+}
+
 func (mockPartitionTransfer *MockPartitionTransfer) NextChunkCallCount() int {
     return mockPartitionTransfer.nextChunkCalls
 }
@@ -128,7 +143,7 @@ func (mockPartitionTransfer *MockPartitionTransfer) NextChunk() (PartitionChunk,
     mockPartitionTransfer.nextChunkCalls++
 
     if len(mockPartitionTransfer.expectedResponses) == 0 {
-        return PartitionChunk{}, nil
+        return mockPartitionTransfer.defaultResponse.chunk, mockPartitionTransfer.defaultResponse.err
     }
 
     nextResponse := mockPartitionTransfer.expectedResponses[0]
@@ -137,8 +152,23 @@ func (mockPartitionTransfer *MockPartitionTransfer) NextChunk() (PartitionChunk,
     return nextResponse.chunk, nextResponse.err
 }
 
+func (mockPartitionTransfer *MockPartitionTransfer) onCancel(cb func()) {
+    mockPartitionTransfer.cancelCB = cb
+}
+
+func (mockPartitionTransfer *MockPartitionTransfer) notifyCancel() {
+    if mockPartitionTransfer.cancelCB == nil {
+        return
+    }
+
+    mockPartitionTransfer.cancelCB()
+}
+
 func (mockPartitionTransfer *MockPartitionTransfer) Cancel() {
     mockPartitionTransfer.cancelCalls++
+    mockPartitionTransfer.notifyCancel()
+    mockPartitionTransfer.defaultResponse.chunk = PartitionChunk{ }
+    mockPartitionTransfer.defaultResponse.err = ETransferCancelled
 }
 
 type MockBucket struct {
@@ -146,12 +176,14 @@ type MockBucket struct {
     mergeResponses []error
     mergeCalls int
     mergeCB func(siblingSets map[string]*SiblingSet)
+    defaultMergeResponse error
 }
 
 func NewMockBucket(name string) *MockBucket {
     return &MockBucket{
         mergeResponses: make([]error, 0),
         name: name,
+        defaultMergeResponse: errors.New("No responses"),
     }
 }
 
@@ -216,7 +248,7 @@ func (bucket *MockBucket) Merge(siblingSets map[string]*SiblingSet) error {
     bucket.notifyMerge(siblingSets)
 
     if len(bucket.mergeResponses) == 0 {
-        return errors.New("No responses")
+        return bucket.defaultMergeResponse
     }
 
     result := bucket.mergeResponses[0]
@@ -241,6 +273,10 @@ func (bucket *MockBucket) notifyMerge(siblingSets map[string]*SiblingSet) {
     bucket.mergeCB(siblingSets)
 }
 
+func (bucket *MockBucket) SetDefaultMergeResponse(err error) {
+    bucket.defaultMergeResponse = err
+}
+
 func (bucket *MockBucket) AppendNextMergeResponse(err error) {
     bucket.mergeResponses = append(bucket.mergeResponses, err)
 }
@@ -263,6 +299,7 @@ type MockSitePool struct {
     acquireResponses []Site
     acquireCB func(siteID string)
     acquireCalls int
+    defaultAcquireResponse Site
 }
 
 func NewMockSitePool() *MockSitePool {
@@ -276,7 +313,7 @@ func (sitePool *MockSitePool) Acquire(siteID string) Site {
     sitePool.notifyAcquire(siteID)
 
     if len(sitePool.acquireResponses) == 0 {
-        return nil
+        return sitePool.defaultAcquireResponse
     }
 
     result := sitePool.acquireResponses[0]
@@ -299,6 +336,10 @@ func (sitePool *MockSitePool) notifyAcquire(siteID string) {
     }
 
     sitePool.acquireCB(siteID)
+}
+
+func (sitePool *MockSitePool) SetDefaultAcquireResponse(site Site) {
+    sitePool.defaultAcquireResponse = site
 }
 
 func (sitePool *MockSitePool) AppendNextAcquireResponse(site Site) {
@@ -629,6 +670,7 @@ type MockTransferTransport struct {
     responses []mockTransferTransportResponse
     getCalls int
     getCB func(nodeID uint64, partition uint64)
+    defaultResponse mockTransferTransportResponse
 }
 
 func NewMockTransferTransport() *MockTransferTransport {
@@ -652,7 +694,11 @@ func (transferTransport *MockTransferTransport) Get(nodeID uint64, partition uin
     defer transferTransport.notifyGet(nodeID, partition)
 
     if len(transferTransport.responses) == 0 {
-        return nil, nil, errors.New("No responses")
+        if transferTransport.defaultResponse.reader == nil && transferTransport.defaultResponse.cancel == nil &&  transferTransport.defaultResponse.err == nil {
+            return nil, nil, errors.New("No responses")
+        }
+
+        return transferTransport.defaultResponse.reader, transferTransport.defaultResponse.cancel, transferTransport.defaultResponse.err
     }
 
     response := transferTransport.responses[0]
@@ -663,6 +709,16 @@ func (transferTransport *MockTransferTransport) Get(nodeID uint64, partition uin
 
 func (transferTransport *MockTransferTransport) GetCallCount() int {
     return transferTransport.getCalls
+}
+
+func (transferTransport *MockTransferTransport) SetDefaultGetResponse(reader io.Reader, cancel func(), err error) *MockTransferTransport {
+    transferTransport.defaultResponse = mockTransferTransportResponse{
+        reader: reader,
+        cancel: cancel,
+        err: err,
+    }
+
+    return transferTransport
 }
 
 func (transferTransport *MockTransferTransport) AppendNextGetResponse(reader io.Reader, cancel func(), err error) *MockTransferTransport {
@@ -679,6 +735,7 @@ type MockTransferPartnerStrategy struct {
     responses []uint64
     chooseTransferPartnerCalls int
     chooseTransferPartnerCB func(partition uint64)
+    defaultResponse uint64
 }
 
 func NewMockTransferPartnerStrategy() *MockTransferPartnerStrategy {
@@ -703,7 +760,7 @@ func (partnerStrategy *MockTransferPartnerStrategy) ChooseTransferPartner(partit
     defer partnerStrategy.notifyChooseTransferPartner(partition)
 
     if len(partnerStrategy.responses) == 0 {
-        return 0
+        return partnerStrategy.defaultResponse
     }
 
     response := partnerStrategy.responses[0]
@@ -716,8 +773,75 @@ func (partnerStrategy *MockTransferPartnerStrategy) ChooseTransferPartnerCalls()
     return partnerStrategy.chooseTransferPartnerCalls
 }
 
+func (partnerStrategy *MockTransferPartnerStrategy) SetDefaultChooseTransferPartnerResponse(node uint64) *MockTransferPartnerStrategy {
+    partnerStrategy.defaultResponse = node
+
+    return partnerStrategy
+}
+
 func (partnerStrategy *MockTransferPartnerStrategy) AppendNextTransferPartner(node uint64) *MockTransferPartnerStrategy {
     partnerStrategy.responses = append(partnerStrategy.responses, node)
 
     return partnerStrategy
+}
+
+type MockConfigController struct {
+    clusterController *ClusterController
+    defaultClusterCommandResponse error
+    clusterCommandCB func(ctx context.Context, commandBody interface{})
+}
+
+func NewMockConfigController(clusterController *ClusterController) *MockConfigController {
+    return &MockConfigController{
+        clusterController: clusterController,
+    }
+}
+
+func (configController *MockConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
+    return nil
+}
+
+func (configController *MockConfigController) ReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error {
+    return nil
+}
+
+func (configController *MockConfigController) RemoveNode(ctx context.Context, nodeID uint64) error {
+    return nil
+}
+
+func (configController *MockConfigController) ClusterCommand(ctx context.Context, commandBody interface{}) error {
+    configController.notifyClusterCommand(ctx, commandBody)
+    return configController.defaultClusterCommandResponse
+}
+
+func (configController *MockConfigController) SetDefaultClusterCommandResponse(err error) {
+    configController.defaultClusterCommandResponse = err
+}
+
+func (configController *MockConfigController) onClusterCommand(cb func(ctx context.Context, commandBody interface{})) {
+    configController.clusterCommandCB = cb
+}
+
+func (configController *MockConfigController) notifyClusterCommand(ctx context.Context, commandBody interface{}) {
+    configController.clusterCommandCB(ctx, commandBody)
+}
+
+func (configController *MockConfigController) OnLocalUpdates(cb func(deltas []ClusterStateDelta)) {
+}
+
+func (configController *MockConfigController) ClusterController() *ClusterController {
+    return configController.clusterController
+}
+
+func (configController *MockConfigController) SetClusterController(clusterController *ClusterController) {
+    configController.clusterController = clusterController
+}
+
+func (configController *MockConfigController) Start() {
+}
+
+func (configController *MockConfigController) Stop() {
+}
+
+func (configController *MockConfigController) CancelProposals() {
 }

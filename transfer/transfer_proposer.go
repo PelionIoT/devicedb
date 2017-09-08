@@ -15,12 +15,12 @@ type PartitionTransferProposer interface {
 }
 
 type TransferProposer struct {
-    configController *ConfigController
+    configController ClusterConfigController
     transferCancelers map[uint64]map[uint64]*Canceler
     lock sync.Mutex
 }
 
-func NewTransferProposer(configController *ConfigController) *TransferProposer {
+func NewTransferProposer(configController ClusterConfigController) *TransferProposer {
     return &TransferProposer{
         configController: configController,
         transferCancelers: make(map[uint64]map[uint64]*Canceler, 0),
@@ -52,7 +52,11 @@ func (transferProposer *TransferProposer) QueueTransferProposal(partition uint64
         err := transferProposer.configController.ClusterCommand(ctx, ClusterTakePartitionReplicaBody{ NodeID: transferProposer.configController.ClusterController().LocalNodeID, Partition: partition, Replica: replica })
 
         transferProposer.lock.Lock()
-        defer transferProposer.lock.Unlock()
+        
+        defer func() {
+            transferProposer.lock.Unlock()
+            result <- err
+        }()
 
         if _, ok := transferProposer.transferCancelers[partition]; !ok {
             return
@@ -70,8 +74,6 @@ func (transferProposer *TransferProposer) QueueTransferProposal(partition uint64
                 delete(transferProposer.transferCancelers, partition)
             }
         }
-
-        result <- err
     }()
 
     return result

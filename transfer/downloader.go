@@ -166,53 +166,68 @@ func (downloader *Downloader) Download(partition uint64) <-chan int {
             partitionTransfer := downloader.transferFactory.CreateIncomingTransfer(reader)
             chunks := make(chan PartitionChunk)
             errors := make(chan error)
+            finished := make(chan int)
 
             go func() {
                 for {
                     nextChunk, err := partitionTransfer.NextChunk()
 
                     if !nextChunk.IsEmpty() {
-                        chunks <- nextChunk
+                        select {
+                        case chunks <- nextChunk:
+                        case <-finished:
+                            break
+                        }
                     }
 
                     if err != nil {
-                        errors <- err
+                        if err != io.EOF {
+                            Log.Errorf("Local node (id = %d) was unable to obtain the next chunk of partition %d from node %d: %v", downloader.configController.ClusterController().LocalNodeID, partition, partnerID, err.Error())
+                        }
+
+                        select {
+                        case errors <- err:
+                        case <-finished:
+                        }
+
                         break
                     }
                 }
 
-                errors <- nil
+                close(errors)
             }()
 
-            run := true
             retry := false
 
-            for run {
-                select {
-                case chunk := <-chunks:
-                    Log.Debugf("Local node (id = %d) received chunk %d of partition %d from node %d", downloader.configController.ClusterController().LocalNodeID, chunk.Index, partition, partnerID)
-                   
-                    if err := downloader.mergeChunk(partition, chunk); err != nil {
-                        run = false
-                        retry = true
-                        break
-                    }
-                case err := <-errors:
-                    if err == nil {
-                        // indicates that the loop reading chunks from the transfer
-                        // has terminated and no more errors will be read from errors
-                        run = false
-                        break
-                    }
-
-                    // If any error occurs other than an indication of the end of the stream
-                    // the the transfer needs to be restarted and tried again
-                    retry = (err == io.EOF)
-                case <-ctx.Done():
-                    // The download was cancelled externally
+            func() {
+                defer func() {
+                    // Drain errors from above goroutine
                     partitionTransfer.Cancel()
+                    close(finished)
+                }()
+
+                for {
+                    select {
+                    case chunk := <-chunks:
+                        Log.Debugf("Local node (id = %d) received chunk %d of partition %d from node %d", downloader.configController.ClusterController().LocalNodeID, chunk.Index, partition, partnerID)
+                    
+                        if err := downloader.mergeChunk(partition, chunk); err != nil {
+                            retry = true
+                            return
+                        }
+                    case err := <-errors:
+                        // Stop running this loop and retry the download only if
+                        // The error is not io.EOF. io.EOF indicates the end of a stream
+                        // which means a successful download
+                        retry = (err != io.EOF)
+                        return
+                    case <-ctx.Done():
+                        // The download was cancelled externally
+                        retry = false
+                        return
+                    }
                 }
-            }
+            }()
 
             closeReader()
 
@@ -229,10 +244,14 @@ func (downloader *Downloader) Download(partition uint64) <-chan int {
             }
         }
 
-        // closing done signals to any pending replica transfer
-        // proposers that the data transfer has finished and now
-        // is time to propose the raft log transfer
-        close(done)
+        if ctx.Err() != context.Canceled {
+            // closing done signals to any pending replica transfer
+            // proposers that the data transfer has finished and now
+            // is time to propose the raft log transfer. It should only
+            // be closed if the download completed successfully and was
+            // not cancelled externally
+            close(done)
+        }
     }()
 
     return done
@@ -286,7 +305,7 @@ func (downloader *Downloader) mergeChunk(partition uint64, chunk PartitionChunk)
 
         if err != nil {
             // A storage error like this probably represents some sort of disk or machine failure and should be reported in a way that stands out
-            Log.Criticalf("Local node (id = %d) encountered an error while calling Merge() for key %s in bucket %s in site %s in partition %d: %v", entry.Key, entry.Bucket, entry.Site, partition, err.Error())
+            Log.Criticalf("Local node (id = %d) encountered an error while calling Merge() for key %s in bucket %s in site %s in partition %d: %v", downloader.configController.ClusterController().LocalNodeID, entry.Key, entry.Bucket, entry.Site, partition, err.Error())
 
             return errors.New("Merge error")
         }
@@ -304,6 +323,7 @@ func (downloader *Downloader) CancelDownload(partition uint64) {
 
     // Cancel current download (if any) for this partition
     if canceler, ok := downloader.downloadCancelers[partition]; ok {
+        Log.Infof("Local node (id = %d) is cancelling download of partition %d", downloader.configController.ClusterController().LocalNodeID, partition)
         canceler.Cancel()
 
         delete(downloader.downloadCancelers, partition)
