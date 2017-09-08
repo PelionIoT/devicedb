@@ -18,6 +18,6 @@ func (transferFactory *TransferFactory) CreateIncomingTransfer(reader io.Reader)
     return NewIncomingTransfer(reader)
 }
 
-func (transferFactory *TransferFactory) CreateOutgoingTransfer(partition Partition) PartitionTransfer {
-    return NewOutgoingTransfer(partition, 0)
+func (transferFactory *TransferFactory) CreateOutgoingTransfer(partition Partition) (PartitionTransfer, error) {
+    return NewOutgoingTransfer(partition, 0), nil
 }
