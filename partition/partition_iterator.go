@@ -15,7 +15,6 @@ type PartitionIterator interface {
     // The value of the current entry
     Value() *SiblingSet
     // The checksum of the current entry
-    Checksum() Hash
     Release()
     Error() error
 }

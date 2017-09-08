@@ -457,7 +457,6 @@ type mockIteratorState struct {
     bucket string
     key string
     value *SiblingSet
-    checksum Hash
     err error
 }
 
@@ -488,7 +487,6 @@ func (partitionIterator *MockPartitionIterator) AppendNextState(next bool, site 
         bucket: bucket,
         key: key,
         value: value,
-        checksum: checksum,
         err: err,
     })
 
@@ -544,12 +542,6 @@ func (partitionIterator *MockPartitionIterator) Value() *SiblingSet {
 
 func (partitionIterator *MockPartitionIterator) ValueCallCount() int {
     return partitionIterator.valueCalls
-}
-
-func (partitionIterator *MockPartitionIterator) Checksum() Hash {
-    partitionIterator.checksumCalls++
-
-    return partitionIterator.states[partitionIterator.currentState].checksum
 }
 
 func (partitionIterator *MockPartitionIterator) ChecksumCallCount() int {
@@ -621,6 +613,14 @@ func (testServer *HTTPTestServer) Start() {
 func (testServer *HTTPTestServer) Stop() {
     testServer.listener.Close()
     <-testServer.done
+}
+
+type HandlerFuncHandler struct {
+    f http.HandlerFunc
+}
+
+func (handlerFuncHandler *HandlerFuncHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    handlerFuncHandler.f(w, req)
 }
 
 type StringResponseHandler struct {
@@ -840,7 +840,8 @@ func (configController *MockConfigController) SetClusterController(clusterContro
     configController.clusterController = clusterController
 }
 
-func (configController *MockConfigController) Start() {
+func (configController *MockConfigController) Start() error {
+    return nil
 }
 
 func (configController *MockConfigController) Stop() {

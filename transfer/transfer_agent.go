@@ -77,8 +77,8 @@ func (transferAgent *HTTPTransferAgent) StopAllTransfers() {
     }
 }
 
-func (transferAgent *HTTPTransferAgent) Handler() func(http.ResponseWriter, *http.Request) {
-    return func(w http.ResponseWriter, req *http.Request) {
+func (transferAgent *HTTPTransferAgent) Attach(router *mux.Router) {
+    router.HandleFunc("/partitions/{partition}/keys", func(w http.ResponseWriter, req *http.Request) {
         partitionNumber, err := strconv.ParseUint(mux.Vars(req)["partition"], 10, 64)
 
         if err != nil {
@@ -105,9 +105,13 @@ func (transferAgent *HTTPTransferAgent) Handler() func(http.ResponseWriter, *htt
 
         transfer, _ := transferAgent.transferFactory.CreateOutgoingTransfer(partition)
         transfer.UseFilter(func(entry Entry) bool {
-            Log.Debugf("Transfer of partition %d ignoring entry from site %s since that site was removed", partitionNumber, entry.Site)
+            if !transferAgent.configController.ClusterController().SiteExists(entry.Site) {
+                Log.Debugf("Transfer of partition %d ignoring entry from site %s since that site was removed", partitionNumber, entry.Site)
+                
+                return false
+            }
 
-            return transferAgent.configController.ClusterController().SiteExists(entry.Site)
+            return true
         })
 
         transferEncoder := NewTransferEncoder(transfer)
@@ -136,5 +140,5 @@ func (transferAgent *HTTPTransferAgent) Handler() func(http.ResponseWriter, *htt
         }
 
         Log.Infof("Done sending partition %d to remote node. Bytes written: %d", partitionNumber, written)
-    }
+    }).Methods("GET")
 }

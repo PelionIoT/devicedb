@@ -35,7 +35,7 @@ type Downloader struct {
     transferPartnerStrategy PartitionTransferPartnerStrategy
     transferFactory PartitionTransferFactory
     partitionPool PartitionPool
-    configController *ConfigController
+    configController ClusterConfigController
     downloadCancelers map[uint64]*Canceler
     currentDownloads map[uint64]chan int
     downloadStopCB func(uint64)
@@ -43,7 +43,7 @@ type Downloader struct {
     lock sync.Mutex
 }
 
-func NewDownloader(configController *ConfigController, transferTransport PartitionTransferTransport, transferPartnerStrategy PartitionTransferPartnerStrategy, transferFactory PartitionTransferFactory, partitionPool PartitionPool) *Downloader {
+func NewDownloader(configController ClusterConfigController, transferTransport PartitionTransferTransport, transferPartnerStrategy PartitionTransferPartnerStrategy, transferFactory PartitionTransferFactory, partitionPool PartitionPool) *Downloader {
     return &Downloader{
         downloadCancelers: make(map[uint64]*Canceler, 0),
         currentDownloads: make(map[uint64]chan int, 0),
@@ -181,7 +181,9 @@ func (downloader *Downloader) Download(partition uint64) <-chan int {
                     }
 
                     if err != nil {
-                        if err != io.EOF {
+                        if err == EEntryChecksum {
+                            Log.Errorf("Local node (id = %d) received a corrupted chunk of partition %d from node %d. It was unable to verify the checksum of the chunk", downloader.configController.ClusterController().LocalNodeID, partition, partnerID)
+                        } else if err != io.EOF {
                             Log.Errorf("Local node (id = %d) was unable to obtain the next chunk of partition %d from node %d: %v", downloader.configController.ClusterController().LocalNodeID, partition, partnerID, err.Error())
                         }
 

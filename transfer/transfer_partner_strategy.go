@@ -11,10 +11,10 @@ type PartitionTransferPartnerStrategy interface {
 }
 
 type RandomTransferPartnerStrategy struct {
-    configController *ConfigController
+    configController ClusterConfigController
 }
 
-func NewRandomTransferPartnerStrategy(configController *ConfigController) *RandomTransferPartnerStrategy {
+func NewRandomTransferPartnerStrategy(configController ClusterConfigController) *RandomTransferPartnerStrategy {
     return &RandomTransferPartnerStrategy{
         configController: configController,
     }

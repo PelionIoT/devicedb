@@ -22,7 +22,7 @@ type ClusterConfigController interface {
     ClusterCommand(ctx context.Context, commandBody interface{}) error
     OnLocalUpdates(cb func(deltas []ClusterStateDelta))
     ClusterController() *ClusterController
-    Start()
+    Start() error
     Stop()
     CancelProposals()
 }

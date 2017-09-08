@@ -12,10 +12,21 @@ import (
 )
 
 var ETransferCancelled = errors.New("Cancelled")
+var EEntryChecksum = errors.New("Unable to reproduce the checksum for the entry in the partition chunk")
 
 const (
     DefaultScanBufferSize = 100
 )
+
+func ChecksumEntries(entries []Entry) Hash {
+    hash := Hash{ }
+
+    for _, entry := range entries {
+        hash = hash.Xor(entry.Value.Hash([]byte(entry.Key)))
+    }
+
+    return hash
+}
 
 type EntryFilter func(Entry) bool
 
@@ -62,6 +73,12 @@ func (transfer *IncomingTransfer) NextChunk() (PartitionChunk, error) {
         transfer.err = err
 
         return PartitionChunk{}, transfer.err
+    }
+
+    checksum := ChecksumEntries(nextPartitionChunk.Entries)
+
+    if checksum.High() != nextPartitionChunk.Checksum.High() || checksum.Low() != nextPartitionChunk.Checksum.Low() {
+        return PartitionChunk{}, EEntryChecksum
     }
 
     return nextPartitionChunk, nil
@@ -124,7 +141,7 @@ func (transfer *OutgoingTransfer) NextChunk() (PartitionChunk, error) {
             return PartitionChunk{
                 Index: index,
                 Entries: entries,
-                Checksum: Hash{},
+                Checksum: ChecksumEntries(entries),
             }, nil
         }
     }

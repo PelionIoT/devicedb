@@ -87,6 +87,37 @@ var _ = Describe("Transfer", func() {
                     Expect(err).Should(Equal(ETransferCancelled))
                 })
             })
+
+            Context("When the next chunk is parsed correctly but its checksum is not valid", func() {
+                It("should return EEntryChecksum", func() {
+                    sibling := NewSibling(NewDVV(NewDot("A", 0), map[string]uint64{ }), []byte{ }, 0)
+                    chunk := PartitionChunk{
+                        Index: 1,
+                        Checksum: Hash{ },
+                        Entries: []Entry{
+                            Entry{
+                                Site: "site1",
+                                Bucket: "default",
+                                Key: "a",
+                                Value: NewSiblingSet(map[*Sibling]bool{ sibling: true }),
+                            },
+                            Entry{
+                                Site: "site1",
+                                Bucket: "default",
+                                Key: "b",
+                                Value: NewSiblingSet(map[*Sibling]bool{ sibling: true }),
+                            },
+                        },
+                    }
+                    encodedChunk, _ := json.Marshal(chunk)
+                    // Create a stream with a valid chunk followed by a token that cannot be parsed as a chunk
+                    incomingTransfer := NewIncomingTransfer(strings.NewReader(string(encodedChunk)))
+
+                    nextChunk, err := incomingTransfer.NextChunk()
+                    Expect(nextChunk.IsEmpty()).Should(BeTrue())
+                    Expect(err).Should(Equal(EEntryChecksum))
+                })
+            })
         })
     })
 

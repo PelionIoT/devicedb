@@ -19,11 +19,11 @@ type PartitionTransferTransport interface {
 
 type HTTPTransferTransport struct {
     httpClient *http.Client
-    configController *ConfigController
+    configController ClusterConfigController
     endpointURL string
 }
 
-func NewHTTPTransferTransport(configController *ConfigController, httpClient *http.Client) *HTTPTransferTransport {
+func NewHTTPTransferTransport(configController ClusterConfigController, httpClient *http.Client) *HTTPTransferTransport {
     return &HTTPTransferTransport{
         httpClient: httpClient,
         configController: configController,
