@@ -51,6 +51,22 @@ func entryKeys(firstIndex, lastIndex uint64) [][]byte {
     return keys
 }
 
+type RaftNodeStorage interface {
+    raft.Storage
+    IsEmpty() bool
+    Open() error
+    Close() error
+    SetDecommissioningFlag() error
+    IsDecommissioning() (bool, error)
+    SetNodeID(id uint64) error
+    NodeID() (uint64, error)
+    SetHardState(st raftpb.HardState) error
+    ApplySnapshot(snap raftpb.Snapshot) error
+    CreateSnapshot(i uint64, cs *raftpb.ConfState, data []byte) (raftpb.Snapshot, error)
+    Append(entries []raftpb.Entry) error
+    ApplyAll(hs raftpb.HardState, ents []raftpb.Entry, snap raftpb.Snapshot) error
+}
+
 type RaftStorage struct {
     isOpen bool
     isEmpty bool

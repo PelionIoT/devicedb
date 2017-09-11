@@ -20,7 +20,7 @@ const LogCompactionSize = 1000
 type RaftNodeConfig struct {
     ID uint64
     CreateClusterIfNotExist bool
-    Storage *RaftStorage
+    Storage RaftNodeStorage
     GetSnapshot func() ([]byte, error)
     Context []byte
 }

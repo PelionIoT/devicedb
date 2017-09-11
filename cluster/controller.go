@@ -426,6 +426,21 @@ func (clusterController *ClusterController) SiteExists(siteID string) bool {
     return ok
 }
 
+func (clusterController *ClusterController) LocalNodeHeldPartitionReplicas() []PartitionReplica {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    partitionReplicas := make([]PartitionReplica, 0)
+
+    for partition, replicas := range clusterController.State.Nodes[clusterController.LocalNodeID].PartitionReplicas {
+        for replica, _ := range replicas {
+            partitionReplicas = append(partitionReplicas, PartitionReplica{ Partition: partition, Replica: replica })
+        }
+    }
+
+    return partitionReplicas
+}
+
 func (clusterController *ClusterController) LocalNodeOwnedPartitionReplicas() []PartitionReplica {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

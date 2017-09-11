@@ -41,6 +41,23 @@ type HTTPTransferAgent struct {
     lock sync.Mutex
 }
 
+// An easy constructor
+func NewDefaultHTTPTransferAgent(configController ClusterConfigController, partitionPool PartitionPool) *HTTPTransferAgent {
+    transferTransport := NewHTTPTransferTransport(configController, &http.Client{ })
+    transferPartnerStrategy := NewRandomTransferPartnerStrategy(configController)
+    transferFactory := &TransferFactory{ }
+
+    return &HTTPTransferAgent{
+        configController: configController,
+        transferProposer: NewTransferProposer(configController),
+        partitionDownloader: NewDownloader(configController, transferTransport, transferPartnerStrategy, transferFactory, partitionPool),
+        transferFactory: transferFactory,
+        partitionPool: partitionPool,
+        transferrablePartitions: make(map[uint64]bool, 0),
+        outgoingTransfers: make(map[uint64]map[PartitionTransfer]bool, 0),
+    }
+}
+
 func NewHTTPTransferAgent(configController ClusterConfigController, transferProposer PartitionTransferProposer, partitionDownloader PartitionDownloader, transferFactory PartitionTransferFactory, partitionPool PartitionPool) *HTTPTransferAgent {
     return &HTTPTransferAgent{
         configController: configController,

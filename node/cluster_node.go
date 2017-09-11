@@ -1,161 +1,60 @@
 package node
 
 import (
+    "context"
     "sync"
 
     . "devicedb/cluster"
+    . "devicedb/error"
+    . "devicedb/logging"
+    . "devicedb/partition"
+    . "devicedb/raft"
+    . "devicedb/server"
+    . "devicedb/storage"
+    . "devicedb/transfer"
+    . "devicedb/util"
 )
 
+type ClusterNodeConfig struct {
+    StorageDriver StorageDriver
+    CloudServer *CloudServer
+}
+
 type ClusterNode struct {
-    ConfigController *ConfigController
-    // PartitionReplicaPool contains a PartitionReplica
-    // for all partition replicas held by this node
-    Partitions PartitionPool
-    PartitionFactory PartitionFactory
+    configController ClusterConfigController
+    configControllerBuilder ClusterConfigControllerBuilder
+    cloudServer *CloudServer
+    raftTransport *TransportHub
+    raftStore RaftNodeStorage
+    transferAgent PartitionTransferAgent
+    storageDriver StorageDriver
+    partitionFactory PartitionFactory
+    partitionPool PartitionPool
+    joinedCluster chan int
+    leftCluster chan int
+    shutdown chan int
     lock sync.Mutex
 }
 
-func New(configController *ConfigController, partitions PartitionRegistry, partitionFactory PartitionFactory) *ClusterNode {
+func New(config ClusterNodeConfig) *ClusterNode {
     clusterNode := &ClusterNode{
-        Partitions: partitions,
-        ConfigController: configController,
-        PartitionFactory: partitionFactory,
+        shutdown: make(chan int),
+        storageDriver: config.StorageDriver,
+        cloudServer: config.CloudServer,
     }
-
-    clusterNode.initialize()
 
     return clusterNode
 }
 
-func (node *ClusterNode) initialize() {
-    node.initializePartitions()
+func (node *ClusterNode) UseConfigControllerBuilder(configControllerBuilder ClusterConfigControllerBuilder) {
+    node.configControllerBuilder = configControllerBuilder
 }
 
-func (node *ClusterNode) initializePartitions() {
-    ownedPartitions := node.ConfigController.ClusterController().LocalNodeOwnedPartitions()
-    heldPartitions := node.ConfigController.ClusterController().LocalNodeHeldPartitions()
-
-    for _, partitionNumber := range heldPartitions {
-        partition := node.PartitionFactory.CreatePartition(partitionNumber)
-
-        if !node.ConfigController.ClusterController().LocalNodeOwnsPartition() {
-            // partitions that are held by this node but not owned anymore by this node
-            // should be write locked but should still allow reads so that the new
-            // owner(s) can transfer the partition data
-            partition.LockWrites()
-        }
-
-        node.Partitions.Register(partitionNumber, partition)
-    }
-
-    for _, partitionNumber := range ownedPartitions {
-        if !node.Partitions.Has(partitionNumber) {
-            // partitions that are owned by this node but for which this node
-            // has not yet received a full snapshot from an old owner should
-            // be read locked until the transfer is complete but still allow
-            // writes to its state can remain up to date if updates happen
-            // concurrently with the range transfer. However, such writes do
-            // not count toward the write quorum
-            partition := node.PartitionFactory.CreatePartition(partitionNumber)
-            partition.LockReads()
-            node.Partitions.Register(partitionNumber, partition)
-            // start download initiates the transfer from the old owner or
-            // another replica which contains the needed data
-            partition.StartDownload()
-        }
-    }
+func (node *ClusterNode) UseRaftStore(raftStore RaftNodeStorage) {
+    node.raftStore = raftStore
 }
 
-func (node *ClusterNode) AddSite(siteID string) {
-    node.lock.Lock()
-    defer node.lock.Unlock()
-
-    sitePartition := node.ConfigController.ClusterController().Partition(siteID)
-    partition := node.PartitionPool.Get(sitePartition)
-
-    // A nil partition indicates that we do not own any replica of this partition
-    if partition == nil {
-        return
-    }
-
-    partition.Sites().Add(siteID)
-}
-
-func (node *ClusterNode) RemoveSite(siteID string) {
-    node.lock.Lock()
-    defer node.lock.Unlock()
-
-    sitePartition := node.ConfigController.ClusterController().Partition(siteID)
-    partition := node.PartitionPool.Get(sitePartition)
-
-    if partition == nil {
-        return
-    }
-
-    partition.Sites().Remove(siteID)
-}
-
-func (node *ClusterNode) AddRelay(relayID string) {
-    // Nothing to do
-}
-
-func (node *ClusterNode) RemoveRelay(relayID string) {
-    // Disconnect the relay if it's currently connected
-}
-
-func (node *ClusterNode) MoveRelay(relayID, siteID string) {
-    // Disconnect the relay if it's currently connected
-}
-
-func (node *ClusterNode) AcceptRelayConnection() {
-    // TODO
-}
-
-// We need to have some "partition replica" entity around as long as we are a holder
-// only unlocked if we own and hold the partition replica
-// What if we own all replicas of a partition and another node comes online and needs
-// us to transfer data to it? Should we lock that partition?
-// n = # nodes in the cluster
-// r = replication factor
-// This is a problem as long as n < r
-// Case 1) I am losing ownership over a partition replica but retain ownership over another replica of that partition:
-//     - n < r and a node is being added to the cluster
-// Case 2) I am losing ownership over a partition replica and it is the only replica of that partition that i own:
-//     - n >= r and a node is being added
-// Lock if and only if I do not have ownership over any replicas of this partition
-// While transfer is occurring quorum will fail
-// 
-// Transfers:
-//   I can accept writes as soon as I become partition replica owner
-//   but can only accept reads once I finish a partition transfer from
-//   some other replica. Accept writes while simultaneously bootstrapping
-//   I cannot perform a range transfer to another node if i myself
-//   have not yet finished accepting a range transfer for that partition
-//   
-//   Case: Two nodes are added simultaneously (n2 and n3) that both own a replica
-//   of some partition and currently only one node (n1) holds a replica for
-//   that partition. n2 and n3 both ask n1 to transfer its contents to them for
-//   that partition since it is the only node that holds the partition
-//
-// ...
-// Node Partition Replica bootstrapping:
-//   A node is bootstrapping as long as it owns a partition replica but 
-//   has not completed a data transfer for that partition from an existing
-//   replica holder.
-//   Writes can be forwarded to a node while it is bootstrapping but writes
-//   to it do not contribute to write quorum.
-//   A node cannot serve reads when it is bootstrapping. It must have succesfully
-//   announced that it holds that partition replica through the raft log
-//   first
-//   Choosing a transfer partner:
-//     The node that needs to perform a partition transfer prioritizes transfer
-//     partners like so from best candidate to worst:
-//       1) A node that is a holder of a replica that this node now owns
-//       2) A node that is a holder of some replica of this partition but not one that overlaps with us
-//     If no holders exist for this partition then skip to the end where this node becomes a holder for
-//     those partitions that it owns
-
-func (node *ClusterNode) UpdatePartition(partitionNumber uint64) {
+/*func (node *ClusterNode) UpdatePartition(partitionNumber uint64) {
     node.lock.Lock()
     defer node.lock.Unlock()
 
@@ -189,6 +88,7 @@ func (node *ClusterNode) UpdatePartition(partitionNumber uint64) {
     } else {
         // lock reads until this node has finalized a partition transfer
         partition.LockReads()
+        node.PartitionTransferAgent.DisableOutgoingTransfers(partitionNumber)
     }
 
     if nodeOwnsPartition {
@@ -207,4 +107,406 @@ func (node *ClusterNode) UpdatePartition(partitionNumber uint64) {
     if node.Partitions.Get(partitionNumber) == nil {
         node.Partitions.Register(partition)
     }
+}*/
+
+func (node *ClusterNode) getNodeID() (uint64, error) {
+    if err := node.raftStore.Open(); err != nil {
+        Log.Criticalf("Local node unable to open raft store: %v", err.Error())
+
+        return 0, err
+    }
+
+    nodeID, err := node.raftStore.NodeID()
+
+    if err != nil {
+        Log.Criticalf("Local node unable to obtain node ID from raft store: %v", err.Error())
+
+        return 0, err
+    }
+
+    if nodeID == 0 {
+        nodeID = UUID64()
+
+        Log.Infof("Local node initializing with ID %d", nodeID)
+
+        if err := node.raftStore.SetNodeID(nodeID); err != nil {
+            Log.Criticalf("Local node unable to store new node ID: %v", err.Error())
+
+            return 0, err
+        }
+    }
+
+    return nodeID, nil
 }
+
+func (node *ClusterNode) Start(options NodeInitializationOptions) error {
+    if err := node.openStorageDriver(); err != nil {
+        return err
+    }
+
+    nodeID, err := node.getNodeID()
+
+    if err != nil {
+        return err
+    }
+
+    Log.Infof("Local node (id = %d) starting up...", nodeID)
+
+    clusterHost, clusterPort := options.ClusterAddress()
+    node.configControllerBuilder.SetLocalNodeAddress(PeerAddress{ NodeID: nodeID, Host: clusterHost, Port: clusterPort })
+    node.configControllerBuilder.SetRaftNodeStorage(node.raftStore)
+    node.configControllerBuilder.SetRaftNodeTransport(nil)
+    node.configControllerBuilder.SetCreateNewCluster(options.ShouldStartCluster())
+    node.configController = node.configControllerBuilder.Create()
+
+    node.configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
+        node.ProcessClusterUpdates(deltas)
+    })
+
+    node.configController.Start()
+    defer node.stop()
+
+    if err := node.startNetworking(); err != nil {
+        return err
+    }
+
+    if node.configController.ClusterController().LocalNodeWasRemovedFromCluster() {
+        Log.Errorf("Local node (id = %d) unable to start because it was removed from the cluster", nodeID)
+
+        return ERemoved
+    }
+
+    decommission, err := node.raftStore.IsDecommissioning()
+
+    if err != nil {
+        Log.Criticalf("Local node (id = %d) unable to start up since it could not check the decomissioning flag: %v", nodeID, err.Error())
+
+        return err
+    }
+
+    if decommission {
+        Log.Infof("Local node (id = %d) will resume decommissioning process", nodeID)
+
+        return node.LeaveCluster()
+    }
+
+    if !node.configController.ClusterController().LocalNodeIsInCluster() {
+        if options.ShouldJoinCluster() {
+            seedHost, seedPort := options.SeedNode()
+
+            Log.Infof("Local node (id = %d) joining existing cluster. Seed node at %s:%d", nodeID, seedHost, seedPort)
+
+            if err := node.JoinCluster(seedHost, seedPort); err != nil {
+                Log.Criticalf("Local node (id = %d) unable to join cluster: %v", nodeID, err.Error())
+
+                return err
+            }
+        } else {
+            Log.Infof("Local node (id = %d) creating new cluster...", nodeID)
+
+            if err := node.InitializeCluster(options.ClusterSettings); err != nil {
+                Log.Criticalf("Local node (id = %d) unable to create new cluster: %v", nodeID, err.Error())
+
+                return err
+            }
+        }
+    }
+
+    return nil
+}
+
+func (node *ClusterNode) openStorageDriver() error {
+    if err := node.storageDriver.Open(); err != nil {
+        if err != ECorrupted {
+            Log.Criticalf("Error opening storage driver: %v", err.Error())
+            
+            return EStorage
+        }
+
+        Log.Error("Database is corrupted. Attempting automatic recovery now...")
+
+        recoverError := node.recover()
+
+        if recoverError != nil {
+            Log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
+            Log.Critical("Database daemon will now exit")
+
+            return EStorage
+        }
+    }
+
+    return nil
+}
+
+func (node *ClusterNode) recover() error {
+    recoverError := node.storageDriver.Recover()
+
+    if recoverError != nil {
+        Log.Criticalf("Unable to recover corrupted database. Reason: %v", recoverError.Error())
+
+        return EStorage
+    }
+
+    return nil
+}
+
+func (node *ClusterNode) initializePartitions() {
+    var ownedPartitionReplicas map[uint64]map[uint64]bool
+    var heldPartitionReplicas map[uint64]map[uint64]bool
+
+    for _, partitionReplica := range node.configController.ClusterController().LocalNodeOwnedPartitionReplicas() {
+        if _, ok := ownedPartitionReplicas[partitionReplica.Partition]; !ok {
+            ownedPartitionReplicas[partitionReplica.Partition] = make(map[uint64]bool)
+        }
+
+        ownedPartitionReplicas[partitionReplica.Partition][partitionReplica.Replica] = true
+    }
+
+    for _, partitionReplica := range node.configController.ClusterController().LocalNodeHeldPartitionReplicas() {
+        if _, ok := heldPartitionReplicas[partitionReplica.Partition]; !ok {
+            heldPartitionReplicas[partitionReplica.Partition] = make(map[uint64]bool)
+        }
+
+        heldPartitionReplicas[partitionReplica.Partition][partitionReplica.Replica] = true
+    }
+
+    for partitionNumber, _ := range heldPartitionReplicas {
+        partition := node.partitionFactory.CreatePartition(partitionNumber)
+
+        if len(ownedPartitionReplicas[partitionNumber]) == 0 {
+            // partitions that are held by this node but not owned anymore by this node
+            // should be write locked but should still allow reads so that the new
+            // owner(s) can transfer the partition data
+            partition.LockWrites()
+        }
+
+        node.partitionPool.Add(partition)
+        node.transferAgent.EnableOutgoingTransfers(partitionNumber)
+    }
+
+    for partitionNumber, replicas := range ownedPartitionReplicas {
+        partition := node.partitionFactory.CreatePartition(partitionNumber)
+
+        if len(heldPartitionReplicas[partitionNumber]) == 0 {
+            // partitions that are owned by this node but for which this node
+            // has not yet received a full snapshot from an old owner should
+            // be read locked until the transfer is complete but still allow
+            // writes to its state can remain up to date if updates happen
+            // concurrently with the range transfer. However, such writes do
+            // not count toward the write quorum
+            partition.LockReads()
+        }
+
+        node.partitionPool.Add(partition)
+
+        for replicaNumber, _ := range replicas {
+            if heldPartitionReplicas[partitionNumber] != nil && heldPartitionReplicas[partitionNumber][replicaNumber] {
+                continue
+            }
+
+            if heldPartitionReplicas[partitionNumber] == nil || !heldPartitionReplicas[partitionNumber][replicaNumber] {
+                // This indicates that the node has not yet fully transferred the partition form its old holder
+                // start transfer initiates the transfer from the old owner and starts downloading data
+                // if another download is not already in progress for that partition
+                node.transferAgent.StartTransfer(partitionNumber, replicaNumber)
+            }
+        }
+    }
+}
+
+func (node *ClusterNode) startNetworking() error {
+    router := node.cloudServer.Router()
+    transferAgent := NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
+
+    node.raftTransport.Attach(router)
+    transferAgent.Attach(router)
+
+    node.transferAgent = transferAgent
+
+    go func() {
+        node.cloudServer.Start()
+    }()
+
+    return nil
+}
+
+func (node *ClusterNode) Stop() {
+    node.stop()
+}
+
+func (node *ClusterNode) stop() {
+    node.storageDriver.Close()
+    node.configController.Stop()
+}
+
+func (node *ClusterNode) ID() uint64 {
+    return node.configController.ClusterController().LocalNodeID
+}
+
+func (node *ClusterNode) InitializeCluster(settings ClusterSettings) error {
+    ctx, cancel := context.WithCancel(context.Background())
+
+    go func() {
+        select {
+        case <-ctx.Done():
+            return
+        case <-node.shutdown:
+            cancel()
+            return
+        }
+    }()
+
+    Log.Infof("Local node (id = %d) initializing cluster settings (replication_factor = %d, partitions = %d)", node.ID(), settings.ReplicationFactor, settings.Partitions)
+
+    if err := node.configController.ClusterCommand(ctx, ClusterSetReplicationFactorBody{ ReplicationFactor: settings.ReplicationFactor }); err != nil {
+        Log.Criticalf("Local node (id = %d) was unable to initialize the replication factor of the new cluster: %v", node.ID(), err.Error())
+
+        return err
+    }
+
+    if err := node.configController.ClusterCommand(ctx, ClusterSetPartitionCountBody{ Partitions: settings.Partitions }); err != nil {
+        Log.Criticalf("Local node (id = %d) was unable to initialize the partition count factor of the new cluster: %v", node.ID(), err.Error())
+
+        return err
+    }
+
+    Log.Infof("Cluster initialization complete!")
+
+    return nil
+}
+
+func (node *ClusterNode) JoinCluster(seedHost string, seedPort int) error {
+    return nil
+}
+
+func (node *ClusterNode) LeaveCluster() error {
+    return nil
+}
+
+func (node *ClusterNode) ProcessClusterUpdates(deltas []ClusterStateDelta) {
+    for _, delta := range deltas {
+        switch delta.Type {
+        case DeltaNodeAdd:
+            Log.Infof("This node (id = %d) was added to a cluster.", node.ID())
+            node.joinedCluster <- 1
+        case DeltaNodeRemove:
+            Log.Infof("This node (id = %d) was removed from its cluster. It will now shut down...", node.ID())
+            node.leftCluster <- 1
+        case DeltaNodeGainPartitionReplica:
+            // Unlock that partition
+        case DeltaNodeLosePartitionReplica:
+            // Delete that partition
+        case DeltaNodeGainPartitionReplicaOwnership:
+        case DeltaNodeLosePartitionReplicaOwnership:
+        case DeltaSiteAdded:
+            // If we are responsible for the partition that this site
+            // belongs to then add this site to that partition's site pool
+        case DeltaSiteRemoved:
+            // If we are responsible for the partition that this site
+            // belongs to then remove this site from that partition's site pool
+        case DeltaRelayAdded:
+            // Nothing to do. The cluster should be aware of this relay
+        case DeltaRelayRemoved:
+            // disconnect the relay if it's currently connected
+        case DeltaRelayMoved:
+            // disconnect the relay if it's currently connected
+        }
+    }
+}
+
+/*
+func (server *CloudServer) joinCluster() error {
+    // send add requests until one is successful
+    memberAddress := PeerAddress{
+        Host: server.seedHost,
+        Port: server.seedPort,
+    }
+    newMemberConfig := NodeConfig{
+        Capacity: server.capacity,
+        Address: PeerAddress{
+            NodeID: server.clusterController.LocalNodeID,
+            Host: server.host,
+            Port: server.port,
+        },
+    }
+
+    for {
+        ctx, cancel := context.WithCancel(context.Background())
+        wasAdded := false
+        stopped := make(chan int)
+
+        // run a goroutine in the background to
+        // cancel running add node request when
+        // this node is shut down
+        go func() {
+            defer func() { stopped <- 1 }()
+
+            for {
+                select {
+                case <-server.joinedCluster:
+                    wasAdded = true
+                    cancel()
+                    return
+                case <-ctx.Done():
+                    return
+                case <-server.stop:
+                    cancel()
+                    return
+                }
+            }
+        }()
+
+        Log.Infof("Local node (id = %d) is trying to join a cluster through an existing cluster member at %s:%d", server.clusterController.LocalNodeID, server.seedHost, server.seedPort)
+        err := server.interClusterClient.AddNode(ctx, memberAddress, newMemberConfig)
+
+        // Cancel to ensure the goroutine gets cleaned up
+        cancel()
+
+        // Ensure that the above goroutine has exited and there are no new updates to consume
+        <-stopped
+
+        if wasAdded {
+            return nil
+        }
+
+        if _, ok := err.(DBerror); ok {
+            if err.(DBerror) == EDuplicateNodeID {
+                Log.Criticalf("Local node (id = %d) request to join the cluster failed because its ID is not unique. This may indicate that the node is trying to use a duplicate ID or it may indicate that a previous proposal that this node made was already accepted and it just hasn't heard about it yet.", server.clusterController.LocalNodeID)
+                Log.Criticalf("Local node (id = %d) will now wait one minute to see if it is part of the cluster. If it receives no messages it will shut down", server.clusterController.LocalNodeID)
+
+                select {
+                case <-server.joinedCluster:
+                    return nil
+                case <-server.stop:
+                    return EStopped
+                case <-time.After(time.Minute):
+                    return EDuplicateNodeID
+                }
+            }
+        }
+
+        if err == nil {
+            return nil
+        }
+
+        Log.Errorf("Local node (id = %d) encountered an error while trying to join cluster: %v", server.clusterController.LocalNodeID, err.Error())
+        Log.Infof("Local node (id = %d) will try to join the cluster again in %d seconds", server.clusterController.LocalNodeID, ClusterJoinRetryTimeout)
+
+        select {
+        case <-server.joinedCluster:
+            // The node has been added to the cluster. The AddNode() request may
+            // have been successfully submitted but the response just didn't make
+            // it to this node, but it worked. No need to retry joining
+            return nil
+        case <-server.stop:
+            return EStopped
+        case <-time.After(time.Second * ClusterJoinRetryTimeout):
+            continue
+        }
+    }
+
+
+    const (
+    ClusterJoinRetryTimeout = 5
+)
+}*/

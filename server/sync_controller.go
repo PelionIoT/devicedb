@@ -1,6 +1,6 @@
 package server
 
-import (
+/*import (
     . "devicedb/bucket"
     . "devicedb/partition"
     . "devicedb/site"
@@ -521,4 +521,4 @@ func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, 
         w <- msg
         count += 1
     }
-}
+}*/
