@@ -432,6 +432,10 @@ func (clusterController *ClusterController) LocalNodeHeldPartitionReplicas() []P
 
     partitionReplicas := make([]PartitionReplica, 0)
 
+    if !clusterController.State.ClusterSettings.AreInitialized() {
+        return partitionReplicas
+    }
+
     for partition, replicas := range clusterController.State.Nodes[clusterController.LocalNodeID].PartitionReplicas {
         for replica, _ := range replicas {
             partitionReplicas = append(partitionReplicas, PartitionReplica{ Partition: partition, Replica: replica })
@@ -446,6 +450,10 @@ func (clusterController *ClusterController) LocalNodeOwnedPartitionReplicas() []
     defer clusterController.stateUpdateLock.Unlock()
 
     partitionReplicas := make([]PartitionReplica, 0)
+    
+    if !clusterController.State.ClusterSettings.AreInitialized() {
+        return partitionReplicas
+    }
 
     for partition, replicas := range clusterController.localNodeOwnedPartitionReplicas() {
         for replica, _ := range replicas {

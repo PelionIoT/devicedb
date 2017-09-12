@@ -32,7 +32,9 @@ type Node interface {
     // Join the specified cluster if this node does not
     // already belong to one
     JoinCluster(seedHost string, seedPort int) error
-    // Decomissiong a node
+    // Decomission this node
+    Decommission() error
+    // Remove this node from the cluster
     LeaveCluster() error
     ProcessClusterUpdates(updates []ClusterStateDelta)
 }

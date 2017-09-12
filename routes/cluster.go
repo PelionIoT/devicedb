@@ -1,13 +1,24 @@
 package routes
 
 import (
+    "encoding/json"
     "github.com/gorilla/mux"
+    "io"
+    "io/ioutil"
+    "net/http"
+    "strconv"
+
+    . "devicedb/cluster"
+    . "devicedb/error"
+    . "devicedb/logging"
+    . "devicedb/raft"
 )
 
 type ClusterEndpoint struct {
+    ClusterFacade ClusterFacade
 }
 
-func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
+func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.Router) {
     router.HandleFunc("/cluster/nodes", func(w http.ResponseWriter, r *http.Request) {
         // Add a node to the cluster
         body, err := ioutil.ReadAll(r.Body)
@@ -34,7 +45,7 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
             return
         }
 
-        if err := server.configController.AddNode(r.Context(), nodeConfig); err != nil {
+        if err := clusterEndpoint.ClusterFacade.AddNode(r.Context(), nodeConfig); err != nil {
             Log.Warningf("POST /cluster/nodes: Unable to add node to cluster: %v", err.Error())
 
             w.Header().Set("Content-Type", "application/json; charset=utf8")
@@ -84,13 +95,13 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
         }
 
         if nodeID == 0 {
-            nodeID = server.clusterController.LocalNodeID
+            nodeID = clusterEndpoint.ClusterFacade.LocalNodeID()
         }
 
         if decommission {
-            if nodeID == server.clusterController.LocalNodeID {
-                if err := server.raftStore.SetDecommissioningFlag(); err != nil {
-                    Log.Warningf("DELETE /cluster/nodes/{nodeID}: Encountered an error while setting the decommissioning flag: %v", err.Error())
+            if nodeID == clusterEndpoint.ClusterFacade.LocalNodeID() {
+                if err := clusterEndpoint.ClusterFacade.Decommission(); err != nil {
+                    Log.Warningf("DELETE /cluster/nodes/{nodeID}: Encountered an error while putting the node into decomissioning mode: %v", clusterEndpoint.ClusterFacade.LocalNodeID(), err.Error())
                     
                     w.Header().Set("Content-Type", "application/json; charset=utf8")
                     w.WriteHeader(http.StatusInternalServerError)
@@ -99,13 +110,11 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
                     return
                 }
 
-                go server.leaveCluster()
-
                 return
             }
 
             if wasForwarded {
-                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Received a forwarded decommission request but we're not the correct node")
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Received a forwarded decommission request but we're not the correct node", clusterEndpoint.ClusterFacade.LocalNodeID())
                 
                 w.Header().Set("Content-Type", "application/json; charset=utf8")
                 w.WriteHeader(http.StatusForbidden)
@@ -115,10 +124,10 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
             } 
             
             // forward the request to another node
-            peerAddress := server.raftTransportHub.PeerAddress(nodeID)
+            peerAddress := clusterEndpoint.ClusterFacade.PeerAddress(nodeID)
 
-            if peerAddress == nil {
-                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Unable to forward decommission request since this node doesn't know how to contact the decommissioned node")
+            if peerAddress.IsEmpty() {
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Unable to forward decommission request since this node doesn't know how to contact the decommissioned node", clusterEndpoint.ClusterFacade.LocalNodeID())
                 
                 w.Header().Set("Content-Type", "application/json; charset=utf8")
                 w.WriteHeader(http.StatusBadGateway)
@@ -127,10 +136,10 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
                 return
             }
 
-            err := server.interClusterClient.RemoveNode(r.Context(), *peerAddress, nodeID, 0, true, true)
+            err := clusterEndpoint.ClusterFacade.ClusterClient().RemoveNode(r.Context(), peerAddress, nodeID, 0, true, true)
 
             if err != nil {
-                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Error forwarding decommission request: %v", err.Error())
+                Log.Warningf("DELETE /cluster/nodes/{nodeID}: Error forwarding decommission request: %v", clusterEndpoint.ClusterFacade.LocalNodeID(), err.Error())
                 
                 w.Header().Set("Content-Type", "application/json; charset=utf8")
                 w.WriteHeader(http.StatusBadGateway)
@@ -163,9 +172,9 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.router) {
         }
 
         if replacementNodeID != 0 {
-            err = server.configController.ReplaceNode(r.Context(), nodeID, replacementNodeID)
+            err = clusterEndpoint.ClusterFacade.ReplaceNode(r.Context(), nodeID, replacementNodeID)
         } else {
-            err = server.configController.RemoveNode(r.Context(), nodeID)
+            err = clusterEndpoint.ClusterFacade.RemoveNode(r.Context(), nodeID)
         }
 
         if err != nil {

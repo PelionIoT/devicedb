@@ -28,6 +28,7 @@ type RaftNodeConfig struct {
 type RaftNode struct {
     config *RaftNodeConfig
     node raft.Node
+    isRunning bool
     stop chan int
     lastReplayIndex uint64
     lastCommittedIndex uint64
@@ -43,7 +44,6 @@ func NewRaftNode(config *RaftNodeConfig) *RaftNode {
     raftNode := &RaftNode{
         config: config,
         node: nil,
-        stop: make(chan int),
     }
 
     return raftNode
@@ -96,6 +96,9 @@ func (raftNode *RaftNode) LastSnapshot() (raftpb.Snapshot, error) {
 }
 
 func (raftNode *RaftNode) Start() error {
+    raftNode.stop = make(chan int)
+    raftNode.isRunning = true
+
     if err := raftNode.config.Storage.Open(); err != nil {
         return err
     }
@@ -308,7 +311,10 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
 }
 
 func (raftNode *RaftNode) Stop() {
-    raftNode.stop <- 1
+    if raftNode.isRunning {
+        raftNode.isRunning = false
+        close(raftNode.stop)
+    }
 }
 
 func (raftNode *RaftNode) OnReplayDone(cb func() error) {

@@ -56,7 +56,7 @@ var _ = Describe("Server", func() {
             var sc ServerConfig
             
             err := sc.LoadFromFile("../test_configs/test_config_1.yaml")
-            
+           
             Expect(err).Should(BeNil())
         })
     })

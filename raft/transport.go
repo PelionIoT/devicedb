@@ -61,6 +61,10 @@ func NewTransportHub(localPeerID uint64) *TransportHub {
     return hub
 }
 
+func (hub *TransportHub) SetLocalPeerID(id uint64) {
+    hub.localPeerID = id
+}
+
 func (hub *TransportHub) SetDefaultRoute(host string, port int) {
     hub.defaultPeerAddress = PeerAddress{
         Host: host,
