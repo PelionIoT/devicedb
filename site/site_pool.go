@@ -15,6 +15,8 @@ type SitePool interface {
     Add(siteID string)
     // Called when a site should be removed from the pool
     Remove(siteID string)
+    // Iterate over all sites that exist in the site pool
+    Iterator() SitePoolIterator
 }
 
 // A relay only ever contains one site database
@@ -33,6 +35,10 @@ func (relayNodeSitePool *RelayNodeSitePool) Add(siteID string) {
 }
 
 func (relayNodeSitePool *RelayNodeSitePool) Remove(siteID string) {
+}
+
+func (relayNodeSitePool *RelayNodeSitePool) Iterator() SitePoolIterator {
+    return &RelaySitePoolIterator{ }
 }
 
 type CloudNodeSitePool struct {
@@ -79,4 +85,18 @@ func (cloudNodeSitePool *CloudNodeSitePool) Remove(siteID string) {
     defer cloudNodeSitePool.lock.Unlock()
 
     delete(cloudNodeSitePool.sites, siteID)
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) Iterator() SitePoolIterator {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    // take a snapshot of the currently available sites
+    sites := make([]string, 0, len(cloudNodeSitePool.sites))
+
+    for siteID, _ := range cloudNodeSitePool.sites {
+        sites = append(sites, siteID)
+    }
+
+    return &CloudSitePoolterator{ sites: sites, sitePool: cloudNodeSitePool }
 }

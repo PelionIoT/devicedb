@@ -473,6 +473,18 @@ func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
     return NewBasicSiblingSetIterator(iter), nil
 }
 
+func (store *Store) GetAll() (SiblingSetIterator, error) {
+    iter, err := store.storageDriver.GetMatches([][]byte{ encodePartitionDataKey([]byte{ }) })
+
+    if err != nil {
+        Log.Errorf("Storage driver error in GetAll(): %s", err.Error())
+            
+        return nil, EStorage
+    }
+    
+    return NewBasicSiblingSetIterator(iter), nil
+}
+
 func (store *Store) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
     if nodeID >= store.merkleTree.NodeLimit() {
         return nil, EMerkleRange

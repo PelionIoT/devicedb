@@ -122,11 +122,18 @@ var _ = Describe("ClusterNode", func() {
                 select {
                 case <-nodeInitialized:
                 case <-startResult:
+                    Fail("Node stopped prematurely")
                 case <-time.After(time.Second * 100):
                     Fail("Test timed out")
                 }
 
                 clusterNode.Stop()
+
+                select {
+                case <-startResult:
+                case <-time.After(time.Second * 100):
+                    Fail("Test timed out")
+                }
 
                 generatednodeID, _ := memoryStore.NodeID()
                 Expect(generatednodeID).Should(Equal(uint64(45)))
@@ -170,11 +177,18 @@ var _ = Describe("ClusterNode", func() {
                 select {
                 case <-nodeInitialized:
                 case <-startResult:
+                    Fail("Node stopped prematurely")
                 case <-time.After(time.Second * 100):
                     Fail("Test timed out")
                 }
 
                 clusterNode.Stop()
+
+                select {
+                case <-startResult:
+                case <-time.After(time.Second * 100):
+                    Fail("Test timed out")
+                }
 
                 generatednodeID, _ := memoryStore.NodeID()
                 Expect(generatednodeID).Should(Not(Equal(uint64(0))))
@@ -227,8 +241,7 @@ var _ = Describe("ClusterNode", func() {
                     clusterNode.Stop()
 
                     select {
-                    case r := <-startResult:
-                        Expect(r).Should(BeNil())
+                    case <-startResult:
                     case <-time.After(time.Second):
                         Fail("Test timed out")
                     }
@@ -303,6 +316,22 @@ var _ = Describe("ClusterNode", func() {
                     case <-time.After(time.Minute):
                         Fail("Test timed out")
                     }
+
+                    // Wait for node to shut down
+                    seedNode.Stop()
+                    newNode.Stop()
+
+                    select {
+                    case <-seedNodeStartResult:
+                    case <-time.After(time.Second):
+                        Fail("Test timed out")
+                    }
+
+                    select {
+                    case <-newNodeStartResult:
+                    case <-time.After(time.Second):
+                        Fail("Test timed out")
+                    }
                 })
             })
         })
@@ -310,7 +339,100 @@ var _ = Describe("ClusterNode", func() {
         Context("The node is part of a cluster", func() {
             Context("And it has been set to be decomissioned", func() {
                 It("should put the node into decomissioning mode", func() {
-                    Fail("Not implemented")
+                    nodeStorageDriver := tempStorageDriver()
+                    nodeServer := tempServer(8080, 9090)
+
+                    node := New(ClusterNodeConfig{
+                        StorageDriver: nodeStorageDriver,
+                        CloudServer: nodeServer,
+                    })
+
+                    memoryStore := NewRaftMemoryStorage()
+                    node.UseRaftStore(memoryStore)
+
+                    nodeStartResult := make(chan error)
+                    nodeInitialized := make(chan int)
+
+                    node.OnInitialized(func() {
+                        nodeInitialized <- 1
+                    })
+
+                    go func() {
+                        options := NodeInitializationOptions{
+                            StartCluster: true,
+                            ClusterSettings: ClusterSettings{
+                                Partitions: 4,
+                                ReplicationFactor: 3,
+                            },
+                        }
+
+                        nodeStartResult <- node.Start(options)
+                    }()
+
+                    // Wait for seed node to initialize
+                    select {
+                    case <-nodeInitialized:
+                    case <-nodeStartResult:
+                        Fail("Node failed to initialize")
+                    case <-time.After(time.Minute):
+                        Fail("Test timed out")
+                    }
+
+                    // Wait for node to shut down
+                    node.Stop()
+
+                    select {
+                    case <-nodeStartResult:
+                    case <-time.After(time.Second):
+                        Fail("Test timed out")
+                    }
+
+                    // Now that node has been shut down we will restart it after setting the decommissioning flag
+                    memoryStore.SetDecommissioningFlag()
+                    node2StorageDriver := tempStorageDriver()
+                    node2Server := tempServer(8080, 9090)
+
+                    node2 := New(ClusterNodeConfig{
+                        StorageDriver: node2StorageDriver,
+                        CloudServer: node2Server,
+                    })
+
+                    memoryStore.SetIsEmpty(false)
+                    node2.UseRaftStore(memoryStore)
+
+                    node2StartResult := make(chan error)
+                    node2Initialized := make(chan int)
+
+                    node2.OnInitialized(func() {
+                        node2Initialized <- 1
+                    })
+
+                    go func() {
+                        options := NodeInitializationOptions{
+                            StartCluster: true,
+                            ClusterSettings: ClusterSettings{
+                                Partitions: 4,
+                                ReplicationFactor: 3,
+                            },
+                        }
+
+                        node2StartResult <- node2.Start(options)
+                    }()
+
+                    select {
+                    case <-node2Initialized:
+                    case <-node2StartResult:
+                        Fail("Node failed to initialize")
+                    case <-time.After(time.Minute):
+                        Fail("Test timed out")
+                    }
+
+                    select {
+                    case err := <-node2StartResult:
+                        Expect(err).Should(Equal(EDecommissioned))
+                    case <-time.After(time.Minute):
+                        Fail("Test timed out")
+                    }
                 })
             })
 

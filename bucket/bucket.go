@@ -18,6 +18,7 @@ type Bucket interface {
     Get(keys [][]byte) ([]*SiblingSet, error)
     GetMatches(keys [][]byte) (SiblingSetIterator, error)
     GetSyncChildren(nodeID uint32) (SiblingSetIterator, error)
+    GetAll() (SiblingSetIterator, error)
     Forget(keys [][]byte) error
     Batch(batch *UpdateBatch) (map[string]*SiblingSet, error)
     Merge(siblingSets map[string]*SiblingSet) error

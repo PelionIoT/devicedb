@@ -2,6 +2,7 @@ package site_test
 
 import (
     . "devicedb/bucket"
+    . "devicedb/data"
     . "devicedb/site"
     . "devicedb/storage"
     . "devicedb/util"
@@ -17,6 +18,14 @@ func (dummySite *DummySite) Buckets() *BucketList {
     return nil
 }
 
+func (dummySite *DummySite) ID() string {
+    return ""
+}
+
+func (dummySite *DummySite) Iterator() SiteIterator {
+    return nil
+}
+
 type DummySiteFactory struct {
     calls map[string]int
 }
@@ -29,6 +38,10 @@ func (dummySiteFactory *DummySiteFactory) CreateSite(siteID string) Site {
     dummySiteFactory.calls[siteID] = dummySiteFactory.calls[siteID] + 1
 
     return &DummySite{}
+}
+
+func (dummySiteFactory *DummySiteFactory) CreateStoreIterator() (SiblingSetIterator, error) {
+    return nil, nil
 }
 
 func (dummySiteFactory *DummySiteFactory) Calls(siteID string) int {

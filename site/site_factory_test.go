@@ -50,13 +50,13 @@ var _ = Describe("SiteFactory", func() {
     Describe("CloudSiteFactory", func() {
         Describe("#CreateSite", func() {
             Specify("Should return a CloudSiteReplica Site", func() {
-                relaySiteFactory := &CloudSiteFactory{
+                cloudSiteFactory := &CloudSiteFactory{
                     MerkleDepth: 4,
                     StorageDriver: storageDriver,
                     NodeID: "Cloud-1",
                 }
 
-                site := relaySiteFactory.CreateSite("site1")
+                site := cloudSiteFactory.CreateSite("site1")
 
                 _, ok := site.(*CloudSiteReplica)
                 Expect(ok).Should(BeTrue())

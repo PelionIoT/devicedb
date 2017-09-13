@@ -2,6 +2,8 @@ package node
 
 import (
     "context"
+    "encoding/binary"
+    "fmt"
     "sync"
     "time"
 
@@ -9,17 +11,20 @@ import (
     . "devicedb/cluster"
     . "devicedb/error"
     . "devicedb/logging"
+    . "devicedb/merkle"
     . "devicedb/partition"
     . "devicedb/raft"
+    . "devicedb/routes"
     . "devicedb/server"
+    . "devicedb/site"
     . "devicedb/storage"
     . "devicedb/transfer"
     . "devicedb/util"
-    . "devicedb/routes"
 )
 
 const (
     RaftStoreStoragePrefix = iota
+    SiteStoreStoragePrefix = iota
 )
 
 const ClusterJoinRetryTimeout = 5
@@ -27,6 +32,7 @@ const ClusterJoinRetryTimeout = 5
 type ClusterNodeConfig struct {
     StorageDriver StorageDriver
     CloudServer *CloudServer
+    MerkleDepth uint8
 }
 
 type ClusterNode struct {
@@ -42,15 +48,21 @@ type ClusterNode struct {
     partitionPool PartitionPool
     joinedCluster chan int
     leftCluster chan int
+    leftClusterResult chan error
     isRunning bool
     shutdown chan int
     empty chan int
     initializedCB func()
+    merkleDepth uint8
     shutdownDecommissioner func()
     lock sync.Mutex
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
+    if config.MerkleDepth < MerkleMinDepth {
+        config.MerkleDepth = MerkleDefaultDepth
+    }
+
     clusterNode := &ClusterNode{
         storageDriver: config.StorageDriver,
         cloudServer: config.CloudServer,
@@ -58,6 +70,7 @@ func New(config ClusterNodeConfig) *ClusterNode {
         raftTransport: NewTransportHub(0),
         configControllerBuilder: &ConfigControllerBuilder{ },
         interClusterClient: NewClient(ClientConfig{ }),
+        merkleDepth: config.MerkleDepth,
     }
 
     return clusterNode
@@ -100,6 +113,8 @@ func (node *ClusterNode) getNodeID() (uint64, error) {
 func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.isRunning = true
     node.shutdown = make(chan int)
+    node.joinedCluster = make(chan int, 1)
+    node.leftCluster = make(chan int, 1)
 
     if err := node.openStorageDriver(); err != nil {
         return err
@@ -155,7 +170,15 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     if decommission {
         Log.Infof("Local node (id = %d) will resume decommissioning process", nodeID)
 
-        return node.LeaveCluster()
+        err, result := node.LeaveCluster()
+
+        if err != nil {
+            Log.Criticalf("Local node (id = %d) unable to resume decommissioning process: %v", nodeID, err.Error())
+
+            return err
+        }
+
+        return <-result
     }
     
     if !node.configController.ClusterController().LocalNodeIsInCluster() || !node.configController.ClusterController().State.ClusterSettings.AreInitialized() {
@@ -259,9 +282,25 @@ func (node *ClusterNode) startNetworking() <-chan error {
     return startResult
 }
 
+func (node *ClusterNode) sitePool(partitionNumber uint64) SitePool {
+    storageDriver := NewPrefixedStorageDriver(node.sitePoolStorePrefix(partitionNumber), node.storageDriver)
+    siteFactory := &CloudSiteFactory{ NodeID: node.Name(), MerkleDepth: node.merkleDepth, StorageDriver: storageDriver }
+
+    return &CloudNodeSitePool{ SiteFactory: siteFactory }
+}
+
+func (node *ClusterNode) sitePoolStorePrefix(partitionNumber uint64) []byte {
+    prefix := make([]byte, 0, 9)
+
+    prefix[0] = SiteStoreStoragePrefix
+    binary.BigEndian.PutUint64(prefix[1:], partitionNumber)
+
+    return prefix
+}
+
 func (node *ClusterNode) initialize() {
-    var ownedPartitionReplicas map[uint64]map[uint64]bool
-    var heldPartitionReplicas map[uint64]map[uint64]bool
+    var ownedPartitionReplicas map[uint64]map[uint64]bool = make(map[uint64]map[uint64]bool, 0)
+    var heldPartitionReplicas map[uint64]map[uint64]bool = make(map[uint64]map[uint64]bool, 0)
 
     for _, partitionReplica := range node.configController.ClusterController().LocalNodeOwnedPartitionReplicas() {
         if _, ok := ownedPartitionReplicas[partitionReplica.Partition]; !ok {
@@ -280,7 +319,7 @@ func (node *ClusterNode) initialize() {
     }
 
     for partitionNumber, _ := range heldPartitionReplicas {
-        partition := node.partitionFactory.CreatePartition(partitionNumber)
+        partition := node.partitionFactory.CreatePartition(partitionNumber, node.sitePool(partitionNumber))
 
         if len(ownedPartitionReplicas[partitionNumber]) == 0 {
             // partitions that are held by this node but not owned anymore by this node
@@ -294,7 +333,7 @@ func (node *ClusterNode) initialize() {
     }
 
     for partitionNumber, replicas := range ownedPartitionReplicas {
-        partition := node.partitionFactory.CreatePartition(partitionNumber)
+        partition := node.partitionFactory.CreatePartition(partitionNumber, node.sitePool(partitionNumber))
 
         if len(heldPartitionReplicas[partitionNumber]) == 0 {
             // partitions that are owned by this node but for which this node
@@ -349,11 +388,16 @@ func (node *ClusterNode) ID() uint64 {
     return node.configController.ClusterController().LocalNodeID
 }
 
+func (node *ClusterNode) Name() string {
+    return "cloud-" + fmt.Sprintf("%d", node.ID())
+}
+
 func (node *ClusterNode) ProcessClusterUpdates(deltas []ClusterStateDelta) {
     for _, delta := range deltas {
         switch delta.Type {
         case DeltaNodeAdd:
             Log.Infof("Local node (id = %d) was added to a cluster.", node.ID())
+            node.joinedCluster <- 1
         case DeltaNodeRemove:
             Log.Infof("Local node (id = %d) was removed from its cluster. It will now shut down...", node.ID())
         case DeltaNodeGainPartitionReplica:
@@ -442,7 +486,7 @@ func (node *ClusterNode) UpdatePartition(partitionNumber uint64) {
     }
 
     if partition == nil {
-        partition = node.partitionFactory.CreatePartition(partitionNumber)
+        partition = node.partitionFactory.CreatePartition(partitionNumber, node.sitePool(partitionNumber))
     }
 
     if nodeOwnsPartition {
@@ -570,34 +614,39 @@ func (node *ClusterNode) JoinCluster(seedHost string, seedPort int) error {
             }
         }
 
-        if err == nil {
-            return nil
-        }
+        if err != nil {
+            Log.Errorf("Local node (id = %d) encountered an error while trying to join cluster: %v", node.ID(), err.Error())
+            Log.Infof("Local node (id = %d) will try to join the cluster again in %d seconds", node.ID(), ClusterJoinRetryTimeout)
 
-        Log.Errorf("Local node (id = %d) encountered an error while trying to join cluster: %v", node.ID(), err.Error())
-        Log.Infof("Local node (id = %d) will try to join the cluster again in %d seconds", node.ID(), ClusterJoinRetryTimeout)
+            select {
+            case <-node.joinedCluster:
+                // The node has been added to the cluster. The AddNode() request may
+                // have been successfully submitted but the response just didn't make
+                // it to this node, but it worked. No need to retry joining
+                return nil
+            case <-node.shutdown:
+                return EStopped
+            case <-time.After(time.Second * ClusterJoinRetryTimeout):
+                continue
+            }
+        }
 
         select {
         case <-node.joinedCluster:
-            // The node has been added to the cluster. The AddNode() request may
-            // have been successfully submitted but the response just didn't make
-            // it to this node, but it worked. No need to retry joining
             return nil
         case <-node.shutdown:
             return EStopped
-        case <-time.After(time.Second * ClusterJoinRetryTimeout):
-            continue
         }
     }
 }
 
-func (node *ClusterNode) Decommission() error {
+func (node *ClusterNode) LeaveCluster() (error, <-chan error) {
     node.lock.Lock()
     defer node.lock.Lock()
 
     // allow at mot one decommissioner
     if node.shutdownDecommissioner != nil {
-        return nil
+        return nil, node.leftClusterResult
     }
 
     Log.Infof("Local node (id = %d) is being put into decommissioning mode", node.ID())
@@ -605,70 +654,86 @@ func (node *ClusterNode) Decommission() error {
     if err := node.raftStore.SetDecommissioningFlag(); err != nil {
         Log.Errorf("Local node (id = %d) was unable to be put into decommissioning mode: %v", node.ID(), err.Error())
 
-        return err
+        return err, nil
     }
 
     ctx, cancel := context.WithCancel(context.Background())
     node.shutdownDecommissioner = cancel
-    go node.decommission(ctx)
+    node.leftClusterResult = make(chan error, 1)
 
-    return nil
+    go func() {
+        node.leftClusterResult <- node.decommission(ctx)
+    }()
+
+    return nil, node.leftClusterResult
 }
 
-func (node *ClusterNode) decommission(ctx context.Context) {
+func (node *ClusterNode) decommission(ctx context.Context) error {
     Log.Infof("Local node (id = %d) starting decommissioning process...", node.ID())
 
-    for {
+    localNodeConfig := node.configController.ClusterController().LocalNodeConfig()
+
+    if localNodeConfig == nil {
+        Log.Criticalf("Local node (id = %d) unable to continue decommissioning process since its node config is not in the cluster config", node.ID())
+
+        return ERemoved
+    }
+
+    if localNodeConfig.Capacity != 0 {
         Log.Infof("Local node (id = %d) decommissioning (1/4): Giving up tokens...", node.ID())
-
-        localNodeConfig := node.configController.ClusterController().LocalNodeConfig()
-
-        if localNodeConfig == nil {
-            Log.Criticalf("Local node (id = %d) unable to continue decommissioning process since its node config is not in the cluster config", node.ID())
-
-            return
-        }
 
         if err := node.configController.ClusterCommand(ctx, ClusterUpdateNodeBody{ NodeID: node.ID(), NodeConfig: NodeConfig{ Capacity: 0, Address: localNodeConfig.Address } }); err != nil {
             Log.Criticalf("Local node (id = %d) was unable to give up its tokens: %v", node.ID(), err.Error())
 
-            return
+            return err
         }
+    }
 
+    // Transfers should be stopped anyway once the capacity is set to zero and this node no longer owns
+    // any tokens but call it here to make sure all have stopped by this point.
+    node.transferAgent.StopAllTransfers()
+    heldPartitionReplicas := node.configController.ClusterController().LocalNodeHeldPartitionReplicas()
+
+    if len(heldPartitionReplicas) > 0 {
         Log.Infof("Local node (id = %d) decommissioning (2/4): Locking partitions...", node.ID())
 
-        // ensure partitions are write locked
-        for _, partitionReplica := range node.configController.ClusterController().LocalNodeHeldPartitionReplicas() {
+        // Write lock partitions that are still held. This should occur anyway since
+        // The node no longer owns these partitions but calling it here ensures this
+        // invariant holds for the next steps of the decommissioning process
+        for _, partitionReplica := range heldPartitionReplicas {
             partition := node.partitionPool.Get(partitionReplica.Partition)
 
             if partition != nil {
-                Log.Debugf("Local node (id = %d) decommissioning (2/4): Read locking partition %d", node.ID(), partition.Partition())
+                Log.Debugf("Local node (id = %d) decommissioning (2/4): Write locking partition %d", node.ID(), partition.Partition())
 
                 node.transferAgent.EnableOutgoingTransfers(partition.Partition())
-                partition.LockReads()
+                partition.LockWrites()
             }
         }
 
         Log.Infof("Local node (id = %d) decommissioning (3/4): Transferring partition data...", node.ID())
 
+        // Wait for all partition data to be transferred away from this node. This ensures that
+        // the data that this node held is replicated elsewhere before it removes itself from the
+        // cluster permanently.
         select {
+        case <-node.leftCluster:
+            return ERemoved
         case <-node.empty:
         case <-ctx.Done():
-            return
-        }
-
-        Log.Infof("Local node (id = %d) decommissioning (4/4): Leaving cluster...", node.ID())
-
-        if err := node.configController.RemoveNode(ctx, node.ID()); err != nil {
-            Log.Criticalf("Local node (id = %d) was unable to leave cluster: %v", node.ID(), err.Error())
-
-            return
+            return ECancelled
         }
     }
-}
 
-func (node *ClusterNode) LeaveCluster() error {
-    return nil
+    Log.Infof("Local node (id = %d) decommissioning (4/4): Leaving cluster...", node.ID())
+
+    if err := node.configController.RemoveNode(ctx, node.ID()); err != nil {
+        Log.Criticalf("Local node (id = %d) was unable to leave cluster: %v", node.ID(), err.Error())
+
+        return err
+    }
+
+    return EDecommissioned
 }
 
 type ClusterNodeFacade struct {
@@ -692,7 +757,9 @@ func (clusterFacade *ClusterNodeFacade) ClusterClient() *Client {
 }
 
 func (clusterFacade *ClusterNodeFacade) Decommission() error {
-    return clusterFacade.node.Decommission()
+    err, _ := clusterFacade.node.LeaveCluster()
+
+    return err
 }
 
 func (clusterFacade *ClusterNodeFacade) LocalNodeID() uint64 {

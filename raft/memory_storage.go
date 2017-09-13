@@ -55,6 +55,10 @@ func (raftStorage *RaftMemoryStorage) IsEmpty() bool {
     return raftStorage.isEmpty
 }
 
+func (raftStorage *RaftMemoryStorage) SetIsEmpty(b bool) {
+    raftStorage.isEmpty = b
+}
+
 func (raftStorage *RaftMemoryStorage) SetDecommissioningFlag() error {
     raftStorage.isDecomissioning = true
 

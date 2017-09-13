@@ -3,9 +3,12 @@ package site
 import (
     . "devicedb/bucket"
     . "devicedb/bucket/builtin"
+    . "devicedb/data"
     . "devicedb/merkle"
     . "devicedb/storage"
 )
+
+var keyStorePrefix = []byte{ 0 }
 
 const (
     defaultNodePrefix = iota
@@ -41,6 +44,7 @@ func (relaySiteFactory *RelaySiteFactory) CreateSite(siteID string) Site {
 
     return &RelaySiteReplica{
         bucketList: bucketList,
+        id: siteID,
     }
 }
 
@@ -55,10 +59,13 @@ func (cloudSiteFactory *CloudSiteFactory) siteBucketStorageDriver(siteID string,
 }
 
 func (cloudSiteFactory *CloudSiteFactory) siteBucketPrefix(siteID string, bucketPrefix []byte) []byte {
-    prefix := make([]byte, 0, len([]byte(siteID)) + len(bucketPrefix))
+    prefix := make([]byte, 0, len(keyStorePrefix) + len([]byte(siteID)) + len([]byte(".")) + len(bucketPrefix) + len([]byte(".")))
 
+    prefix = append(prefix, keyStorePrefix...)
     prefix = append(prefix, []byte(siteID)...)
+    prefix = append(prefix, []byte(".")...)
     prefix = append(prefix, bucketPrefix...)
+    prefix = append(prefix, []byte(".")...)
 
     return prefix
 }
@@ -78,5 +85,6 @@ func (cloudSiteFactory *CloudSiteFactory) CreateSite(siteID string) Site {
 
     return &CloudSiteReplica{
         bucketList: bucketList,
+        id: siteID,
     }
 }
