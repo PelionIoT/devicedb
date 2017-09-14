@@ -139,8 +139,9 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.configControllerBuilder.SetCreateNewCluster(options.ShouldStartCluster())
     node.configController = node.configControllerBuilder.Create()
 
+    stateCoordinator := NewClusterNodeStateCoordinator(&NodeCoordinatorFacade{ node: node }, nil)
     node.configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
-        node.ProcessClusterUpdates(deltas)
+        stateCoordinator.ProcessClusterUpdates(deltas)
     })
 
     node.configController.Start()
@@ -158,7 +159,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     // state before changes to its partitions ownership and partition transfers
     // occur
     node.transferAgent = NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
-    node.initialize()
+    stateCoordinator.InitializeNodeState()
 
     serverStopResult := node.startNetworking()
     decommission, err := node.raftStore.IsDecommissioning()
@@ -298,70 +299,6 @@ func (node *ClusterNode) sitePoolStorePrefix(partitionNumber uint64) []byte {
     return prefix
 }
 
-func (node *ClusterNode) initialize() {
-    var ownedPartitionReplicas map[uint64]map[uint64]bool = make(map[uint64]map[uint64]bool, 0)
-    var heldPartitionReplicas map[uint64]map[uint64]bool = make(map[uint64]map[uint64]bool, 0)
-
-    for _, partitionReplica := range node.configController.ClusterController().LocalNodeOwnedPartitionReplicas() {
-        if _, ok := ownedPartitionReplicas[partitionReplica.Partition]; !ok {
-            ownedPartitionReplicas[partitionReplica.Partition] = make(map[uint64]bool)
-        }
-
-        ownedPartitionReplicas[partitionReplica.Partition][partitionReplica.Replica] = true
-    }
-
-    for _, partitionReplica := range node.configController.ClusterController().LocalNodeHeldPartitionReplicas() {
-        if _, ok := heldPartitionReplicas[partitionReplica.Partition]; !ok {
-            heldPartitionReplicas[partitionReplica.Partition] = make(map[uint64]bool)
-        }
-
-        heldPartitionReplicas[partitionReplica.Partition][partitionReplica.Replica] = true
-    }
-
-    for partitionNumber, _ := range heldPartitionReplicas {
-        partition := node.partitionFactory.CreatePartition(partitionNumber, node.sitePool(partitionNumber))
-
-        if len(ownedPartitionReplicas[partitionNumber]) == 0 {
-            // partitions that are held by this node but not owned anymore by this node
-            // should be write locked but should still allow reads so that the new
-            // owner(s) can transfer the partition data
-            partition.LockWrites()
-        }
-
-        node.partitionPool.Add(partition)
-        node.transferAgent.EnableOutgoingTransfers(partitionNumber)
-    }
-
-    for partitionNumber, replicas := range ownedPartitionReplicas {
-        partition := node.partitionFactory.CreatePartition(partitionNumber, node.sitePool(partitionNumber))
-
-        if len(heldPartitionReplicas[partitionNumber]) == 0 {
-            // partitions that are owned by this node but for which this node
-            // has not yet received a full snapshot from an old owner should
-            // be read locked until the transfer is complete but still allow
-            // writes to its state can remain up to date if updates happen
-            // concurrently with the range transfer. However, such writes do
-            // not count toward the write quorum
-            partition.LockReads()
-        }
-
-        node.partitionPool.Add(partition)
-
-        for replicaNumber, _ := range replicas {
-            if heldPartitionReplicas[partitionNumber] != nil && heldPartitionReplicas[partitionNumber][replicaNumber] {
-                continue
-            }
-
-            if heldPartitionReplicas[partitionNumber] == nil || !heldPartitionReplicas[partitionNumber][replicaNumber] {
-                // This indicates that the node has not yet fully transferred the partition form its old holder
-                // start transfer initiates the transfer from the old owner and starts downloading data
-                // if another download is not already in progress for that partition
-                node.transferAgent.StartTransfer(partitionNumber, replicaNumber)
-            }
-        }
-    }
-}
-
 func (node *ClusterNode) Stop() {
     node.lock.Lock()
     defer node.lock.Unlock()
@@ -390,124 +327,6 @@ func (node *ClusterNode) ID() uint64 {
 
 func (node *ClusterNode) Name() string {
     return "cloud-" + fmt.Sprintf("%d", node.ID())
-}
-
-func (node *ClusterNode) ProcessClusterUpdates(deltas []ClusterStateDelta) {
-    for _, delta := range deltas {
-        switch delta.Type {
-        case DeltaNodeAdd:
-            Log.Infof("Local node (id = %d) was added to a cluster.", node.ID())
-            node.joinedCluster <- 1
-        case DeltaNodeRemove:
-            Log.Infof("Local node (id = %d) was removed from its cluster. It will now shut down...", node.ID())
-        case DeltaNodeGainPartitionReplica:
-            partition := delta.Delta.(NodeGainPartitionReplica).Partition
-            replica := delta.Delta.(NodeGainPartitionReplica).Replica
-
-            Log.Infof("Local node (id = %d) gained a partition replica (%d, %d)", node.ID(), partition, replica)
-
-            node.UpdatePartition(partition)
-        case DeltaNodeLosePartitionReplica:
-            partition := delta.Delta.(NodeLosePartitionReplica).Partition
-            replica := delta.Delta.(NodeLosePartitionReplica).Replica
-
-            Log.Infof("Local node (id = %d) lost a partition replica (%d, %d)", node.ID(), partition, replica)
-
-            node.UpdatePartition(partition)
-        case DeltaNodeGainPartitionReplicaOwnership:
-            partition := delta.Delta.(NodeGainPartitionReplicaOwnership).Partition
-            replica := delta.Delta.(NodeGainPartitionReplicaOwnership).Replica
-
-            Log.Infof("Local node (id = %d) gained ownership over a partition replica (%d, %d)", node.ID(), partition, replica)
-
-            node.UpdatePartition(partition)
-            node.transferAgent.StartTransfer(partition, replica)
-        case DeltaNodeLosePartitionReplicaOwnership:
-            partition := delta.Delta.(NodeLosePartitionReplicaOwnership).Partition
-            replica := delta.Delta.(NodeLosePartitionReplicaOwnership).Replica
-
-            Log.Infof("Local node (id = %d) lost ownership over a partition replica (%d, %d)", node.ID(), partition, replica)
-
-            node.transferAgent.StopTransfer(partition, replica)
-            node.UpdatePartition(partition)
-        case DeltaSiteAdded:
-            // If we are responsible for the partition that this site
-            // belongs to then add this site to that partition's site pool
-        case DeltaSiteRemoved:
-            // If we are responsible for the partition that this site
-            // belongs to then remove this site from that partition's site pool
-        case DeltaRelayAdded:
-            // Nothing to do. The cluster should be aware of this relay
-        case DeltaRelayRemoved:
-            // disconnect the relay if it's currently connected
-        case DeltaRelayMoved:
-            // disconnect the relay if it's currently connected
-        }
-    }
-}
-
-func (node *ClusterNode) UpdatePartition(partitionNumber uint64) {
-    return
-
-    var nodeHoldsPartition bool
-    var nodeOwnsPartition bool
-    var heldPartitionsReplicas []PartitionReplica = node.configController.ClusterController().LocalNodeHeldPartitionReplicas()
-    var ownedPartitionReplicas []PartitionReplica = node.configController.ClusterController().LocalNodeOwnedPartitionReplicas()
-
-    for _, partitionReplica := range heldPartitionsReplicas {
-        if partitionReplica.Partition == partitionNumber {
-            nodeHoldsPartition = true
-
-            break
-        }
-    }
-
-    for _, partitionReplica := range ownedPartitionReplicas {
-        if partitionReplica.Partition == partitionNumber {
-            nodeOwnsPartition = true
-
-            break
-        }
-    }
-
-    partition := node.partitionPool.Get(partitionNumber)
-
-    if !nodeOwnsPartition && !nodeHoldsPartition {
-        if partition != nil {
-            Log.Infof("Local node (id = %d) no longer owns or holds any replica of partition %d. It will remove this partition from its local store", node.ID(), partitionNumber)
-
-            // partition.Teardown()
-            partition.LockReads()
-            partition.LockWrites()
-            node.partitionPool.Remove(partitionNumber)
-        }
-
-        return
-    }
-
-    if partition == nil {
-        partition = node.partitionFactory.CreatePartition(partitionNumber, node.sitePool(partitionNumber))
-    }
-
-    if nodeOwnsPartition {
-        partition.UnlockWrites()
-    } else {
-        partition.LockWrites()
-    }
-
-    if nodeHoldsPartition {
-        // allow reads so this partition data can be transferred to another node
-        // or this node can serve reads for this partition
-        partition.UnlockReads()
-    } else {
-        // lock reads until this node has finalized a partition transfer
-        partition.LockReads()
-        node.transferAgent.DisableOutgoingTransfers(partitionNumber)
-    }
-
-    if node.partitionPool.Get(partitionNumber) == nil {
-        node.partitionPool.Add(partition)
-    }
 }
 
 func (node *ClusterNode) InitializeCluster(settings ClusterSettings) error {

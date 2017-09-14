@@ -542,4 +542,17 @@ var _ = Describe("ClusterNode", func() {
             })
         })
     })
+
+    Describe("#InitializeCluster", func() {
+    })
+
+    Describe("#JoinCluster", func() {
+    })
+
+    Describe("#LeaveCluster", func() {
+    })
+
+    Describe("#ProcessClusterUpdates", func() {
+    })
+    
 })

@@ -35,5 +35,4 @@ type Node interface {
     // Remove this node from the cluster
     LeaveCluster() (error, <-chan error)
     IsLeavingCluster() bool
-    ProcessClusterUpdates(updates []ClusterStateDelta)
 }
