@@ -34,5 +34,6 @@ type Node interface {
     JoinCluster(seedHost string, seedPort int) error
     // Remove this node from the cluster
     LeaveCluster() (error, <-chan error)
+    IsLeavingCluster() bool
     ProcessClusterUpdates(updates []ClusterStateDelta)
 }

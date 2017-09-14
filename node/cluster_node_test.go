@@ -87,8 +87,8 @@ var _ = Describe("ClusterNode", func() {
     })
 
     Describe("#Start", func() {
-        Context("The node has not been assigned an ID yet", func() {
-            It("Should generate a new ID for this node", func() {
+        Context("The node was already assigned an ID", func() {
+            It("Should use the same ID for this node", func() {
                 clusterNode := New(ClusterNodeConfig{
                     StorageDriver: throwAwayStorageDriver,
                     CloudServer: throwAwayCloudServer,
@@ -140,8 +140,8 @@ var _ = Describe("ClusterNode", func() {
             })
         })
 
-        Context("The node was already assigned an ID", func() {
-            It("Should use the same ID for this node", func() {
+        Context("The node has not been assigned an ID yet", func() {
+            It("Should generate a new ID for this node", func() {
                 clusterNode := New(ClusterNodeConfig{
                     StorageDriver: throwAwayStorageDriver,
                     CloudServer: throwAwayCloudServer,
@@ -422,17 +422,123 @@ var _ = Describe("ClusterNode", func() {
                     }
                 })
             })
-
-            Context("And it has not been set to be decomissioned", func() {
-                It("The node should resume its duties as a full cluster member", func() {
-                    Fail("Not implemented")
-                })
-            })
         })
 
         Context("The node used to be part of a cluster but has since been removed", func() {
             It("Should return ERemoved", func() {
-                Fail("Not implemented")
+                nodeStorageDriver := tempStorageDriver()
+                nodeServer := tempServer(8080, 9090)
+
+                node := New(ClusterNodeConfig{
+                    StorageDriver: nodeStorageDriver,
+                    CloudServer: nodeServer,
+                })
+
+                memoryStore := NewRaftMemoryStorage()
+                node.UseRaftStore(memoryStore)
+
+                nodeStartResult := make(chan error)
+                nodeInitialized := make(chan int)
+
+                node.OnInitialized(func() {
+                    nodeInitialized <- 1
+                })
+
+                go func() {
+                    options := NodeInitializationOptions{
+                        StartCluster: true,
+                        ClusterSettings: ClusterSettings{
+                            Partitions: 4,
+                            ReplicationFactor: 3,
+                        },
+                    }
+
+                    nodeStartResult <- node.Start(options)
+                }()
+
+                // Wait for seed node to initialize
+                select {
+                case <-nodeInitialized:
+                case <-nodeStartResult:
+                    Fail("Node failed to initialize")
+                case <-time.After(time.Minute):
+                    Fail("Test timed out")
+                }
+
+                // Wait for node to shut down
+                node.Stop()
+
+                select {
+                case <-nodeStartResult:
+                case <-time.After(time.Second):
+                    Fail("Test timed out")
+                }
+
+                // Now that node has been shut down we will restart it after setting the decommissioning flag
+                memoryStore.SetDecommissioningFlag()
+                node2StorageDriver := tempStorageDriver()
+                node2Server := tempServer(8080, 9090)
+
+                node2 := New(ClusterNodeConfig{
+                    StorageDriver: node2StorageDriver,
+                    CloudServer: node2Server,
+                })
+
+                memoryStore.SetIsEmpty(false)
+                node2.UseRaftStore(memoryStore)
+
+                node2StartResult := make(chan error)
+
+                go func() {
+                    options := NodeInitializationOptions{
+                        StartCluster: true,
+                        ClusterSettings: ClusterSettings{
+                            Partitions: 4,
+                            ReplicationFactor: 3,
+                        },
+                    }
+
+                    node2StartResult <- node2.Start(options)
+                }()
+
+                select {
+                case err := <-node2StartResult:
+                    Expect(err).Should(Equal(EDecommissioned))
+                case <-time.After(time.Minute):
+                    Fail("Test timed out")
+                }
+
+                // Start node again and ensure that it returns ERemoved
+                node3StorageDriver := tempStorageDriver()
+                node3Server := tempServer(8080, 9090)
+
+                node3 := New(ClusterNodeConfig{
+                    StorageDriver: node3StorageDriver,
+                    CloudServer: node3Server,
+                })
+
+                node3.UseRaftStore(memoryStore)
+
+                node3StartResult := make(chan error)
+
+                go func() {
+                    options := NodeInitializationOptions{
+                        StartCluster: true,
+                        ClusterSettings: ClusterSettings{
+                            Partitions: 4,
+                            ReplicationFactor: 3,
+                        },
+                    }
+
+                    node3StartResult <- node3.Start(options)
+                }()
+
+                select {
+                case err := <-node3StartResult:
+                    Expect(err).Should(Equal(ERemoved))
+                case <-time.After(time.Minute):
+                    Fail("Test timed out")
+                }
             })
         })
     })

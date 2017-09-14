@@ -146,6 +146,12 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.configController.Start()
     defer node.Stop()
 
+    if node.configController.ClusterController().LocalNodeWasRemovedFromCluster() {
+        Log.Errorf("Local node (id = %d) unable to start because it was removed from the cluster", nodeID)
+
+        return ERemoved
+    }
+
     // It is important to initialize node before networking starts
     // to ensure no cluster config state changes occur while initialize is being called.
     // Initialize needs to set up transfers and partitions with the node's last known
@@ -155,13 +161,6 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.initialize()
 
     serverStopResult := node.startNetworking()
-
-    if node.configController.ClusterController().LocalNodeWasRemovedFromCluster() {
-        Log.Errorf("Local node (id = %d) unable to start because it was removed from the cluster", nodeID)
-
-        return ERemoved
-    }
-
     decommission, err := node.raftStore.IsDecommissioning()
 
     if err != nil {
@@ -667,6 +666,13 @@ func (node *ClusterNode) LeaveCluster() (error, <-chan error) {
     }()
 
     return nil, node.leftClusterResult
+}
+
+func (node *ClusterNode) IsLeavingCluster() bool {
+    node.lock.Lock()
+    defer node.lock.Unlock()
+
+    return node.shutdownDecommissioner != nil
 }
 
 func (node *ClusterNode) decommission(ctx context.Context) error {
