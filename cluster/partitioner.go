@@ -132,7 +132,7 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
     availableNodes := ps.countAvailableNodes(nodes)
 
     if availableNodes == 0 {
-        return nil, ENoNodesAvailable
+        return assignments, nil
     }
 
     tokenCountFloor := partitions / uint64(availableNodes)

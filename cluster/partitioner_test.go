@@ -95,22 +95,22 @@ var _ = Describe("Partitioner", func() {
             Expect(err).Should(Equal(EPreconditionFailed))
         })
 
-        It("should return ENoNodesAvailable if node list is empty", func() {
+        It("should return a zeroed array if the node list is empty", func() {
             ps := &SimplePartitioningStrategy{ }
 
             assignment, err := ps.AssignTokens([]NodeConfig{ }, make([]uint64, 8), 8)
 
-            Expect(assignment).Should(BeNil())
-            Expect(err).Should(Equal(ENoNodesAvailable))
+            Expect(assignment).Should(Equal([]uint64{ 0, 0, 0, 0, 0, 0, 0, 0 }))
+            Expect(err).Should(BeNil())
         })
 
-        It("should return ENoNodesAvailable if node list has nodes but they all have 0 capacity", func() {
+        It("should return a zeroed array if node list has nodes but they all have 0 capacity", func() {
             ps := &SimplePartitioningStrategy{ }
 
             assignment, err := ps.AssignTokens([]NodeConfig{ NodeConfig{ Address: PeerAddress{ NodeID: 1 } }, NodeConfig{ Address: PeerAddress{ NodeID: 2 } } }, make([]uint64, 8), 8)
 
-            Expect(assignment).Should(BeNil())
-            Expect(err).Should(Equal(ENoNodesAvailable))
+            Expect(assignment).Should(Equal([]uint64{ 0, 0, 0, 0, 0, 0, 0, 0 }))
+            Expect(err).Should(BeNil())
         })
 
         It("should return EPreconditionFailed if node list has nodes with duplicate IDs", func() {

@@ -71,6 +71,8 @@ func New(config ClusterNodeConfig) *ClusterNode {
         configControllerBuilder: &ConfigControllerBuilder{ },
         interClusterClient: NewClient(ClientConfig{ }),
         merkleDepth: config.MerkleDepth,
+        partitionFactory: NewDefaultPartitionFactory(),
+        partitionPool: NewDefaultPartitionPool(),
     }
 
     return clusterNode
@@ -149,6 +151,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     // Initialize needs to set up transfers and partitions with the node's last known
     // state before changes to its partitions ownership and partition transfers
     // occur
+    node.transferAgent = NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
     node.initialize()
 
     serverStopResult := node.startNetworking()
@@ -265,14 +268,12 @@ func (node *ClusterNode) recover() error {
 
 func (node *ClusterNode) startNetworking() <-chan error {
     router := node.cloudServer.Router()
-    transferAgent := NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
     clusterEndpoint := &ClusterEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
 
     node.raftTransport.Attach(router)
-    transferAgent.Attach(router)
+    node.transferAgent.(*HTTPTransferAgent).Attach(router)
     clusterEndpoint.Attach(router)
 
-    node.transferAgent = transferAgent
     startResult := make(chan error)
 
     go func() {
@@ -290,7 +291,7 @@ func (node *ClusterNode) sitePool(partitionNumber uint64) SitePool {
 }
 
 func (node *ClusterNode) sitePoolStorePrefix(partitionNumber uint64) []byte {
-    prefix := make([]byte, 0, 9)
+    prefix := make([]byte, 9)
 
     prefix[0] = SiteStoreStoragePrefix
     binary.BigEndian.PutUint64(prefix[1:], partitionNumber)
@@ -642,7 +643,7 @@ func (node *ClusterNode) JoinCluster(seedHost string, seedPort int) error {
 
 func (node *ClusterNode) LeaveCluster() (error, <-chan error) {
     node.lock.Lock()
-    defer node.lock.Lock()
+    defer node.lock.Unlock()
 
     // allow at mot one decommissioner
     if node.shutdownDecommissioner != nil {

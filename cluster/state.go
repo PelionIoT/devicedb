@@ -203,7 +203,7 @@ func (clusterState *ClusterState) AssignToken(node, token uint64) error {
         return ENoSuchToken
     }
 
-    if _, ok := clusterState.Nodes[node]; !ok {
+    if _, ok := clusterState.Nodes[node]; !ok && node != 0 {
         return ENoSuchNode
     }
 
@@ -215,7 +215,11 @@ func (clusterState *ClusterState) AssignToken(node, token uint64) error {
 
     // invariant should be maintained that a token is owned by exactly one node at a time
     clusterState.Tokens[token] = node
-    clusterState.Nodes[node].takeToken(token)
+
+    // Need to allow the node to be set to zero for a token
+    if node != 0 {
+        clusterState.Nodes[node].takeToken(token)
+    }
 
     return nil
 }

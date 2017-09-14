@@ -401,11 +401,6 @@ var _ = Describe("ClusterNode", func() {
                     node2.UseRaftStore(memoryStore)
 
                     node2StartResult := make(chan error)
-                    node2Initialized := make(chan int)
-
-                    node2.OnInitialized(func() {
-                        node2Initialized <- 1
-                    })
 
                     go func() {
                         options := NodeInitializationOptions{
@@ -418,14 +413,6 @@ var _ = Describe("ClusterNode", func() {
 
                         node2StartResult <- node2.Start(options)
                     }()
-
-                    select {
-                    case <-node2Initialized:
-                    case <-node2StartResult:
-                        Fail("Node failed to initialize")
-                    case <-time.After(time.Minute):
-                        Fail("Test timed out")
-                    }
 
                     select {
                     case err := <-node2StartResult:
