@@ -70,6 +70,7 @@ type MockNodeCoordinatorFacade struct {
     writeLocks map[uint64]bool
     joinedCluster chan int
     leftCluster chan int
+    empty chan int
     id uint64
 }
 
@@ -83,6 +84,7 @@ func NewMockNodeCoordinatorFacade(id uint64) *MockNodeCoordinatorFacade {
         incomingTransfers: NewPartitionReplicaSet(),
         readLocks: make(map[uint64]bool, 0),
         writeLocks: make(map[uint64]bool, 0),
+        empty: make(chan int, 1),
         joinedCluster: make(chan int, 1),
         leftCluster: make(chan int, 1),
     }
@@ -185,6 +187,14 @@ func (nodeFacade *MockNodeCoordinatorFacade) NotifyLeftCluster() {
 
 func (nodeFacade *MockNodeCoordinatorFacade) LeftCluster() <-chan int {
     return nodeFacade.leftCluster
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) NotifyEmpty() {
+    nodeFacade.empty <- 1
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) Empty() <-chan int {
+    return nodeFacade.empty
 }
 
 type MockClusterNodePartitionUpdater struct {
@@ -426,12 +436,12 @@ var _ = Describe("NodeStateCoordinator", func() {
         Describe("#ProcessClusterUpdates", func() {
             var deltas []ClusterStateDelta
 
-            Context("deltas include a DeltaNodeAdd", func() {
+            Context("When deltas include a DeltaNodeAdd", func() {
                 BeforeEach(func() {
                     deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeAdd, Delta: NodeAdd{ } } }
                 })
 
-                Specify("Should call NotifyJoinedCluster() on the node facade", func() {
+                It("Should call NotifyJoinedCluster() on the node facade", func() {
                     stateCoordinator.ProcessClusterUpdates(deltas)
 
                     select {
@@ -442,12 +452,12 @@ var _ = Describe("NodeStateCoordinator", func() {
                 })
             })
 
-            Context("deltas include a DeltaNodeRemove", func() {
+            Context("When deltas include a DeltaNodeRemove", func() {
                 BeforeEach(func() {
                     deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeRemove, Delta: NodeRemove{ } } }
                 })
 
-                Specify("Should call NotifyLeftCluster() on the node facade", func() {
+                It("Should call NotifyLeftCluster() on the node facade", func() {
                     stateCoordinator.ProcessClusterUpdates(deltas)
 
                     select {
@@ -458,60 +468,60 @@ var _ = Describe("NodeStateCoordinator", func() {
                 })
             })
 
-            Context("deltas include a DeltaNodeGainPartitionReplica", func() {
+            Context("When deltas include a DeltaNodeGainPartitionReplica", func() {
                 BeforeEach(func() {
                     deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeGainPartitionReplica, Delta: NodeGainPartitionReplica{ Partition: 22, Replica: 45 } } }
                 })
 
-                Specify("Should call UpdatePartition() for that partition on the partition updater", func() {
+                It("Should call UpdatePartition() for that partition on the partition updater", func() {
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(0))
                     stateCoordinator.ProcessClusterUpdates(deltas)
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(1))
                 })
             })
 
-            Context("deltas include a DeltaNodeLosePartitionReplica", func() {
+            Context("When deltas include a DeltaNodeLosePartitionReplica", func() {
                 BeforeEach(func() {
                     deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ Partition: 22, Replica: 45 } } }
                 })
 
-                Specify("Should call UpdatePartition() for that partition on the partition updater", func() {
+                It("Should call UpdatePartition() for that partition on the partition updater", func() {
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(0))
                     stateCoordinator.ProcessClusterUpdates(deltas)
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(1))
                 })
             })
 
-            Context("deltas include a DeltaNodeGainPartitionReplicaOwnership", func() {
+            Context("When deltas include a DeltaNodeGainPartitionReplicaOwnership", func() {
                 BeforeEach(func() {
                     deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeGainPartitionReplicaOwnership, Delta: NodeGainPartitionReplicaOwnership{ Partition: 22, Replica: 45 } } }
                 })
 
-                Specify("Should call UpdatePartition() for that partition on the partition updater", func() {
+                It("Should call UpdatePartition() for that partition on the partition updater", func() {
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(0))
                     stateCoordinator.ProcessClusterUpdates(deltas)
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(1))
                 })
 
-                Specify("Should call StartIncomingTransfer() for that partition replica on the node facade", func() {
+                It("Should call StartIncomingTransfer() for that partition replica on the node facade", func() {
                     Expect(nodeFacade.IncomingTransfers().Replicas(22)).Should(Equal([]uint64{ }))
                     stateCoordinator.ProcessClusterUpdates(deltas)
                     Expect(nodeFacade.IncomingTransfers().Replicas(22)).Should(Equal([]uint64{ 45 }))
                 })
             })
 
-            Context("deltas include a DeltaNodeLosePartitionReplicaOwnership", func() {
+            Context("When deltas include a DeltaNodeLosePartitionReplicaOwnership", func() {
                 BeforeEach(func() {
                     deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaNodeLosePartitionReplicaOwnership, Delta: NodeLosePartitionReplicaOwnership{ Partition: 22, Replica: 45 } } }
                 })
 
-                Specify("Should call UpdatePartition() for that partition on the partition updater", func() {
+                It("Should call UpdatePartition() for that partition on the partition updater", func() {
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(0))
                     stateCoordinator.ProcessClusterUpdates(deltas)
                     Expect(nodePartitionUpdater.UpdatePartitionCalls(22)).Should(Equal(1))
                 })
 
-                Specify("Should call StopIncomingTransfer() for that partition replica on the node facade", func() {
+                It("Should call StopIncomingTransfer() for that partition replica on the node facade", func() {
                     nodeFacade.IncomingTransfers().Add(22, 45)
                     Expect(nodeFacade.IncomingTransfers().Replicas(22)).Should(Equal([]uint64{ 45 }))
                     stateCoordinator.ProcessClusterUpdates(deltas)
@@ -519,19 +529,57 @@ var _ = Describe("NodeStateCoordinator", func() {
                 })
             })
 
-            Context("deltas include a DeltaSiteAdded", func() {
+            Context("When deltas include a DeltaSiteAdded", func() {
             })
 
-            Context("deltas include a DeltaSiteRemoved", func() {
+            Context("When deltas include a DeltaSiteRemoved", func() {
             })
 
-            Context("deltas include a DeltaRelayAdded", func() {
+            Context("When deltas include a DeltaRelayAdded", func() {
             })
 
-            Context("deltas include a DeltaRelayRemoved", func() {
+            Context("When deltas include a DeltaRelayRemoved", func() {
             })
 
-            Context("deltas include a DeltaRelayMoved", func() {
+            Context("When deltas include a DeltaRelayMoved", func() {
+            })
+
+            Context("When the node no longer owns or holds any partition replicas", func() {
+                It("Should call NotifyEmpty() on the node facade", func() {
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+
+                    select {
+                    case <-nodeFacade.Empty():
+                    default:
+                        Fail("Empty notification did not happen")
+                    }
+                })
+            })
+
+            Context("When the node owns at least one partition replica", func() {
+                It("Should not call NotifyEmpty() on the node facade", func() {
+                    nodeFacade.OwnedPartitionReplicaSet().Add(1, 1)
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+
+                    select {
+                    case <-nodeFacade.Empty():
+                        Fail("Empty notification happened")
+                    default:
+                    }
+                })
+            })
+
+            Context("When the node holds at least one partition replica", func() {
+                It("Should not call NotifyEmpty() on the node facade", func() {
+                    nodeFacade.HeldPartitionReplicaSet().Add(1, 1)
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+
+                    select {
+                    case <-nodeFacade.Empty():
+                        Fail("Empty notification happened")
+                    default:
+                    }
+                })
             })
         })
     })

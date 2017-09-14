@@ -111,6 +111,10 @@ func (coordinator *ClusterNodeStateCoordinator) ProcessClusterUpdates(deltas []C
             // disconnect the relay if it's currently connected
         }
     }
+
+    if len(coordinator.nodeFacade.OwnedPartitionReplicas()) == 0 && len(coordinator.nodeFacade.HeldPartitionReplicas()) == 0 {
+        coordinator.nodeFacade.NotifyEmpty()
+    }
 }
 
 type ClusterNodePartitionUpdater interface {

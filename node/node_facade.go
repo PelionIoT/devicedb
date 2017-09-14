@@ -37,8 +37,12 @@ type ClusterNodeCoordinatorFacade interface {
     // Obtain a two dimensional map indicating which partition replicas are
     // currently held by this node. map[partitionNumber][replicaNumber]
     HeldPartitionReplicas() map[uint64]map[uint64]bool
+    // Notify a node that it has been added to a cluster
     NotifyJoinedCluster()
+    // Notify a node that it has been removed from a cluster
     NotifyLeftCluster()
+    // Notify a node that it no longer owns or holds any partition replicas
+    NotifyEmpty()
 }
 
 type NodeCoordinatorFacade struct {
@@ -144,4 +148,8 @@ func (nodeFacade *NodeCoordinatorFacade) NotifyJoinedCluster() {
 
 func (nodeFacade *NodeCoordinatorFacade) NotifyLeftCluster() {
     nodeFacade.node.leftCluster <- 1
+}
+    
+func (nodeFacade *NodeCoordinatorFacade) NotifyEmpty() {
+    nodeFacade.node.empty <- 1
 }

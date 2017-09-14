@@ -1,9 +1,5 @@
 package node
 
-import (
-    . "devicedb/cluster"
-)
-
 // A Node coordinates interactions between
 // internal node components
 type Node interface {
@@ -26,13 +22,4 @@ type Node interface {
     Start(options NodeInitializationOptions) error
     // Shut down the node
     Stop()
-    // Initialize a cluster and make this node the single
-    // member of that cluster
-    InitializeCluster(settings ClusterSettings) error
-    // Join the specified cluster if this node does not
-    // already belong to one
-    JoinCluster(seedHost string, seedPort int) error
-    // Remove this node from the cluster
-    LeaveCluster() (error, <-chan error)
-    IsLeavingCluster() bool
 }

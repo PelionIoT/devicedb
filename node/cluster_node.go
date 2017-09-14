@@ -117,6 +117,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.shutdown = make(chan int)
     node.joinedCluster = make(chan int, 1)
     node.leftCluster = make(chan int, 1)
+    node.empty = make(chan int, 1)
 
     if err := node.openStorageDriver(); err != nil {
         return err
@@ -190,7 +191,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
 
             Log.Infof("Local node (id = %d) joining existing cluster. Seed node at %s:%d", nodeID, seedHost, seedPort)
 
-            if err := node.JoinCluster(seedHost, seedPort); err != nil {
+            if err := node.joinCluster(seedHost, seedPort); err != nil {
                 Log.Criticalf("Local node (id = %d) unable to join cluster: %v", nodeID, err.Error())
 
                 return err
@@ -198,7 +199,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
         } else {
             Log.Infof("Local node (id = %d) creating new cluster...", nodeID)
 
-            if err := node.InitializeCluster(options.ClusterSettings); err != nil {
+            if err := node.initializeCluster(options.ClusterSettings); err != nil {
                 Log.Criticalf("Local node (id = %d) unable to create new cluster: %v", nodeID, err.Error())
 
                 return err
@@ -329,7 +330,7 @@ func (node *ClusterNode) Name() string {
     return "cloud-" + fmt.Sprintf("%d", node.ID())
 }
 
-func (node *ClusterNode) InitializeCluster(settings ClusterSettings) error {
+func (node *ClusterNode) initializeCluster(settings ClusterSettings) error {
     ctx, cancel := context.WithCancel(context.Background())
 
     go func() {
@@ -361,7 +362,7 @@ func (node *ClusterNode) InitializeCluster(settings ClusterSettings) error {
     return nil
 }
 
-func (node *ClusterNode) JoinCluster(seedHost string, seedPort int) error {
+func (node *ClusterNode) joinCluster(seedHost string, seedPort int) error {
     node.raftTransport.SetDefaultRoute(seedHost, seedPort)
 
     memberAddress := PeerAddress{
