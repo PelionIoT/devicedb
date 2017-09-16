@@ -98,17 +98,21 @@ func (coordinator *ClusterNodeStateCoordinator) ProcessClusterUpdates(deltas []C
             coordinator.nodeFacade.StopIncomingTransfer(partition, replica)
             coordinator.partitionUpdater.UpdatePartition(partition)
         case DeltaSiteAdded:
-            // If we are responsible for the partition that this site
-            // belongs to then add this site to that partition's site pool
+            site := delta.Delta.(SiteAdded).SiteID
+            coordinator.nodeFacade.AddSite(site)
         case DeltaSiteRemoved:
-            // If we are responsible for the partition that this site
-            // belongs to then remove this site from that partition's site pool
+            site := delta.Delta.(SiteRemoved).SiteID
+            coordinator.nodeFacade.RemoveSite(site)
         case DeltaRelayAdded:
-            // Nothing to do. The cluster should be aware of this relay
+            relay := delta.Delta.(RelayAdded).RelayID
+            coordinator.nodeFacade.AddRelay(relay)
         case DeltaRelayRemoved:
-            // disconnect the relay if it's currently connected
+            relay := delta.Delta.(RelayRemoved).RelayID
+            coordinator.nodeFacade.RemoveRelay(relay)
         case DeltaRelayMoved:
-            // disconnect the relay if it's currently connected
+            relay := delta.Delta.(RelayMoved).RelayID
+            site := delta.Delta.(RelayMoved).SiteID
+            coordinator.nodeFacade.MoveRelay(relay, site)
         }
     }
 

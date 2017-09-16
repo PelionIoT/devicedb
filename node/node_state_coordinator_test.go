@@ -68,6 +68,8 @@ type MockNodeCoordinatorFacade struct {
     incomingTransfers *PartitionReplicaSet
     readLocks map[uint64]bool
     writeLocks map[uint64]bool
+    sites map[string]bool
+    relays map[string]string
     joinedCluster chan int
     leftCluster chan int
     empty chan int
@@ -87,6 +89,8 @@ func NewMockNodeCoordinatorFacade(id uint64) *MockNodeCoordinatorFacade {
         empty: make(chan int, 1),
         joinedCluster: make(chan int, 1),
         leftCluster: make(chan int, 1),
+        sites: make(map[string]bool, 0),
+        relays: make(map[string]string, 0),
     }
 }
 
@@ -155,6 +159,34 @@ func (nodeFacade *MockNodeCoordinatorFacade) UnlockPartitionReads(partitionNumbe
 
 func (nodeFacade *MockNodeCoordinatorFacade) ReadLockedPartitions() map[uint64]bool {
     return nodeFacade.readLocks
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) AddSite(siteID string) {
+    nodeFacade.sites[siteID] = true
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) RemoveSite(siteID string) {
+    delete(nodeFacade.sites, siteID)
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) Sites() map[string]bool {
+    return nodeFacade.sites
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) AddRelay(relayID string) {
+    nodeFacade.relays[relayID] = ""
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) RemoveRelay(relayID string) {
+    delete(nodeFacade.relays, relayID)
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) MoveRelay(relayID string, siteID string) {
+    nodeFacade.relays[relayID] = siteID
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) Relays() map[string]string {
+    return nodeFacade.relays
 }
 
 func (nodeFacade *MockNodeCoordinatorFacade) OwnedPartitionReplicas() map[uint64]map[uint64]bool {
@@ -530,18 +562,67 @@ var _ = Describe("NodeStateCoordinator", func() {
             })
 
             Context("When deltas include a DeltaSiteAdded", func() {
+                BeforeEach(func() {
+                    deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaSiteAdded, Delta: SiteAdded{ SiteID: "site1" } } }
+                })
+
+                It("Should call AddSite() for that site on the node facade", func() {
+                    Expect(nodeFacade.Sites()).Should(Equal(map[string]bool{ }))
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+                    Expect(nodeFacade.Sites()).Should(Equal(map[string]bool{ "site1": true }))
+                })
             })
 
             Context("When deltas include a DeltaSiteRemoved", func() {
+                BeforeEach(func() {
+                    deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaSiteRemoved, Delta: SiteRemoved{ SiteID: "site1" } } }
+                })
+
+                It("Should call RemoveSite() for that site on the node facade", func() {
+                    nodeFacade.AddSite("site1")
+                    Expect(nodeFacade.Sites()).Should(Equal(map[string]bool{ "site1": true }))
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+                    Expect(nodeFacade.Sites()).Should(Equal(map[string]bool{ }))
+                })
             })
 
             Context("When deltas include a DeltaRelayAdded", func() {
+                BeforeEach(func() {
+                    deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaRelayAdded, Delta: RelayAdded{ RelayID: "WWRL000000" } } }
+                })
+
+                It("Should call AddRelay() for that relay on the node facade", func() {
+                    Expect(nodeFacade.Relays()).Should(Equal(map[string]string{ }))
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+                    Expect(nodeFacade.Relays()).Should(Equal(map[string]string{ "WWRL000000": "" }))
+                })
             })
 
             Context("When deltas include a DeltaRelayRemoved", func() {
+                BeforeEach(func() {
+                    deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaRelayRemoved, Delta: RelayRemoved{ RelayID: "WWRL000000" } } }
+                })
+
+                It("Should call RemoveRelay() for that relay on the node facade", func() {
+                    nodeFacade.AddRelay("WWRL000000")
+                    Expect(nodeFacade.Relays()).Should(Equal(map[string]string{ "WWRL000000": "" }))
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+                    Expect(nodeFacade.Relays()).Should(Equal(map[string]string{ }))
+                })
             })
 
             Context("When deltas include a DeltaRelayMoved", func() {
+                BeforeEach(func() {
+                    deltas = []ClusterStateDelta{ ClusterStateDelta{ Type: DeltaRelayMoved, Delta: RelayMoved{ RelayID: "WWRL000000", SiteID: "Site2" } } }
+                })
+
+                It("Should call MoveRelay() for that relay and site on the node facade", func() {
+                    nodeFacade.AddRelay("WWRL000000")
+                    nodeFacade.MoveRelay("WWRL000000", "Site1")
+                    Expect(nodeFacade.Relays()).Should(Equal(map[string]string{ "WWRL000000": "Site1" }))
+                    stateCoordinator.ProcessClusterUpdates(deltas)
+                    Expect(nodeFacade.Relays()).Should(Equal(map[string]string{ "WWRL000000": "Site2" }))
+                })
             })
 
             Context("When the node no longer owns or holds any partition replicas", func() {
@@ -586,5 +667,168 @@ var _ = Describe("NodeStateCoordinator", func() {
 
     // integration tests
     Describe("ClusterNodeStateCoordinator using NodePartitionUpdater", func() {
+        var nodeFacade *MockNodeCoordinatorFacade
+        var nodePartitionUpdater *NodePartitionUpdater
+        var stateCoordinator *ClusterNodeStateCoordinator
+
+        BeforeEach(func() {
+            nodeFacade = NewMockNodeCoordinatorFacade(1)
+            nodePartitionUpdater = NewNodePartitionUpdater(nodeFacade)
+            stateCoordinator = NewClusterNodeStateCoordinator(nodeFacade, nodePartitionUpdater)
+        })
+
+        Describe("Initializing node state", func() {
+            Context("When there are some partitions that are owned but not held by the node", func() {
+                BeforeEach(func() {
+                    nodeFacade.OwnedPartitionReplicaSet().Add(1, 1)
+                    nodeFacade.OwnedPartitionReplicaSet().Add(2, 1)
+                })
+
+                Specify("Initialization should add a partition instance for those partitions to the partition pool", func() {
+                    Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ 1: true, 2: true }))
+                })
+
+                Specify("Initialization should start a transfer for that partition replica", func() {
+                    Expect(nodeFacade.IncomingTransfers().Map()).Should(Equal(map[uint64]map[uint64]bool{ }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.IncomingTransfers().Map()).Should(Equal(map[uint64]map[uint64]bool{ 1: map[uint64]bool{ 1: true }, 2: map[uint64]bool{ 1: true } }))
+                })
+
+                Specify("Initialization should read lock that partition", func() {
+                    Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true, 2: true }))
+                })
+
+                Specify("Initialization should write unlock that partition", func() {
+                    nodeFacade.LockPartitionWrites(1)
+                    nodeFacade.LockPartitionWrites(2)
+                    Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true, 2: true }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                })
+
+                Specify("Initialization should disable outgoing transfers for those partitions", func() {
+                    nodeFacade.EnableOutgoingTransfers(1)
+                    nodeFacade.EnableOutgoingTransfers(2)
+                    Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ 1: true, 2: true }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ }))
+                })
+            })
+
+            Context("When there are some partitions that are owned and held by the node", func() {
+                Context("And the replica that is owned is the same as the one that is held", func() {
+                    BeforeEach(func() {
+                        nodeFacade.OwnedPartitionReplicaSet().Add(1, 1)
+                        nodeFacade.HeldPartitionReplicaSet().Add(1, 1)
+                    })
+
+                    Specify("Initialization should add a partition instance for those partitions to the partition pool", func() {
+                        Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                    })
+
+                    Specify("Initialization should not start a transfer for that partition", func() {
+                        Expect(nodeFacade.IncomingTransfers().Map()).Should(Equal(map[uint64]map[uint64]bool{ }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.IncomingTransfers().Map()).Should(Equal(map[uint64]map[uint64]bool{ }))
+                    })
+
+                    Specify("Initialization should read unlock that partition", func() {
+                        nodeFacade.LockPartitionReads(1)
+                        Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                    })
+
+                    Specify("Initialization should write unlock that partition", func() {
+                        nodeFacade.LockPartitionWrites(1)
+                        Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                    })
+
+                    Specify("Initialization should enable outgoing transfers for those partitions", func() {
+                        Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ 1: true }))
+                    })
+                })
+
+                Context("And the replica that is owned is different from the one that is held", func() {
+                    BeforeEach(func() {
+                        nodeFacade.OwnedPartitionReplicaSet().Add(1, 1)
+                        nodeFacade.HeldPartitionReplicaSet().Add(1, 2)
+                    })
+
+                    Specify("Initialization should add a partition instance for those partitions to the partition pool", func() {
+                        Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                    })
+
+                    Specify("Initialization should start a transfer for the owned partition replica", func() {
+                        Expect(nodeFacade.IncomingTransfers().Map()).Should(Equal(map[uint64]map[uint64]bool{ }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.IncomingTransfers().Map()).Should(Equal(map[uint64]map[uint64]bool{ 1: map[uint64]bool{ 1: true } }))
+                    })
+
+                    Specify("Initialization should read unlock that partition", func() {
+                        nodeFacade.LockPartitionReads(1)
+                        Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                    })
+
+                    Specify("Initialization should write unlock that partition", func() {
+                        nodeFacade.LockPartitionWrites(1)
+                        Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                    })
+
+                    Specify("Initialization should enable outgoing transfers for those partitions", func() {
+                        Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ }))
+                        stateCoordinator.InitializeNodeState()
+                        Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ 1: true }))
+                    })
+                })
+            })
+
+            Context("When there are some partitions that are held but not owned by the node", func() {
+                BeforeEach(func() {
+                    nodeFacade.HeldPartitionReplicaSet().Add(1, 1)
+                })
+
+                Specify("Initialization should add a partition instance for those partitions to the partition pool", func() {
+                    Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                })
+
+                Specify("Initialization should read unlock that partition", func() {
+                    nodeFacade.LockPartitionReads(1)
+                    Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.ReadLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                })
+
+                Specify("Initialization should write lock that partition", func() {
+                    Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.WriteLockedPartitions()).Should(Equal(map[uint64]bool{ 1: true }))
+                })
+
+                Specify("Initialization should enable outgoing transfers for those partitions", func() {
+                    Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ }))
+                    stateCoordinator.InitializeNodeState()
+                    Expect(nodeFacade.EnabledOutgoingTransfers()).Should(Equal(map[uint64]bool{ 1: true }))
+                })
+            })
+        })
     })
 })

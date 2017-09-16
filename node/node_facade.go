@@ -31,6 +31,16 @@ type ClusterNodeCoordinatorFacade interface {
     LockPartitionReads(partitionNumber uint64)
     // Allow the local copy of this partition to serve reads
     UnlockPartitionReads(partitionNumber uint64)
+    // Add site to the partition that it belongs to
+    // if this node owns that partition
+    AddSite(siteID string)
+    // Remove site from the partition that it belongs to
+    // if this node owns that partition. Disconnect any
+    // relays that are in that site
+    RemoveSite(siteID string)
+    AddRelay(relayID string)
+    RemoveRelay(relayID string)
+    MoveRelay(relayID string, siteID string)
     // Obtain a two dimensional map indicating which partition replicas are
     // currently owned by this node. map[partitionNumber][replicaNumber]
     OwnedPartitionReplicas() map[uint64]map[uint64]bool
@@ -112,6 +122,21 @@ func (nodeFacade *NodeCoordinatorFacade) UnlockPartitionReads(partitionNumber ui
     if partition != nil {
         partition.UnlockReads()
     }
+}
+
+func (nodeFacade *NodeCoordinatorFacade) AddSite(siteID string) {
+}
+
+func (nodeFacade *NodeCoordinatorFacade) RemoveSite(siteID string) {
+}
+
+func (nodeFacade *NodeCoordinatorFacade) AddRelay(relayID string) {
+}
+
+func (nodeFacade *NodeCoordinatorFacade) RemoveRelay(relayID string) {
+}
+
+func (nodeFacade *NodeCoordinatorFacade) MoveRelay(relayID string, siteID string) {
 }
 
 func (nodeFacade *NodeCoordinatorFacade) OwnedPartitionReplicas() map[uint64]map[uint64]bool {

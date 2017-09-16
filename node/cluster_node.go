@@ -488,13 +488,6 @@ func (node *ClusterNode) LeaveCluster() (error, <-chan error) {
     return nil, node.leftClusterResult
 }
 
-func (node *ClusterNode) IsLeavingCluster() bool {
-    node.lock.Lock()
-    defer node.lock.Unlock()
-
-    return node.shutdownDecommissioner != nil
-}
-
 func (node *ClusterNode) decommission(ctx context.Context) error {
     Log.Infof("Local node (id = %d) starting decommissioning process...", node.ID())
 
