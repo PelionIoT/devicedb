@@ -542,4 +542,8 @@ var _ = Describe("ClusterNode", func() {
             })
         })
     })
+
+    Describe("Leaving a cluster", func() {
+        
+    })
 })
