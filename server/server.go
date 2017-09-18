@@ -537,9 +537,16 @@ func (server *Server) Start() error {
         query := r.URL.Query()
         
         var category string
+        var groups []string
     
         if categories, ok := query["category"]; ok {
             category = categories[0]
+        }
+
+        if _, ok := query["group"]; ok {
+            groups = query["group"]
+        } else {
+            groups = []string{ }
         }
 
         eventType := mux.Vars(r)["type"]
@@ -610,6 +617,7 @@ func (server *Server) Start() error {
                 SourceID: sourceID,
                 Type: eventType,
                 Data: string(alertBody),
+                Groups: groups,
             })
 
             server.hub.ForwardAlerts()
@@ -619,6 +627,7 @@ func (server *Server) Start() error {
                 SourceID: sourceID,
                 Type: eventType,
                 Data: string(body),
+                Groups: groups,
             })
 
             server.hub.ForwardEvents()

@@ -61,6 +61,7 @@ type Event struct {
     Data string `json:"data"`
     UUID string `json:"uuid"`
     Serial uint64 `json:"serial"`
+    Groups []string `json:"groups"`
 }
 
 type AlertEventData struct {
