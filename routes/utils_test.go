@@ -37,6 +37,7 @@ type MockClusterFacade struct {
     removeNodeCB func(ctx context.Context, nodeID uint64)
     decommisionCB func()
     decommisionPeerCB func(nodeID uint64)
+    localBatchCB func(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
 }
 
 func (clusterFacade *MockClusterFacade) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
@@ -111,7 +112,11 @@ func (clusterFacade *MockClusterFacade) Batch(siteID string, bucket string, upda
     return clusterFacade.defaultBatchResponse
 }
 
-func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, bucket string, updateBatch *UpdateBatch) error {
+func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+    if clusterFacade.localBatchCB != nil {
+        clusterFacade.localBatchCB(partition, siteID, bucket, updateBatch)
+    }
+
     return clusterFacade.defaultLocalBatchResponse
 }
 
@@ -119,7 +124,7 @@ func (clusterFacade *MockClusterFacade) Get(siteID string, bucket string, keys [
     return clusterFacade.defaultGetResponse, clusterFacade.defaultGetResponseError
 }
 
-func (clusterFacade *MockClusterFacade) LocalGet(partition uint64, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+func (clusterFacade *MockClusterFacade) LocalGet(partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
     return clusterFacade.defaultLocalGetResponse, clusterFacade.defaultLocalGetResponseError
 }
 
@@ -127,6 +132,6 @@ func (clusterFacade *MockClusterFacade) GetMatches(siteID string, bucket string,
     return clusterFacade.defaultGetMatchesResponse, clusterFacade.defaultLocalGetMatchesResponseError
 }
 
-func (clusterFacade *MockClusterFacade) LocalGetMatches(partition uint64, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+func (clusterFacade *MockClusterFacade) LocalGetMatches(partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
     return clusterFacade.defaultLocalGetMatchesResponse, clusterFacade.defaultLocalGetMatchesResponseError
 }

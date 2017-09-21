@@ -23,9 +23,9 @@ type ClusterFacade interface {
     AddSite(ctx context.Context, siteID string) error
     RemoveSite(ctx context.Context, siteID string) error
     Batch(siteID string, bucket string, updateBatch *UpdateBatch) error
-    LocalBatch(partition uint64, bucket string, updateBatch *UpdateBatch) error
+    LocalBatch(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
     Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
-    LocalGet(partition uint64, bucket string, keys [][]byte) ([]*SiblingSet, error)
+    LocalGet(partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
-    LocalGetMatches(partition uint64, bucket string, keys [][]byte) (SiblingSetIterator, error)
+    LocalGetMatches(partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
 }

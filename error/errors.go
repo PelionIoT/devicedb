@@ -46,6 +46,7 @@ const (
     eDUPLICATE_NODE_ID = iota
     eNO_SUCH_SITE = iota
     eNO_SUCH_BUCKET = iota
+    eNO_QUORUM = iota
 )
 
 var (
@@ -71,4 +72,5 @@ var (
     EProposalError         = DBerror{ "An error occurred while proposing cluster configuration change.", ePROPOSAL_ERROR }
     ESiteDoesNotExist      = DBerror{ "The specified site does not exist at this node.", eNO_SUCH_SITE }
     EBucketDoesNotExist    = DBerror{ "The site does not contain the specified bucket.", eNO_SUCH_BUCKET }
+    ENoQuorum              = DBerror{ "The database operation was not able to achieve participation from the necessary number of replicas.", eNO_QUORUM }
 )
