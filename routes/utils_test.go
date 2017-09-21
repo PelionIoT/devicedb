@@ -4,7 +4,6 @@ import (
     "context"
 
     . "devicedb/bucket"
-    . "devicedb/client"
     . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/raft"
@@ -14,7 +13,7 @@ type MockClusterFacade struct {
     defaultAddNodeResponse error
     defaultRemoveNodeResponse error
     defaultReplaceNodeResponse error
-    clusterClient *Client
+    defaultDecommissionPeerResponse error
     defaultDecommissionResponse error
     localNodeID uint64
     defaultPeerAddress PeerAddress
@@ -33,26 +32,51 @@ type MockClusterFacade struct {
     defaultGetMatchesResponseError error
     defaultLocalGetMatchesResponse SiblingSetIterator
     defaultLocalGetMatchesResponseError error
+    addNodeCB func(ctx context.Context, nodeConfig NodeConfig)
+    replaceNodeCB func(ctx context.Context, nodeID uint64, replacementNodeID uint64)
+    removeNodeCB func(ctx context.Context, nodeID uint64)
+    decommisionCB func()
+    decommisionPeerCB func(nodeID uint64)
 }
 
 func (clusterFacade *MockClusterFacade) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
+    if clusterFacade.addNodeCB != nil {
+        clusterFacade.addNodeCB(ctx, nodeConfig)
+    }
+
     return clusterFacade.defaultAddNodeResponse
 }
 
 func (clusterFacade *MockClusterFacade) RemoveNode(ctx context.Context, nodeID uint64) error {
+    if clusterFacade.removeNodeCB != nil {
+        clusterFacade.removeNodeCB(ctx, nodeID)
+    }
+
     return clusterFacade.defaultRemoveNodeResponse
 }
 
 func (clusterFacade *MockClusterFacade) ReplaceNode(ctx context.Context, nodeID uint64, replacementNodeID uint64) error {
+    if clusterFacade.replaceNodeCB != nil {
+        clusterFacade.replaceNodeCB(ctx, nodeID, replacementNodeID)
+    }
+
     return clusterFacade.defaultReplaceNodeResponse
 }
 
-func (clusterFacade *MockClusterFacade) ClusterClient() *Client {
-    return clusterFacade.clusterClient
+func (clusterFacade *MockClusterFacade) Decommission() error {
+    if clusterFacade.decommisionCB != nil {
+        clusterFacade.decommisionCB()
+    }
+
+    return clusterFacade.defaultDecommissionResponse
 }
 
-func (clusterFacade *MockClusterFacade) Decommission() error {
-    return clusterFacade.defaultDecommissionResponse
+func (clusterFacade *MockClusterFacade) DecommissionPeer(nodeID uint64) error {
+    if clusterFacade.decommisionPeerCB != nil {
+        clusterFacade.decommisionPeerCB(nodeID)
+    }
+
+    return clusterFacade.defaultDecommissionPeerResponse
 }
 
 func (clusterFacade *MockClusterFacade) LocalNodeID() uint64 {

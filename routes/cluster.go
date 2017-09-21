@@ -101,7 +101,7 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.Router) {
         if decommission {
             if nodeID == clusterEndpoint.ClusterFacade.LocalNodeID() {
                 if err := clusterEndpoint.ClusterFacade.Decommission(); err != nil {
-                    Log.Warningf("DELETE /cluster/nodes/{nodeID}: Encountered an error while putting the node into decomissioning mode: %v", clusterEndpoint.ClusterFacade.LocalNodeID(), err.Error())
+                    Log.Warningf("DELETE /cluster/nodes/%d: Encountered an error while putting the node into decomissioning mode: %v", clusterEndpoint.ClusterFacade.LocalNodeID(), err.Error())
                     
                     w.Header().Set("Content-Type", "application/json; charset=utf8")
                     w.WriteHeader(http.StatusInternalServerError)
@@ -109,6 +109,12 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.Router) {
                     
                     return
                 }
+
+                Log.Infof("DELETE /cluster/nodes/%d: Local node is in decommissioning mode", clusterEndpoint.ClusterFacade.LocalNodeID())
+
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusOK)
+                io.WriteString(w, "\n")
 
                 return
             }
@@ -136,7 +142,7 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.Router) {
                 return
             }
 
-            err := clusterEndpoint.ClusterFacade.ClusterClient().RemoveNode(r.Context(), peerAddress, nodeID, 0, true, true)
+            err := clusterEndpoint.ClusterFacade.DecommissionPeer(nodeID)
 
             if err != nil {
                 Log.Warningf("DELETE /cluster/nodes/{nodeID}: Error forwarding decommission request: %v", clusterEndpoint.ClusterFacade.LocalNodeID(), err.Error())
