@@ -13,6 +13,7 @@ import (
     . "devicedb/bucket"
     . "devicedb/error"
     . "devicedb/util"
+    . "devicedb/transport"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

@@ -25,6 +25,7 @@ import (
     . "devicedb/historian"
     . "devicedb/error"
     . "devicedb/logging"
+    . "devicedb/transport"
 )
 
 const (

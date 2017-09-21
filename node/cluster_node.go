@@ -7,8 +7,10 @@ import (
     "sync"
     "time"
 
+    . "devicedb/bucket"
     . "devicedb/client"
     . "devicedb/cluster"
+    . "devicedb/data"
     . "devicedb/error"
     . "devicedb/logging"
     . "devicedb/merkle"
@@ -588,4 +590,48 @@ func (clusterFacade *ClusterNodeFacade) LocalNodeID() uint64 {
 
 func (clusterFacade *ClusterNodeFacade) PeerAddress(nodeID uint64) PeerAddress {
     return clusterFacade.node.configController.ClusterController().ClusterMemberAddress(nodeID)
+}
+
+func (clusterFacade *ClusterNodeFacade) Batch(siteID string, bucket string, updateBatch *UpdateBatch) error {
+    return nil
+}
+
+func (clusterFacade *ClusterNodeFacade) Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+    return nil, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) GetMatches(siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+    return nil, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalGetMatches(partition uint64, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+    return nil, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalGet(partition uint64, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+    return nil, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalBatch(partition uint64, bucket string, updateBatch *UpdateBatch) error {
+    return nil
+}
+
+func (clusterFacade *ClusterNodeFacade) AddRelay(ctx context.Context, relayID string) error {
+    return nil
+}
+
+func (clusterFacade *ClusterNodeFacade) RemoveRelay(ctx context.Context, relayID string) error {
+    return nil
+}
+
+func (clusterFacade *ClusterNodeFacade) MoveRelay(ctx context.Context, relayID string, siteID string) error {
+    return nil
+}
+
+func (clusterFacade *ClusterNodeFacade) AddSite(ctx context.Context, siteID string) error {
+    return nil
+}
+
+func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID string) error {
+    return nil
 }

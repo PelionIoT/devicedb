@@ -2,6 +2,7 @@ package node
 
 import (
     . "devicedb/cluster"
+    . "devicedb/node_facade"
     . "devicedb/logging"
 )
 
