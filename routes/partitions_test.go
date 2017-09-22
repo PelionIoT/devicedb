@@ -9,6 +9,7 @@ import (
 
     . "devicedb/bucket"
     . "devicedb/cluster"
+    . "devicedb/data"
     . "devicedb/error"
     . "devicedb/routes"
 
@@ -258,6 +259,19 @@ var _ = Describe("Partitions", func() {
 
     Describe("/partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/keys", func() {
         Describe("GET", func() {
+            Context("When the partition ID cannot be parsed as a base 10 encoded uint64", func() {
+                It("Should respond with status code http.StatusBadRequest", func() {
+                    req, err := http.NewRequest("GET", "/partitions/badpartition/sites/site1/buckets/default/keys?key=a", nil)
+
+                    Expect(err).Should(BeNil())
+
+                    rr := httptest.NewRecorder()
+                    router.ServeHTTP(rr, req)
+
+                    Expect(rr.Code).Should(Equal(http.StatusBadRequest))
+                })
+            })
+
             Context("When the request includes both \"key\" and \"prefix\" query parameters", func() {
                 It("Should respond with status code http.StatusBadRequest", func() {
                     req, err := http.NewRequest("GET", "/partitions/45/sites/site1/buckets/default/keys?key=key1&prefix=prefix1", nil)
@@ -300,36 +314,177 @@ var _ = Describe("Partitions", func() {
 
             Context("When the request includes one or more \"key\" parameters", func() {
                 It("Should call LocalGet() on the node facade with the specified site, bucket and keys", func() {
-                    Fail("Not implemented")
+                    req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                    localGetCalled := make(chan int, 1)
+                    clusterFacade.defaultLocalGetResponse = []*SiblingSet{ nil, nil }
+                    clusterFacade.localGetCB = func(partition uint64, siteID string, bucket string, keys [][]byte) {
+                        Expect(partition).Should(Equal(uint64(68)))
+                        Expect(siteID).Should(Equal("site1"))
+                        Expect(bucket).Should(Equal("default"))
+                        Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b") }))
+
+                        localGetCalled <- 1
+                    }
+
+                    Expect(err).Should(BeNil())
+
+                    rr := httptest.NewRecorder()
+                    router.ServeHTTP(rr, req)
+
+                    select {
+                    case <-localGetCalled:
+                    default:
+                        Fail("Request did not cause LocalGet() to be invoked")
+                    }
                 })
 
                 Context("And if LocalGet() returns an error", func() {
                     It("Should respond with status code http.StatusInternalServerError", func() {
-                        Fail("Not implemented")
+                        req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                        clusterFacade.defaultLocalGetResponseError = errors.New("Some error")
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
                     })
                 })
 
                 Context("And if LocalGet() is successful", func() {
-                    It("Should respond with a JSON-encoded list of APIEntrys with one entry per key", func() {
-                        Fail("Not implemented")
+                    It("Should respond with status code http.StatusOK", func() {
+                        req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                        clusterFacade.defaultLocalGetResponseError = nil
+                        clusterFacade.defaultLocalGetResponse = []*SiblingSet{ nil, nil }
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        Expect(rr.Code).Should(Equal(http.StatusOK))
+                    })
+
+                    It("Should respond with a JSON-encoded list of InternalEntries with one entry per key", func() {
+                        req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                        clusterFacade.defaultLocalGetResponseError = nil
+                        clusterFacade.defaultLocalGetResponse = []*SiblingSet{ nil, nil }
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        var entries []InternalEntry
+
+                        Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
+                        Expect(entries).Should(Equal([]InternalEntry{ 
+                            InternalEntry{ Prefix: "", Key: "a", Siblings: nil },
+                            InternalEntry{ Prefix: "", Key: "b", Siblings: nil },
+                        }))
                     })
                 })
             })
 
             Context("When the request includes one or more \"prefix\" parameters", func() {
                 It("Should call LocalGetMatches() on the node facade with the specified site, bucket, and keys", func() {
-                    Fail("Not implemented")
+                    req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                    localGetMatchesCalled := make(chan int, 1)
+                    clusterFacade.defaultLocalGetMatchesResponse = NewMemorySiblingSetIterator()
+                    clusterFacade.localGetMatchesCB = func(partition uint64, siteID string, bucket string, keys [][]byte) {
+                        Expect(partition).Should(Equal(uint64(68)))
+                        Expect(siteID).Should(Equal("site1"))
+                        Expect(bucket).Should(Equal("default"))
+                        Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b") }))
+
+                        localGetMatchesCalled <- 1
+                    }
+
+                    Expect(err).Should(BeNil())
+
+                    rr := httptest.NewRecorder()
+                    router.ServeHTTP(rr, req)
+
+                    select {
+                    case <-localGetMatchesCalled:
+                    default:
+                        Fail("Request did not cause LocalGetMatches() to be invoked")
+                    }
                 })
 
                 Context("And if LocalGetMatches() returns an error", func() {
                     It("Should respond with status code http.StatusInternalServerError", func() {
-                        Fail("Not implemented")
+                        req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                        clusterFacade.defaultLocalGetMatchesResponseError = errors.New("Some error")
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
                     })
                 })
 
                 Context("And if LocalGetMatches() is successful", func() {
-                    It("Should respond with a JSON-encoded list of APIEntrys objects", func() {
-                        Fail("Not implemented")
+                    Context("And the returned iterator does not encounter an error", func() {
+                        It("Should respond with status code http.StatusOK", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = nil
+                            memorySiblingSetIterator := NewMemorySiblingSetIterator()
+                            clusterFacade.defaultLocalGetMatchesResponse = memorySiblingSetIterator
+                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), nil, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), nil, nil)
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusOK))
+                        })
+
+                        It("Should respond with a JSON-encoded list of InternalEntry objects", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = nil
+                            memorySiblingSetIterator := NewMemorySiblingSetIterator()
+                            clusterFacade.defaultLocalGetMatchesResponse = memorySiblingSetIterator
+                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), nil, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("bxyz"), nil, nil)
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            var entries []InternalEntry
+
+                            Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
+                            Expect(entries).Should(Equal([]InternalEntry{ 
+                                InternalEntry{ Prefix: "a", Key: "asdf", Siblings: nil },
+                                InternalEntry{ Prefix: "b", Key: "bxyz", Siblings: nil },
+                            }))
+                        })
+                    })
+
+                    Context("And the returned iterator encounters an error", func() {
+                        It("Should respond with status code http.StatusInternalServerError", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = nil
+                            memorySiblingSetIterator := NewMemorySiblingSetIterator()
+                            clusterFacade.defaultLocalGetMatchesResponse = memorySiblingSetIterator
+                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), nil, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), nil, nil)
+                            memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+                        })
                     })
                 })
             })

@@ -38,6 +38,8 @@ type MockClusterFacade struct {
     decommisionCB func()
     decommisionPeerCB func(nodeID uint64)
     localBatchCB func(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
+    localGetCB func(partition uint64, siteID string, bucket string, keys [][]byte)
+    localGetMatchesCB func(partition uint64, siteID string, bucket string, keys [][]byte)
 }
 
 func (clusterFacade *MockClusterFacade) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
@@ -125,6 +127,10 @@ func (clusterFacade *MockClusterFacade) Get(siteID string, bucket string, keys [
 }
 
 func (clusterFacade *MockClusterFacade) LocalGet(partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+    if clusterFacade.localGetCB != nil {
+        clusterFacade.localGetCB(partition, siteID, bucket, keys)
+    }
+
     return clusterFacade.defaultLocalGetResponse, clusterFacade.defaultLocalGetResponseError
 }
 
@@ -133,5 +139,76 @@ func (clusterFacade *MockClusterFacade) GetMatches(siteID string, bucket string,
 }
 
 func (clusterFacade *MockClusterFacade) LocalGetMatches(partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+    if clusterFacade.localGetMatchesCB != nil {
+        clusterFacade.localGetMatchesCB(partition, siteID, bucket, keys)
+    }
+
     return clusterFacade.defaultLocalGetMatchesResponse, clusterFacade.defaultLocalGetMatchesResponseError
+}
+
+type siblingSetIteratorEntry struct {
+    Prefix []byte
+    Key []byte
+    Value *SiblingSet
+    Error error
+}
+
+type MemorySiblingSetIterator struct {
+    entries []*siblingSetIteratorEntry
+    nextEntry *siblingSetIteratorEntry
+}
+
+func NewMemorySiblingSetIterator() *MemorySiblingSetIterator {
+    return &MemorySiblingSetIterator{
+        entries: make([]*siblingSetIteratorEntry, 0),
+    }
+}
+
+func (iter *MemorySiblingSetIterator) AppendNext(prefix []byte, key []byte, value *SiblingSet, err error) {
+    iter.entries = append(iter.entries, &siblingSetIteratorEntry{
+        Prefix: prefix,
+        Key: key,
+        Value: value,
+        Error: err,
+    })
+}
+
+func (iter *MemorySiblingSetIterator) Next() bool {
+    iter.nextEntry = nil
+
+    if len(iter.entries) == 0 {
+        return false
+    }
+
+    iter.nextEntry = iter.entries[0]
+    iter.entries = iter.entries[1:]
+
+    if iter.nextEntry.Error != nil {
+        return false
+    }
+
+    return true
+}
+
+func (iter *MemorySiblingSetIterator) Prefix() []byte {
+    return iter.nextEntry.Prefix
+}
+
+func (iter *MemorySiblingSetIterator) Key() []byte {
+    return iter.nextEntry.Key
+}
+
+func (iter *MemorySiblingSetIterator) Value() *SiblingSet {
+    return iter.nextEntry.Value
+}
+
+func (iter *MemorySiblingSetIterator) Release() {
+}
+
+func (iter *MemorySiblingSetIterator) Error() error {
+    if iter.nextEntry == nil {
+        return nil
+    }
+    
+    return iter.nextEntry.Error
 }
