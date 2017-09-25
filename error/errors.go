@@ -45,6 +45,7 @@ const (
     ePROPOSAL_ERROR = iota
     eDUPLICATE_NODE_ID = iota
     eNO_SUCH_SITE = iota
+    eNO_SUCH_RELAY = iota
     eNO_SUCH_BUCKET = iota
     eNO_QUORUM = iota
 )
@@ -71,6 +72,7 @@ var (
     EDuplicateNodeID       = DBerror{ "The ID the node is using was already used by a cluster member at some point.", eDUPLICATE_NODE_ID }
     EProposalError         = DBerror{ "An error occurred while proposing cluster configuration change.", ePROPOSAL_ERROR }
     ESiteDoesNotExist      = DBerror{ "The specified site does not exist at this node.", eNO_SUCH_SITE }
+    ERelayDoesNotExist     = DBerror{ "The specified relay does not exist at this node.", eNO_SUCH_RELAY }
     EBucketDoesNotExist    = DBerror{ "The site does not contain the specified bucket.", eNO_SUCH_BUCKET }
     ENoQuorum              = DBerror{ "The database operation was not able to achieve participation from the necessary number of replicas.", eNO_QUORUM }
 )

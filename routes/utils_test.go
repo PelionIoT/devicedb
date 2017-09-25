@@ -40,6 +40,9 @@ type MockClusterFacade struct {
     localBatchCB func(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
     localGetCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     localGetMatchesCB func(partition uint64, siteID string, bucket string, keys [][]byte)
+    addRelayCB func(ctx context.Context, relayID string)
+    removeRelayCB func(ctx context.Context, relayID string)
+    moveRelayCB func(ctx context.Context, relayID string, siteID string)
 }
 
 func (clusterFacade *MockClusterFacade) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
@@ -91,14 +94,26 @@ func (clusterFacade *MockClusterFacade) PeerAddress(nodeID uint64) PeerAddress {
 }
 
 func (clusterFacade *MockClusterFacade) AddRelay(ctx context.Context, relayID string) error {
+    if clusterFacade.addRelayCB != nil {
+        clusterFacade.addRelayCB(ctx, relayID)
+    }
+
     return clusterFacade.defaultAddRelayResponse
 }
 
 func (clusterFacade *MockClusterFacade) RemoveRelay(ctx context.Context, relayID string) error {
+    if clusterFacade.removeRelayCB != nil {
+        clusterFacade.removeRelayCB(ctx, relayID)
+    }
+
     return clusterFacade.defaultRemoveRelayResponse
 }
 
 func (clusterFacade *MockClusterFacade) MoveRelay(ctx context.Context, relayID string, siteID string) error {
+    if clusterFacade.moveRelayCB != nil {
+        clusterFacade.moveRelayCB(ctx, relayID, siteID)
+    }
+
     return clusterFacade.defaultMoveRelayResponse
 }
 
@@ -209,6 +224,6 @@ func (iter *MemorySiblingSetIterator) Error() error {
     if iter.nextEntry == nil {
         return nil
     }
-    
+
     return iter.nextEntry.Error
 }

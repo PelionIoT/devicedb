@@ -11,6 +11,7 @@ import (
 var ENoSuchCommand = errors.New("The cluster command type is not supported")
 var ENoSuchNode = errors.New("The node specified in the update does not exist")
 var ENoSuchSite = errors.New("The specified site does not exist")
+var ENoSuchRelay = errors.New("The specified relay does not exist")
 var ENodeDoesNotOwnReplica = errors.New("A node tried to transfer a partition replica to itself but it no longer owns that replica")
 var ECouldNotParseCommand = errors.New("The cluster command data was not properly formatted. Unable to parse it.")
 var EReplicaNumberInvalid = errors.New("The command specified an invalid replica number for a partition.")
@@ -362,6 +363,10 @@ func (clusterController *ClusterController) RemoveRelay(clusterCommand ClusterRe
 func (clusterController *ClusterController) MoveRelay(clusterCommand ClusterMoveRelayBody) error {
     if clusterController.State.SiteExists(clusterCommand.SiteID) {
         return ENoSuchSite
+    }
+
+    if _, ok := clusterController.State.Relays[clusterCommand.RelayID]; !ok {
+        return ENoSuchRelay
     }
 
     clusterController.State.MoveRelay(clusterCommand.RelayID, clusterCommand.SiteID)
