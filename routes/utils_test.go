@@ -7,6 +7,7 @@ import (
     . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/raft"
+    . "devicedb/routes"
 )
 
 type MockClusterFacade struct {
@@ -22,7 +23,8 @@ type MockClusterFacade struct {
     defaultMoveRelayResponse error
     defaultAddSiteResponse error
     defaultRemoveSiteResponse error
-    defaultBatchResponse error
+    defaultBatchResponse BatchResult
+    defaultBatchError error
     defaultLocalBatchResponse error
     defaultGetResponse []*SiblingSet
     defaultGetResponseError error
@@ -37,12 +39,17 @@ type MockClusterFacade struct {
     removeNodeCB func(ctx context.Context, nodeID uint64)
     decommisionCB func()
     decommisionPeerCB func(nodeID uint64)
+    batchCB func(siteID string, bucket string, updateBatch *UpdateBatch)
+    getCB func(siteID string, bucket string, keys [][]byte)
+    getMatchesCB func(siteID string, bucket string, keys [][]byte)
     localBatchCB func(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
     localGetCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     localGetMatchesCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     addRelayCB func(ctx context.Context, relayID string)
     removeRelayCB func(ctx context.Context, relayID string)
     moveRelayCB func(ctx context.Context, relayID string, siteID string)
+    addSiteCB func(ctx context.Context, siteID string)
+    removeSiteCB func(ctx context.Context, siteID string)
 }
 
 func (clusterFacade *MockClusterFacade) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
@@ -118,15 +125,27 @@ func (clusterFacade *MockClusterFacade) MoveRelay(ctx context.Context, relayID s
 }
 
 func (clusterFacade *MockClusterFacade) AddSite(ctx context.Context, siteID string) error {
+    if clusterFacade.addSiteCB != nil {
+        clusterFacade.addSiteCB(ctx, siteID)
+    }
+
     return clusterFacade.defaultAddSiteResponse
 }
 
 func (clusterFacade *MockClusterFacade) RemoveSite(ctx context.Context, siteID string) error {
+    if clusterFacade.removeSiteCB != nil {
+        clusterFacade.removeSiteCB(ctx, siteID)
+    }
+
     return clusterFacade.defaultRemoveSiteResponse
 }
 
-func (clusterFacade *MockClusterFacade) Batch(siteID string, bucket string, updateBatch *UpdateBatch) error {
-    return clusterFacade.defaultBatchResponse
+func (clusterFacade *MockClusterFacade) Batch(siteID string, bucket string, updateBatch *UpdateBatch) (BatchResult, error) {
+    if clusterFacade.batchCB != nil {
+        clusterFacade.batchCB(siteID, bucket, updateBatch)
+    }
+
+    return clusterFacade.defaultBatchResponse, clusterFacade.defaultBatchError
 }
 
 func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
@@ -138,6 +157,10 @@ func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, siteID stri
 }
 
 func (clusterFacade *MockClusterFacade) Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+    if clusterFacade.getCB != nil {
+        clusterFacade.getCB(siteID, bucket, keys)
+    }
+
     return clusterFacade.defaultGetResponse, clusterFacade.defaultGetResponseError
 }
 
@@ -150,7 +173,11 @@ func (clusterFacade *MockClusterFacade) LocalGet(partition uint64, siteID string
 }
 
 func (clusterFacade *MockClusterFacade) GetMatches(siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
-    return clusterFacade.defaultGetMatchesResponse, clusterFacade.defaultLocalGetMatchesResponseError
+    if clusterFacade.getMatchesCB != nil {
+        clusterFacade.getMatchesCB(siteID, bucket, keys)
+    }
+
+    return clusterFacade.defaultGetMatchesResponse, clusterFacade.defaultGetMatchesResponseError
 }
 
 func (clusterFacade *MockClusterFacade) LocalGetMatches(partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {

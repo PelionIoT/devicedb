@@ -22,7 +22,7 @@ type ClusterFacade interface {
     MoveRelay(ctx context.Context, relayID string, siteID string) error
     AddSite(ctx context.Context, siteID string) error
     RemoveSite(ctx context.Context, siteID string) error
-    Batch(siteID string, bucket string, updateBatch *UpdateBatch) error
+    Batch(siteID string, bucket string, updateBatch *UpdateBatch) (BatchResult, error)
     LocalBatch(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
     Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     LocalGet(partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)

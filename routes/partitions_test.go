@@ -142,7 +142,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = EBucketDoesNotExist
+                            clusterFacade.defaultLocalBatchResponse = ENoSuchBucket
 
                             Expect(err).Should(BeNil())
 

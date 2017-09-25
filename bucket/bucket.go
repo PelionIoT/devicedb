@@ -1,9 +1,13 @@
 package bucket
 
 import (
+    "errors"
+
     . "devicedb/data"
     . "devicedb/merkle"
 )
+
+var ENoSuchBucket = errors.New("No such bucket")
 
 type Bucket interface {
     Name() string

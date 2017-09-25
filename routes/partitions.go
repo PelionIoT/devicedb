@@ -52,7 +52,7 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
 
         err = partitionsEndpoint.ClusterFacade.LocalBatch(partitionID, siteID, bucket, &updateBatch)
 
-        if err == ENoSuchPartition || err == ENoSuchSite || err == EBucketDoesNotExist {
+        if err == ENoSuchPartition || err == ENoSuchSite || err == ENoSuchBucket {
             Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/batches: %v", err)
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")

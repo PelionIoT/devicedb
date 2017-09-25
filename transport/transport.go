@@ -16,6 +16,13 @@ type TransportSiblingSet struct {
 }
 
 func (tss *TransportSiblingSet) FromSiblingSet(siblingSet *SiblingSet) error {
+    if siblingSet == nil {
+        tss.Siblings = nil
+        tss.Context = ""
+
+        return nil
+    }
+
     context, err := EncodeContext(siblingSet.Join())
     
     if err != nil {
