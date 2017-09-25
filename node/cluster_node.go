@@ -3,6 +3,7 @@ package node
 import (
     "context"
     "encoding/binary"
+    "errors"
     "fmt"
     "sync"
     "time"
@@ -584,6 +585,16 @@ func (clusterFacade *ClusterNodeFacade) Decommission() error {
     return err
 }
 
+func (clusterFacade *ClusterNodeFacade) DecommissionPeer(nodeID uint64) error {
+    peerAddress := clusterFacade.PeerAddress(nodeID)
+
+    if peerAddress.IsEmpty() {
+        return errors.New("No address for peer")
+    }
+
+    return clusterFacade.node.interClusterClient.RemoveNode(context.TODO(), peerAddress, nodeID, 0, true, true)
+}
+
 func (clusterFacade *ClusterNodeFacade) LocalNodeID() uint64 {
     return clusterFacade.node.ID()
 }
@@ -592,8 +603,8 @@ func (clusterFacade *ClusterNodeFacade) PeerAddress(nodeID uint64) PeerAddress {
     return clusterFacade.node.configController.ClusterController().ClusterMemberAddress(nodeID)
 }
 
-func (clusterFacade *ClusterNodeFacade) Batch(siteID string, bucket string, updateBatch *UpdateBatch) error {
-    return nil
+func (clusterFacade *ClusterNodeFacade) Batch(siteID string, bucket string, updateBatch *UpdateBatch) (BatchResult, error) {
+    return BatchResult{}, nil
 }
 
 func (clusterFacade *ClusterNodeFacade) Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
@@ -604,34 +615,94 @@ func (clusterFacade *ClusterNodeFacade) GetMatches(siteID string, bucket string,
     return nil, nil
 }
 
-func (clusterFacade *ClusterNodeFacade) LocalGetMatches(partition uint64, bucket string, keys [][]byte) (SiblingSetIterator, error) {
-    return nil, nil
+func (clusterFacade *ClusterNodeFacade) LocalGetMatches(partitionNumber uint64, siteID string, bucketName string, keys [][]byte) (SiblingSetIterator, error) {
+    partition := clusterFacade.node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return nil, ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return nil, ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return nil, ENoSuchBucket
+    }
+
+    return bucket.GetMatches(keys)
 }
 
-func (clusterFacade *ClusterNodeFacade) LocalGet(partition uint64, bucket string, keys [][]byte) ([]*SiblingSet, error) {
-    return nil, nil
+func (clusterFacade *ClusterNodeFacade) LocalGet(partitionNumber uint64, siteID string, bucketName string, keys [][]byte) ([]*SiblingSet, error) {
+    partition := clusterFacade.node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return nil, ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return nil, ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return nil, ENoSuchBucket
+    }
+
+    return bucket.Get(keys)
 }
 
-func (clusterFacade *ClusterNodeFacade) LocalBatch(partition uint64, bucket string, updateBatch *UpdateBatch) error {
+func (clusterFacade *ClusterNodeFacade) LocalBatch(partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) error {
+    partition := clusterFacade.node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return ENoSuchBucket
+    }
+
+    _, err := bucket.Batch(updateBatch)
+
+    if err != nil {
+        return ENoQuorum
+    }
+
     return nil
 }
 
 func (clusterFacade *ClusterNodeFacade) AddRelay(ctx context.Context, relayID string) error {
-    return nil
+    return clusterFacade.node.configController.ClusterCommand(ctx, ClusterAddRelayBody{ RelayID: relayID })
 }
 
 func (clusterFacade *ClusterNodeFacade) RemoveRelay(ctx context.Context, relayID string) error {
-    return nil
+    return clusterFacade.node.configController.ClusterCommand(ctx, ClusterRemoveRelayBody{ RelayID: relayID })
 }
 
 func (clusterFacade *ClusterNodeFacade) MoveRelay(ctx context.Context, relayID string, siteID string) error {
-    return nil
+    return clusterFacade.node.configController.ClusterCommand(ctx, ClusterMoveRelayBody{ RelayID: relayID, SiteID: siteID })
 }
 
 func (clusterFacade *ClusterNodeFacade) AddSite(ctx context.Context, siteID string) error {
-    return nil
+    return clusterFacade.node.configController.ClusterCommand(ctx, ClusterAddSiteBody{ SiteID: siteID })
 }
 
 func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID string) error {
-    return nil
+    return clusterFacade.node.configController.ClusterCommand(ctx, ClusterRemoveSiteBody{ SiteID: siteID })
 }
