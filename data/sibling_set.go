@@ -74,6 +74,22 @@ func (siblingSet *SiblingSet) Sync(otherSiblingSet *SiblingSet) *SiblingSet {
     return newSiblingSet
 }
 
+func (siblingSet *SiblingSet) Diff(otherSiblingSet *SiblingSet) *SiblingSet {
+    diffSiblingSet := NewSiblingSet(map[*Sibling]bool{ })
+    
+    for theirSibling, _ := range otherSiblingSet.siblings {
+        diffSiblingSet.Add(theirSibling)
+        
+        for mySibling, _ := range siblingSet.siblings {
+            if theirSibling.Clock().HappenedBefore(mySibling.Clock()) || theirSibling.Clock().Equals(mySibling.Clock()) {
+                diffSiblingSet.Delete(theirSibling)
+            }
+        }
+    }
+    
+    return diffSiblingSet
+}
+
 func (siblingSet *SiblingSet) Join() map[string]uint64 {
     collectiveClock := make(map[string]uint64)
     

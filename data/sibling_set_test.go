@@ -40,6 +40,47 @@ var _ = Describe("SiblingSet", func() {
             Expect(siblingSet2.Sync(siblingSet1)).Should(Equal(syncedSet))
         })
     })
+
+    Describe("#Diff", func() {
+        It("should return a new sibling set that includes only siblings from the other sibling set that are not included in the sibling set, ", func() {
+            sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+            sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), []byte("v2"), 0)
+            sibling3 := NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v3"), 0)
+            
+            siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+                sibling2: true, // makes v5 obsolete
+                sibling3: true,
+            })
+            
+            sibling4 := NewSibling(NewDVV(NewDot("r2", 7), map[string]uint64{ "r2": 6 }), []byte("v4"), 0)
+            sibling5 := NewSibling(NewDVV(NewDot("r3", 1), map[string]uint64{ }), []byte("v5"), 0)
+            
+            siblingSet2 := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+                sibling4: true, // makes v3 obsolete
+                sibling5: true,
+            })
+            
+            diff1 := NewSiblingSet(map[*Sibling]bool{
+                sibling4: true,
+            })
+
+            diff2 := NewSiblingSet(map[*Sibling]bool{
+                sibling2: true,
+            })
+            
+            Expect(siblingSet1.Diff(siblingSet2)).Should(Equal(diff1))
+            Expect(siblingSet2.Diff(siblingSet1)).Should(Equal(diff2))
+            // Applying a diff to a set should make it equal the result of merging those sets
+            Expect(siblingSet2.Sync(siblingSet2.Diff(siblingSet1))).Should(Equal(siblingSet1.Sync(siblingSet2)))
+            Expect(siblingSet1.Sync(siblingSet1.Diff(siblingSet2))).Should(Equal(siblingSet1.Sync(siblingSet2)))
+            Expect(siblingSet2.Sync(siblingSet2.Diff(siblingSet1.Sync(siblingSet2)))).Should(Equal(siblingSet1.Sync(siblingSet2)))
+            Expect(siblingSet1.Sync(siblingSet1.Diff(siblingSet1.Sync(siblingSet2)))).Should(Equal(siblingSet1.Sync(siblingSet2)))
+            Expect(siblingSet1.Sync(siblingSet2).Diff(siblingSet1)).Should(Equal(NewSiblingSet(map[*Sibling]bool{ })))
+            Expect(siblingSet1.Sync(siblingSet2).Diff(siblingSet2)).Should(Equal(NewSiblingSet(map[*Sibling]bool{ })))
+        })
+    })
     
     Describe("#Join", func() {
         It("should return a clock that summarizes the total causal context of a giving sibling set", func() {
