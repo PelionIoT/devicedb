@@ -43,6 +43,7 @@ type MockNodeClient struct {
     defaultGetMatchesResponseError error
     batchCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
     getCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
+    getMatchesCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
 }
 
 func NewMockNodeClient() *MockNodeClient {
@@ -66,6 +67,10 @@ func (nodeClient *MockNodeClient) Get(ctx context.Context, nodeID uint64, partit
 }
 
 func (nodeClient *MockNodeClient) GetMatches(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+    if nodeClient.getMatchesCB != nil {
+        return nodeClient.getMatchesCB(ctx, nodeID, partition, siteID, bucket, keys)
+    }
+
     return nodeClient.defaultGetMatchesResponse, nodeClient.defaultGetMatchesResponseError
 }
 
@@ -89,4 +94,71 @@ func (readRepairer *MockNodeReadRepairer) StopRepairs() {
     if readRepairer.stopRepairsCB != nil {
         readRepairer.stopRepairsCB()
     }
+}
+
+type siblingSetIteratorEntry struct {
+    Prefix []byte
+    Key []byte
+    Value *SiblingSet
+    Error error
+}
+
+type MemorySiblingSetIterator struct {
+    entries []*siblingSetIteratorEntry
+    nextEntry *siblingSetIteratorEntry
+}
+
+func NewMemorySiblingSetIterator() *MemorySiblingSetIterator {
+    return &MemorySiblingSetIterator{
+        entries: make([]*siblingSetIteratorEntry, 0),
+    }
+}
+
+func (iter *MemorySiblingSetIterator) AppendNext(prefix []byte, key []byte, value *SiblingSet, err error) {
+    iter.entries = append(iter.entries, &siblingSetIteratorEntry{
+        Prefix: prefix,
+        Key: key,
+        Value: value,
+        Error: err,
+    })
+}
+
+func (iter *MemorySiblingSetIterator) Next() bool {
+    iter.nextEntry = nil
+
+    if len(iter.entries) == 0 {
+        return false
+    }
+
+    iter.nextEntry = iter.entries[0]
+    iter.entries = iter.entries[1:]
+
+    if iter.nextEntry.Error != nil {
+        return false
+    }
+
+    return true
+}
+
+func (iter *MemorySiblingSetIterator) Prefix() []byte {
+    return iter.nextEntry.Prefix
+}
+
+func (iter *MemorySiblingSetIterator) Key() []byte {
+    return iter.nextEntry.Key
+}
+
+func (iter *MemorySiblingSetIterator) Value() *SiblingSet {
+    return iter.nextEntry.Value
+}
+
+func (iter *MemorySiblingSetIterator) Release() {
+}
+
+func (iter *MemorySiblingSetIterator) Error() error {
+    if iter.nextEntry == nil {
+        return nil
+    }
+
+    return iter.nextEntry.Error
 }

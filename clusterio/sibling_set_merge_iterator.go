@@ -1,6 +1,8 @@
 package clusterio
 
 import (
+    "sort"
+
     . "devicedb/data"
 )
 
@@ -8,6 +10,7 @@ type SiblingSetMergeIterator struct {
     readMerger NodeReadMerger
     keys [][]string
     prefixes []string
+    keySet map[string]bool
     prefixIndexes map[string]int
     currentPrefixIndex int
     currentKeyIndex int
@@ -18,6 +21,7 @@ func NewSiblingSetMergeIterator(readMerger NodeReadMerger) *SiblingSetMergeItera
         readMerger: readMerger,
         keys: make([][]string, 0),
         prefixes: make([]string, 0),
+        keySet: make(map[string]bool),
         prefixIndexes: make(map[string]int),
         currentKeyIndex: -1,
         currentPrefixIndex: -1,
@@ -25,6 +29,13 @@ func NewSiblingSetMergeIterator(readMerger NodeReadMerger) *SiblingSetMergeItera
 }
 
 func (iter *SiblingSetMergeIterator) AddKey(prefix string, key string) {
+    if _, ok := iter.keySet[key]; ok {
+        // Ignore this request. This key was already added before
+        return
+    }
+
+    iter.keySet[key] = true
+
     if _, ok := iter.prefixIndexes[prefix]; !ok {
         // this is a prefix that hasn't been seen before. insert a new key list for this prefix
         iter.prefixIndexes[prefix] = len(iter.keys)
@@ -34,6 +45,12 @@ func (iter *SiblingSetMergeIterator) AddKey(prefix string, key string) {
 
     prefixIndex := iter.prefixIndexes[prefix]
     iter.keys[prefixIndex] = append(iter.keys[prefixIndex], key)
+}
+
+func (iter *SiblingSetMergeIterator) SortKeys() {
+    for _, keys := range iter.keys {
+        sort.Strings(keys)
+    }
 }
 
 func (iter *SiblingSetMergeIterator) Next() bool {

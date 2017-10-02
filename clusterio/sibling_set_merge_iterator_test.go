@@ -37,7 +37,7 @@ var _ = Describe("SiblingSetMergeIterator", func() {
             })
         })
 
-        Context("Several keys were added with AddKey() with the same prefix", func() {
+        Context("Several distinct keys were added with AddKey() with the same prefix", func() {
             BeforeEach(func() {
                 mergeIterator.AddKey("a", "b")
                 mergeIterator.AddKey("a", "c")
@@ -54,7 +54,7 @@ var _ = Describe("SiblingSetMergeIterator", func() {
             })
         })
 
-        Context("Several keys were added with AddKey() with differing prefixes", func() {
+        Context("Several distinct keys were added with AddKey() with differing prefixes", func() {
             BeforeEach(func() {
                 mergeIterator.AddKey("a", "b")
                 mergeIterator.AddKey("b", "c")
@@ -62,6 +62,42 @@ var _ = Describe("SiblingSetMergeIterator", func() {
             })
 
             It("Should return true for as many calls to Next() as there were keys inserted with calls to AddKey()", func() {
+                Expect(mergeIterator.Next()).Should(BeTrue())
+                Expect(mergeIterator.Next()).Should(BeTrue())
+                Expect(mergeIterator.Next()).Should(BeTrue())
+                Expect(mergeIterator.Next()).Should(BeFalse())
+                Expect(mergeIterator.Next()).Should(BeFalse())
+                Expect(mergeIterator.Next()).Should(BeFalse())
+            })
+        })
+
+        Context("Several keys were added with AddKey() with the same prefix and some keys are identical", func() {
+            BeforeEach(func() {
+                mergeIterator.AddKey("a", "b")
+                mergeIterator.AddKey("a", "c")
+                mergeIterator.AddKey("a", "b")
+                mergeIterator.AddKey("a", "d")
+            })
+
+            It("Should return true for as many calls to Next() as there were distinct keys inserted", func() {
+                Expect(mergeIterator.Next()).Should(BeTrue())
+                Expect(mergeIterator.Next()).Should(BeTrue())
+                Expect(mergeIterator.Next()).Should(BeTrue())
+                Expect(mergeIterator.Next()).Should(BeFalse())
+                Expect(mergeIterator.Next()).Should(BeFalse())
+                Expect(mergeIterator.Next()).Should(BeFalse())
+            })
+        })
+
+        Context("Several keys were added with AddKey() with differing prefixes and some keys are identical", func() {
+            BeforeEach(func() {
+                mergeIterator.AddKey("a", "b")
+                mergeIterator.AddKey("b", "c")
+                mergeIterator.AddKey("c", "b")
+                mergeIterator.AddKey("d", "d")
+            })
+
+            It("Should return true for as many calls to Next() as there were distinct keys inserted", func() {
                 Expect(mergeIterator.Next()).Should(BeTrue())
                 Expect(mergeIterator.Next()).Should(BeTrue())
                 Expect(mergeIterator.Next()).Should(BeTrue())
@@ -94,11 +130,11 @@ var _ = Describe("SiblingSetMergeIterator", func() {
         Context("Some keys have been added with AddKey()", func() {
             BeforeEach(func() {
                 mergeIterator.AddKey("a", "b")
-                mergeIterator.AddKey("a", "b")
+                mergeIterator.AddKey("a", "bb")
                 mergeIterator.AddKey("b", "c")
-                mergeIterator.AddKey("b", "c")
+                mergeIterator.AddKey("b", "cc")
                 mergeIterator.AddKey("c", "d")
-                mergeIterator.AddKey("c", "d")
+                mergeIterator.AddKey("c", "ddA")
             })
 
             It("Should return prefixes in the same order and cardinality with which they were encountered after subsequent calls to Next()", func() {
@@ -143,26 +179,26 @@ var _ = Describe("SiblingSetMergeIterator", func() {
         Context("Some keys have been added with AddKey()", func() {
             BeforeEach(func() {
                 mergeIterator.AddKey("a", "b")
-                mergeIterator.AddKey("a", "b")
+                mergeIterator.AddKey("a", "bb")
                 mergeIterator.AddKey("b", "c")
-                mergeIterator.AddKey("b", "c")
+                mergeIterator.AddKey("b", "cc")
                 mergeIterator.AddKey("c", "d")
-                mergeIterator.AddKey("c", "d")
+                mergeIterator.AddKey("c", "dd")
             })
 
             It("Should return keys in the same order that they were encountered in after subsequent calls to Next()", func() {
                 Expect(mergeIterator.Next()).Should(BeTrue())
                 Expect(mergeIterator.Key()).Should(Equal([]byte("b")))
                 Expect(mergeIterator.Next()).Should(BeTrue())
-                Expect(mergeIterator.Key()).Should(Equal([]byte("b")))
+                Expect(mergeIterator.Key()).Should(Equal([]byte("bb")))
                 Expect(mergeIterator.Next()).Should(BeTrue())
                 Expect(mergeIterator.Key()).Should(Equal([]byte("c")))
                 Expect(mergeIterator.Next()).Should(BeTrue())
-                Expect(mergeIterator.Key()).Should(Equal([]byte("c")))
+                Expect(mergeIterator.Key()).Should(Equal([]byte("cc")))
                 Expect(mergeIterator.Next()).Should(BeTrue())
                 Expect(mergeIterator.Key()).Should(Equal([]byte("d")))
                 Expect(mergeIterator.Next()).Should(BeTrue())
-                Expect(mergeIterator.Key()).Should(Equal([]byte("d")))
+                Expect(mergeIterator.Key()).Should(Equal([]byte("dd")))
                 Expect(mergeIterator.Next()).Should(BeFalse())
                 Expect(mergeIterator.Key()).Should(BeNil())
             })
@@ -238,12 +274,6 @@ var _ = Describe("SiblingSetMergeIterator", func() {
         It("Should return value as obtained by calling readMerger.Get() on the key corresponding to the current key returned by Key()", func() {
             Expect(mergeIterator.Next()).Should(BeTrue())
             Expect(mergeIterator.Value()).Should(Equal(siblingSet1.Sync(siblingSet2)))
-            Expect(mergeIterator.Next()).Should(BeTrue())
-            Expect(mergeIterator.Value()).Should(Equal(siblingSet1.Sync(siblingSet2)))
-            Expect(mergeIterator.Next()).Should(BeTrue())
-            Expect(mergeIterator.Value()).Should(BeNil())
-            Expect(mergeIterator.Next()).Should(BeTrue())
-            Expect(mergeIterator.Value()).Should(BeNil())
             Expect(mergeIterator.Next()).Should(BeTrue())
             Expect(mergeIterator.Value()).Should(BeNil())
             Expect(mergeIterator.Next()).Should(BeTrue())

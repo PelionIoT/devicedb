@@ -162,7 +162,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
     }()
 
     select {
-    case result := <- mergedResult:
+    case result := <-mergedResult:
         return result, nil
     case <-allAttemptsMade:
         return nil, ENoQuorum
@@ -232,6 +232,7 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
     case <-allAttemptsMade:
         return nil, ENoQuorum
     case <-quorumReached:
+        mergeIterator.SortKeys()
         return mergeIterator, nil
     }
 }
@@ -268,6 +269,8 @@ func (agent *Agent) CancelAll() {
     agent.mu.Lock()
     defer agent.mu.Unlock()
 
+    agent.NodeReadRepairer.StopRepairs()
+    
     for id, cancel := range agent.operationCancellers {
         cancel()
         delete(agent.operationCancellers, id)
