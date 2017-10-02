@@ -11,6 +11,8 @@ import (
     . "devicedb/logging"
 )
 
+var DefaultTimeout time.Duration = time.Second * 20
+
 type getResult struct {
     nodeID uint64
     siblingSets []*SiblingSet
@@ -31,8 +33,15 @@ type Agent struct {
     operationCancellers map[uint64]func()
 }
 
-func NewAgent() *Agent {
+func NewAgent(nodeClient NodeClient, partitionResolver PartitionResolver) *Agent {
+    readRepairer := NewReadRepairer(nodeClient)
+    readRepairer.Timeout = DefaultTimeout
+
     return &Agent{
+        Timeout: DefaultTimeout,
+        PartitionResolver: partitionResolver,
+        NodeClient: nodeClient,
+        NodeReadRepairer: readRepairer,
         operationCancellers: make(map[uint64]func(), 0),
     }
 }
@@ -43,7 +52,8 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
     var nApplied int = 0
     var nFailed int = 0
     var applied chan int = make(chan int, len(replicaNodes))
-    var failed chan int = make(chan int, len(replicaNodes))
+    var failed chan error = make(chan error, len(replicaNodes))
+    var resultError error = ENoQuorum
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
@@ -52,7 +62,7 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
             if err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch); err != nil {
                 Log.Errorf("Unable to replicate batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                failed <- 1
+                failed <- err
 
                 return
             }
@@ -68,9 +78,13 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
         // All calls to NodeClient.Batch() will succeed, receive a failure reponse from the specified peer, or time out eventually
         for nApplied + nFailed < len(replicaNodes) {
             select {
-            case <-failed:
+            case err := <-failed:
                 // indicates that a call to NodeClient.Batch() either received an error response from the specified node or timed out
                 nFailed++
+
+                if err == EBucketDoesNotExist || err == ESiteDoesNotExist {
+                    resultError = err
+                }
             case <-applied:
                 // indicates that a call to NodeClient.Batch() received a success response from the specified node
                 nApplied++
@@ -95,7 +109,7 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
 
     select {
     case n := <-allAttemptsMade:
-        return len(replicaNodes), n, ENoQuorum
+        return len(replicaNodes), n, resultError
     case n := <-quorumReached:
         return len(replicaNodes), n, nil
     }
@@ -106,9 +120,10 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
     var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)
     var readMerger *ReadMerger = NewReadMerger()
     var readResults chan getResult = make(chan getResult, len(replicaNodes))
-    var failed chan int = make(chan int, len(replicaNodes))
+    var failed chan error = make(chan error, len(replicaNodes))
     var nRead int = 0
     var nFailed int = 0
+    var resultError error = ENoQuorum
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
@@ -119,7 +134,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
             if err != nil {
                 Log.Errorf("Unable to get keys from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                failed <- 1
+                failed <- err
 
                 return
             }
@@ -134,8 +149,12 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
     go func() {
         for nRead + nFailed < len(replicaNodes) {
             select {
-            case <-failed:
+            case err := <-failed:
                 nFailed++
+
+                if err == EBucketDoesNotExist || err == ESiteDoesNotExist {
+                    resultError = err
+                }
             case r := <-readResults:
                 nRead++
 
@@ -156,7 +175,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
             }
         }
 
-        agent.NodeReadRepairer.BeginRepair(readMerger)
+        agent.NodeReadRepairer.BeginRepair(partitionNumber, siteID, bucket, readMerger)
         allAttemptsMade <- 1
         agent.cancelOperation(opID)
     }()
@@ -165,7 +184,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
     case result := <-mergedResult:
         return result, nil
     case <-allAttemptsMade:
-        return nil, ENoQuorum
+        return nil, resultError
     }
 }
 
@@ -175,9 +194,10 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
     var readMerger *ReadMerger = NewReadMerger()
     var mergeIterator *SiblingSetMergeIterator = NewSiblingSetMergeIterator(readMerger)
     var readResults chan getMatchesResult = make(chan getMatchesResult, len(replicaNodes))
-    var failed chan int = make(chan int, len(replicaNodes))
+    var failed chan error = make(chan error, len(replicaNodes))
     var nRead int = 0
     var nFailed int = 0
+    var resultError error = ENoQuorum
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
@@ -188,7 +208,7 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
             if err != nil {
                 Log.Errorf("Unable to get matches from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                failed <- 1
+                failed <- err
 
                 return
             }
@@ -203,8 +223,12 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
     go func() {
         for nFailed + nRead < len(replicaNodes) {
             select {
-            case <-failed:
+            case err := <-failed:
                 nFailed++
+                
+                if err == EBucketDoesNotExist || err == ESiteDoesNotExist {
+                    resultError = err
+                }
             case result := <-readResults:
                 for result.siblingSetIterator.Next() {
                     readMerger.InsertKeyReplica(result.nodeID, string(result.siblingSetIterator.Key()), result.siblingSetIterator.Value())
@@ -223,14 +247,14 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
             }
         }
 
-        agent.NodeReadRepairer.BeginRepair(readMerger)
+        agent.NodeReadRepairer.BeginRepair(partitionNumber, siteID, bucket, readMerger)
         allAttemptsMade <- 1
         agent.cancelOperation(opID)
     }()
 
     select {
     case <-allAttemptsMade:
-        return nil, ENoQuorum
+        return nil, resultError
     case <-quorumReached:
         mergeIterator.SortKeys()
         return mergeIterator, nil

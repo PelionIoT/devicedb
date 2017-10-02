@@ -20,6 +20,7 @@ type PartitionResolver interface {
 }
 
 type NodeClient interface {
+    Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error
     Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
     Get(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
@@ -33,9 +34,11 @@ type NodeReadMerger interface {
     // Obtain a patch that needs to be merged into the specified node to bring it up to date
     // for any keys for which there are updates that it has not received
     Patch(nodeID uint64) map[string]*SiblingSet
+    // Get a set of nodes involved in the read merger
+    Nodes() map[uint64]bool
 }
 
 type NodeReadRepairer interface {
-    BeginRepair(readMerger NodeReadMerger)
+    BeginRepair(partition uint64, siteID string, bucket string, readMerger NodeReadMerger)
     StopRepairs()
 }

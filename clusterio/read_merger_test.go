@@ -192,4 +192,19 @@ var _ = Describe("ReadMerger", func() {
             })
         })
     })
+
+    Describe("#Nodes", func() {
+        It("Should return a set of nodes involved in the read", func() {
+            readMerger := NewReadMerger()
+            readMerger.InsertKeyReplica(0, "a", nil)
+            readMerger.InsertKeyReplica(1, "b", nil)
+            readMerger.InsertKeyReplica(2, "c", nil)
+
+            Expect(readMerger.Nodes()).Should(Equal(map[uint64]bool{
+                0: true,
+                1: true,
+                2: true,
+            }))
+        })
+    })
 })

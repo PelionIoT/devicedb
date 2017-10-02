@@ -59,3 +59,16 @@ func (readMerger *ReadMerger) Patch(nodeID uint64) map[string]*SiblingSet {
 
     return patch
 }
+
+
+func (readMerger *ReadMerger) Nodes() map[uint64]bool {
+    var nodes map[uint64]bool = make(map[uint64]bool)
+
+    for _, keyHolders  := range readMerger.keyVersions {
+        for nodeID, _ := range keyHolders {
+            nodes[nodeID] = true
+        }
+    }
+
+    return nodes
+}

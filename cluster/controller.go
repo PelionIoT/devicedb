@@ -27,6 +27,14 @@ type ClusterController struct {
     nextDeltaSet []ClusterStateDelta
 }
 
+func (clusterController *ClusterController) Partition(key string) uint64 {
+    if clusterController.State.ClusterSettings.AreInitialized() {
+        return clusterController.PartitioningStrategy.Partition(key, clusterController.State.ClusterSettings.Partitions)
+    }
+
+    return 0
+}
+
 func (clusterController *ClusterController) EnableNotifications() {
     clusterController.notificationsEnabledLock.Lock()
     defer clusterController.notificationsEnabledLock.Unlock()
@@ -395,7 +403,14 @@ func (clusterController *ClusterController) ClusterMemberAddress(nodeID uint64) 
 }
 
 func (clusterController *ClusterController) PartitionOwners(partition uint64) []uint64 {
-    return nil
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    if partition >= uint64(len(clusterController.State.Partitions)) || !clusterController.State.ClusterSettings.AreInitialized() {
+        return []uint64{ }
+    }
+
+    return clusterController.PartitioningStrategy.Owners(clusterController.State.Tokens, partition, clusterController.State.ClusterSettings.ReplicationFactor)
 }
 
 func (clusterController *ClusterController) PartitionHolders(partition uint64) []uint64 {

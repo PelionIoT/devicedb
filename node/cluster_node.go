@@ -11,6 +11,7 @@ import (
     . "devicedb/bucket"
     . "devicedb/client"
     . "devicedb/cluster"
+    "devicedb/clusterio"
     . "devicedb/data"
     . "devicedb/error"
     . "devicedb/logging"
@@ -46,6 +47,7 @@ type ClusterNode struct {
     raftTransport *TransportHub
     raftStore RaftNodeStorage
     transferAgent PartitionTransferAgent
+    clusterioAgent clusterio.ClusterIOAgent
     storageDriver StorageDriver
     partitionFactory PartitionFactory
     partitionPool PartitionPool
@@ -163,6 +165,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     // state before changes to its partitions ownership and partition transfers
     // occur
     node.transferAgent = NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
+    node.clusterioAgent = clusterio.NewAgent(NewNodeClient(node.configController), NewPartitionResolver(node.configController))
     stateCoordinator.InitializeNodeState()
 
     serverStopResult := node.startNetworking()
@@ -273,10 +276,16 @@ func (node *ClusterNode) recover() error {
 func (node *ClusterNode) startNetworking() <-chan error {
     router := node.cloudServer.Router()
     clusterEndpoint := &ClusterEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
+    partitionsEndpoint := &PartitionsEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
+    relaysEndpoint := &RelaysEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
+    sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
 
     node.raftTransport.Attach(router)
     node.transferAgent.(*HTTPTransferAgent).Attach(router)
     clusterEndpoint.Attach(router)
+    partitionsEndpoint.Attach(router)
+    relaysEndpoint.Attach(router)
+    sitesEndpoint.Attach(router)
 
     startResult := make(chan error)
 
@@ -604,15 +613,56 @@ func (clusterFacade *ClusterNodeFacade) PeerAddress(nodeID uint64) PeerAddress {
 }
 
 func (clusterFacade *ClusterNodeFacade) Batch(siteID string, bucket string, updateBatch *UpdateBatch) (BatchResult, error) {
-    return BatchResult{}, nil
+    replicas, nApplied, err := clusterFacade.node.clusterioAgent.Batch(context.TODO(), siteID, bucket, updateBatch)
+
+    if err == ESiteDoesNotExist {
+        return BatchResult{}, ENoSuchSite
+    }
+
+    if err == EBucketDoesNotExist {
+        return BatchResult{}, ENoSuchBucket
+    }
+
+    return BatchResult{
+        Replicas: uint64(replicas),
+        NApplied: uint64(nApplied),
+    }, err
 }
 
 func (clusterFacade *ClusterNodeFacade) Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
-    return nil, nil
+    siblingSets, err := clusterFacade.node.clusterioAgent.Get(context.TODO(), siteID, bucket, keys)
+
+    if err == ESiteDoesNotExist {
+        return nil, ENoSuchSite
+    }
+
+    if err == EBucketDoesNotExist {
+        return nil, ENoSuchBucket
+    }
+
+    if err != nil {
+        return nil, err
+    }
+
+    return siblingSets, nil
 }
 
 func (clusterFacade *ClusterNodeFacade) GetMatches(siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
-    return nil, nil
+    iter, err := clusterFacade.node.clusterioAgent.GetMatches(context.TODO(), siteID, bucket, keys)
+
+    if err == ESiteDoesNotExist {
+        return nil, ENoSuchSite
+    }
+
+    if err == EBucketDoesNotExist {
+        return nil, ENoSuchBucket
+    }
+
+    if err != nil {
+        return nil, err
+    }
+
+    return iter, nil
 }
 
 func (clusterFacade *ClusterNodeFacade) LocalGetMatches(partitionNumber uint64, siteID string, bucketName string, keys [][]byte) (SiblingSetIterator, error) {

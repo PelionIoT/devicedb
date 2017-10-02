@@ -41,6 +41,7 @@ type MockNodeClient struct {
     defaultGetResponseError error
     defaultGetMatchesResponse SiblingSetIterator
     defaultGetMatchesResponseError error
+    mergeCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error
     batchCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
     getCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     getMatchesCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
@@ -48,6 +49,14 @@ type MockNodeClient struct {
 
 func NewMockNodeClient() *MockNodeClient {
     return &MockNodeClient{ }
+}
+
+func (nodeClient *MockNodeClient) Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+    if nodeClient.mergeCB != nil {
+        return nodeClient.mergeCB(ctx, nodeID, partition, siteID, bucket, patch)
+    }
+    
+    return nil
 }
 
 func (nodeClient *MockNodeClient) Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
@@ -75,7 +84,7 @@ func (nodeClient *MockNodeClient) GetMatches(ctx context.Context, nodeID uint64,
 }
 
 type MockNodeReadRepairer struct {
-    beginRepairCB func(readMerger NodeReadMerger)
+    beginRepairCB func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger)
     stopRepairsCB func()
 }
 
@@ -84,9 +93,9 @@ func NewMockNodeReadRepairer() *MockNodeReadRepairer {
     }
 }
 
-func (readRepairer *MockNodeReadRepairer) BeginRepair(readMerger NodeReadMerger) {
+func (readRepairer *MockNodeReadRepairer) BeginRepair(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
     if readRepairer.beginRepairCB != nil {
-        readRepairer.beginRepairCB(readMerger)
+        readRepairer.beginRepairCB(partition, siteID, bucket, readMerger)
     }
 }
 

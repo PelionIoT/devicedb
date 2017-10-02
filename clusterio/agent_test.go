@@ -18,7 +18,7 @@ import (
 var _ = Describe("Agent", func() {
     Describe("#NQuorum", func() {
         It("Should return the number of replicas necessary to achieve a majority", func() {
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
 
             Expect(agent.NQuorum(1)).Should(Equal(1))
             Expect(agent.NQuorum(2)).Should(Equal(2))
@@ -39,7 +39,7 @@ var _ = Describe("Agent", func() {
                 Expect(siteID).Should(Equal("site1"))
                 partitionCalled <- 1
             }
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
 
@@ -61,7 +61,7 @@ var _ = Describe("Agent", func() {
                 Expect(partition).Should(Equal(uint64(500)))
                 replicaNodesCalled <- 1
             }
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
 
@@ -99,7 +99,7 @@ var _ = Describe("Agent", func() {
                 return nil
             }
 
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
 
@@ -112,6 +112,76 @@ var _ = Describe("Agent", func() {
                     Fail("Should have invoked NodeClient.Batch()")
                 }
             }
+        })
+
+        Context("When no quorum is not established", func() {
+            Context("And one of the calls to NodeClient.Batch() returns EBucketDoesNotExist", func() {
+                It("Should return EBucketDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+                        return EBucketDoesNotExist
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    batchReturned := make(chan int)
+
+                    go func() {
+                        defer GinkgoRecover()
+
+                        _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
+
+                        Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                        batchReturned <- 1
+                    }()
+
+                    select {
+                    case <-batchReturned:
+                    case <-time.After(time.Second):
+                        Fail("Batch didn't return in time")
+                    }
+                })
+            })
+
+            Context("And one of the calls to NodeClient.Batch() returns ESiteDoesNotExist", func() {
+                It("Should return ESiteDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+                        return ESiteDoesNotExist
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    batchReturned := make(chan int)
+
+                    go func() {
+                        defer GinkgoRecover()
+
+                        _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        batchReturned <- 1
+                    }()
+
+                    select {
+                    case <-batchReturned:
+                    case <-time.After(time.Second):
+                        Fail("Batch didn't return in time")
+                    }
+                })
+            })
         })
 
         Context("When the deadline specified by Timeout is reached before all calls to NodeClient.Batch() have returned", func() {
@@ -139,7 +209,7 @@ var _ = Describe("Agent", func() {
                         return errors.New("Some error")
                     }
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.Timeout = time.Second // deadline is one second
@@ -206,7 +276,7 @@ var _ = Describe("Agent", func() {
                         return errors.New("Some error")
                     }
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.Timeout = time.Second // deadline is one second
@@ -266,7 +336,7 @@ var _ = Describe("Agent", func() {
                         return errors.New("Some error")
                     }
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.Timeout = time.Second // deadline is one second
@@ -324,7 +394,7 @@ var _ = Describe("Agent", func() {
                         return errors.New("Some error")
                     }
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.Timeout = time.Second // deadline is one second
@@ -393,7 +463,7 @@ var _ = Describe("Agent", func() {
                 Expect(siteID).Should(Equal("site1"))
                 partitionCalled <- 1
             }
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = NewMockNodeReadRepairer()
@@ -416,7 +486,7 @@ var _ = Describe("Agent", func() {
                 Expect(partition).Should(Equal(uint64(500)))
                 replicaNodesCalled <- 1
             }
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = NewMockNodeReadRepairer()
@@ -456,7 +526,7 @@ var _ = Describe("Agent", func() {
                 return []*SiblingSet{ nil, nil, nil }, nil
             }
 
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = NewMockNodeReadRepairer()
@@ -470,6 +540,76 @@ var _ = Describe("Agent", func() {
                     Fail("Should have invoked NodeClient.Get()")
                 }
             }
+        })
+
+        Context("When no quorum is established", func() {
+            Context("And one of the calls to NodeClient.Get() returns EBucketDoesNotExist", func() {
+                It("Should return EBucketDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClient.getCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+                        return nil, EBucketDoesNotExist
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    getReturned := make(chan int)
+
+                    go func() {
+                        defer GinkgoRecover()
+
+                        _, err := agent.Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                        getReturned <- 1
+                    }()
+
+                    select {
+                    case <-getReturned:
+                    case <-time.After(time.Second):
+                        Fail("Get didn't return in time")
+                    }
+                })
+            })
+
+            Context("And one of the calls to NodeClient.Get() returns ESiteDoesNotExist", func() {
+                It("Should return ESiteDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClient.getCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+                        return nil, ESiteDoesNotExist 
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    getReturned := make(chan int)
+
+                    go func() {
+                        defer GinkgoRecover()
+
+                        _, err := agent.Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        getReturned <- 1
+                    }()
+
+                    select {
+                    case <-getReturned:
+                    case <-time.After(time.Second):
+                        Fail("Get didn't return in time")
+                    }
+                })
+            })
         })
         
         Context("When the deadline specified by Timeout is reached before all calls to NodeClient.Batch() have returned", func() {
@@ -496,9 +636,12 @@ var _ = Describe("Agent", func() {
                 var callStartTime time.Time
 
                 beginRepairCalled := make(chan int)
-                nodeReadRepairer.beginRepairCB = func(readMerger NodeReadMerger) {
+                nodeReadRepairer.beginRepairCB = func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
                     defer GinkgoRecover()
 
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
                     Expect(time.Since(callStartTime) > time.Second).Should(BeTrue())
                     Expect(time.Since(callStartTime) < time.Second + time.Millisecond * 100).Should(BeTrue())
                     Expect(readMerger.Get("a")).Should(Equal(siblingSet1))
@@ -508,7 +651,7 @@ var _ = Describe("Agent", func() {
                     beginRepairCalled <- 1
                 }
 
-                agent := NewAgent()
+                agent := NewAgent(nil, nil)
                 agent.PartitionResolver = partitionResolver
                 agent.NodeClient = nodeClient
                 agent.NodeReadRepairer = nodeReadRepairer
@@ -564,7 +707,7 @@ var _ = Describe("Agent", func() {
 
                     var callStartTime time.Time
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.NodeReadRepairer = nodeReadRepairer
@@ -619,9 +762,12 @@ var _ = Describe("Agent", func() {
                     var callStartTime time.Time
 
                     beginRepairCalled := make(chan int)
-                    nodeReadRepairer.beginRepairCB = func(readMerger NodeReadMerger) {
+                    nodeReadRepairer.beginRepairCB = func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
                         defer GinkgoRecover()
 
+                        Expect(partition).Should(Equal(uint64(500)))
+                        Expect(siteID).Should(Equal("site1"))
+                        Expect(bucket).Should(Equal("default"))
                         Expect(time.Since(callStartTime) > time.Second).Should(BeTrue())
                         Expect(time.Since(callStartTime) < time.Second + time.Millisecond * 100).Should(BeTrue())
                         Expect(readMerger.Get("a")).Should(Equal(siblingSet1.Sync(siblingSet2)))
@@ -631,7 +777,7 @@ var _ = Describe("Agent", func() {
                         beginRepairCalled <- 1
                     }
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.NodeReadRepairer = nodeReadRepairer
@@ -690,9 +836,12 @@ var _ = Describe("Agent", func() {
                 var callStartTime time.Time
 
                 beginRepairCalled := make(chan int)
-                nodeReadRepairer.beginRepairCB = func(readMerger NodeReadMerger) {
+                nodeReadRepairer.beginRepairCB = func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
                     defer GinkgoRecover()
 
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
                     Expect(time.Since(callStartTime) < time.Millisecond * 100).Should(BeTrue())
                     Expect(readMerger.Get("a")).Should(Equal(siblingSet1.Sync(siblingSet2)))
                     Expect(readMerger.Get("b")).Should(Equal(siblingSet1.Sync(siblingSet2)))
@@ -701,7 +850,7 @@ var _ = Describe("Agent", func() {
                     beginRepairCalled <- 1
                 }
 
-                agent := NewAgent()
+                agent := NewAgent(nil, nil)
                 agent.PartitionResolver = partitionResolver
                 agent.NodeClient = nodeClient
                 agent.NodeReadRepairer = nodeReadRepairer
@@ -758,9 +907,12 @@ var _ = Describe("Agent", func() {
                     var callStartTime time.Time
 
                     beginRepairCalled := make(chan int, 1)
-                    nodeReadRepairer.beginRepairCB = func(readMerger NodeReadMerger) {
+                    nodeReadRepairer.beginRepairCB = func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
                         defer GinkgoRecover()
 
+                        Expect(partition).Should(Equal(uint64(500)))
+                        Expect(siteID).Should(Equal("site1"))
+                        Expect(bucket).Should(Equal("default"))
                         Expect(time.Since(callStartTime) < time.Millisecond * 100).Should(BeTrue())
                         Expect(readMerger.Get("a")).Should(Equal(siblingSet1))
                         Expect(readMerger.Get("b")).Should(Equal(siblingSet2))
@@ -769,7 +921,7 @@ var _ = Describe("Agent", func() {
                         beginRepairCalled <- 1
                     }
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.NodeReadRepairer = nodeReadRepairer
@@ -834,7 +986,7 @@ var _ = Describe("Agent", func() {
                 Expect(siteID).Should(Equal("site1"))
                 partitionCalled <- 1
             }
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = NewMockNodeReadRepairer()
@@ -857,7 +1009,7 @@ var _ = Describe("Agent", func() {
                 Expect(partition).Should(Equal(uint64(500)))
                 replicaNodesCalled <- 1
             }
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = NewMockNodeReadRepairer()
@@ -897,7 +1049,7 @@ var _ = Describe("Agent", func() {
                 return NewMemorySiblingSetIterator(), nil
             }
 
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = NewMockNodeReadRepairer()
@@ -911,7 +1063,77 @@ var _ = Describe("Agent", func() {
                     Fail("Should have invoked NodeClient.Get()")
                 }
             }
-        })       
+        })
+
+        Context("When no quorum is established", func() {
+            Context("And one of the calls to NodeClient.GetMatches() returns EBucketDoesNotExist", func() {
+                It("Should return EBucketDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClient.getMatchesCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+                        return nil, EBucketDoesNotExist
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    getReturned := make(chan int)
+
+                    go func() {
+                        defer GinkgoRecover()
+
+                        _, err := agent.GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                        getReturned <- 1
+                    }()
+
+                    select {
+                    case <-getReturned:
+                    case <-time.After(time.Second):
+                        Fail("Get didn't return in time")
+                    }
+                })
+            })
+
+            Context("And one of the calls to NodeClient.GetMatches() returns ESiteDoesNotExist", func() {
+                It("Should return ESiteDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClient.getMatchesCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+                        return nil, ESiteDoesNotExist
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    getReturned := make(chan int)
+
+                    go func() {
+                        defer GinkgoRecover()
+
+                        _, err := agent.GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        getReturned <- 1
+                    }()
+
+                    select {
+                    case <-getReturned:
+                    case <-time.After(time.Second):
+                        Fail("Get didn't return in time")
+                    }
+                })
+            })
+        })
 
         Context("When the deadline specified by Timeout is reached before all calls to NodeClient.GetMatches() have returned", func() {
             It("Should call NodeReadRepairer.BeginRepair() as soon as the deadline is reached", func() {
@@ -941,9 +1163,12 @@ var _ = Describe("Agent", func() {
                 var callStartTime time.Time
 
                 beginRepairCalled := make(chan int)
-                nodeReadRepairer.beginRepairCB = func(readMerger NodeReadMerger) {
+                nodeReadRepairer.beginRepairCB = func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
                     defer GinkgoRecover()
 
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
                     Expect(time.Since(callStartTime) > time.Second).Should(BeTrue())
                     Expect(time.Since(callStartTime) < time.Second + time.Millisecond * 100).Should(BeTrue())
                     Expect(readMerger.Get("ab")).Should(Equal(siblingSet1))
@@ -953,7 +1178,7 @@ var _ = Describe("Agent", func() {
                     beginRepairCalled <- 1
                 }
 
-                agent := NewAgent()
+                agent := NewAgent(nil, nil)
                 agent.PartitionResolver = partitionResolver
                 agent.NodeClient = nodeClient
                 agent.NodeReadRepairer = nodeReadRepairer
@@ -1020,7 +1245,7 @@ var _ = Describe("Agent", func() {
 
                         var callStartTime time.Time
 
-                        agent := NewAgent()
+                        agent := NewAgent(nil, nil)
                         agent.PartitionResolver = partitionResolver
                         agent.NodeClient = nodeClient
                         agent.NodeReadRepairer = nodeReadRepairer
@@ -1108,7 +1333,7 @@ var _ = Describe("Agent", func() {
 
                             var callStartTime time.Time
 
-                            agent := NewAgent()
+                            agent := NewAgent(nil, nil)
                             agent.PartitionResolver = partitionResolver
                             agent.NodeClient = nodeClient
                             agent.NodeReadRepairer = nodeReadRepairer
@@ -1190,7 +1415,7 @@ var _ = Describe("Agent", func() {
 
                             var callStartTime time.Time
 
-                            agent := NewAgent()
+                            agent := NewAgent(nil, nil)
                             agent.PartitionResolver = partitionResolver
                             agent.NodeClient = nodeClient
                             agent.NodeReadRepairer = nodeReadRepairer
@@ -1251,7 +1476,7 @@ var _ = Describe("Agent", func() {
 
                     var callStartTime time.Time
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.NodeReadRepairer = nodeReadRepairer
@@ -1309,9 +1534,12 @@ var _ = Describe("Agent", func() {
                 var callStartTime time.Time
 
                 beginRepairCalled := make(chan int)
-                nodeReadRepairer.beginRepairCB = func(readMerger NodeReadMerger) {
+                nodeReadRepairer.beginRepairCB = func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger) {
                     defer GinkgoRecover()
 
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
                     Expect(time.Since(callStartTime) < time.Millisecond * 100).Should(BeTrue())
                     Expect(readMerger.Get("ab")).Should(Equal(siblingSet1))
                     Expect(readMerger.Get("ac")).Should(Equal(siblingSet2))
@@ -1320,7 +1548,7 @@ var _ = Describe("Agent", func() {
                     beginRepairCalled <- 1
                 }
 
-                agent := NewAgent()
+                agent := NewAgent(nil, nil)
                 agent.PartitionResolver = partitionResolver
                 agent.NodeClient = nodeClient
                 agent.NodeReadRepairer = nodeReadRepairer
@@ -1387,7 +1615,7 @@ var _ = Describe("Agent", func() {
 
                         var callStartTime time.Time
 
-                        agent := NewAgent()
+                        agent := NewAgent(nil, nil)
                         agent.PartitionResolver = partitionResolver
                         agent.NodeClient = nodeClient
                         agent.NodeReadRepairer = nodeReadRepairer
@@ -1474,7 +1702,7 @@ var _ = Describe("Agent", func() {
 
                             var callStartTime time.Time
 
-                            agent := NewAgent()
+                            agent := NewAgent(nil, nil)
                             agent.PartitionResolver = partitionResolver
                             agent.NodeClient = nodeClient
                             agent.NodeReadRepairer = nodeReadRepairer
@@ -1554,7 +1782,7 @@ var _ = Describe("Agent", func() {
 
                             var callStartTime time.Time
 
-                            agent := NewAgent()
+                            agent := NewAgent(nil, nil)
                             agent.PartitionResolver = partitionResolver
                             agent.NodeClient = nodeClient
                             agent.NodeReadRepairer = nodeReadRepairer
@@ -1614,7 +1842,7 @@ var _ = Describe("Agent", func() {
 
                     var callStartTime time.Time
 
-                    agent := NewAgent()
+                    agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
                     agent.NodeReadRepairer = nodeReadRepairer
@@ -1663,7 +1891,7 @@ var _ = Describe("Agent", func() {
                 return nil, errors.New("Cancelled")
             }
 
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = nodeReadRepairer
@@ -1707,7 +1935,7 @@ var _ = Describe("Agent", func() {
                 stopRepairsCalled <- 1
             }
 
-            agent := NewAgent()
+            agent := NewAgent(nil, nil)
             agent.PartitionResolver = partitionResolver
             agent.NodeClient = nodeClient
             agent.NodeReadRepairer = nodeReadRepairer
