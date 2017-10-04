@@ -53,11 +53,20 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
         err = partitionsEndpoint.ClusterFacade.LocalBatch(partitionID, siteID, bucket, &updateBatch)
 
         if err == ENoSuchPartition || err == ENoSuchSite || err == ENoSuchBucket {
+            var responseBody string
+
+            switch err {
+            case ENoSuchSite:
+                responseBody = string(ESiteDoesNotExist.JSON())
+            case ENoSuchBucket:
+                responseBody = string(EBucketDoesNotExist.JSON())
+            }
+
             Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/batches: %v", err)
             
             w.Header().Set("Content-Type", "application/json; charset=utf8")
             w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, "\n")
+            io.WriteString(w, responseBody + "\n")
             
             return
         }
@@ -136,6 +145,25 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
 
             siblingSets, err := partitionsEndpoint.ClusterFacade.LocalGet(partitionID, siteID, bucket, byteKeys)
 
+            if err == ENoSuchPartition || err == ENoSuchBucket || err == ENoSuchSite {
+                var responseBody string
+
+                switch err {
+                case ENoSuchBucket:
+                    responseBody = string(EBucketDoesNotExist.JSON())
+                case ENoSuchSite:
+                    responseBody = string(ESiteDoesNotExist.JSON())
+                }
+
+                Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/keys: %v", err)
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusNotFound)
+                io.WriteString(w, responseBody + "\n")
+
+                return
+            }
+
             if err != nil {
                 Log.Warningf("GET /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/keys: %v", err.Error())
 
@@ -173,6 +201,25 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
             }
 
             ssIterator, err := partitionsEndpoint.ClusterFacade.LocalGetMatches(partitionID, siteID, bucket, byteKeys)
+
+            if err == ENoSuchPartition || err == ENoSuchBucket || err == ENoSuchSite {
+                var responseBody string
+
+                switch err {
+                case ENoSuchBucket:
+                    responseBody = string(EBucketDoesNotExist.JSON())
+                case ENoSuchSite:
+                    responseBody = string(ESiteDoesNotExist.JSON())
+                }
+
+                Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/keys: %v", err)
+                
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusNotFound)
+                io.WriteString(w, responseBody + "\n")
+
+                return
+            }
 
             if err != nil {
                 Log.Warningf("GET /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/keys: %v", err.Error())

@@ -132,6 +132,26 @@ var _ = Describe("Partitions", func() {
 
                             Expect(rr.Code).Should(Equal(http.StatusNotFound))
                         })
+
+                        It("Should respond with body as JSON-encoded error ESiteDoesNotExist", func() {
+                            updateBatch := NewUpdateBatch()
+                            encodedUpdateBatch, err := updateBatch.ToJSON()
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
+                            clusterFacade.defaultLocalBatchResponse = ENoSuchSite
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(ESiteDoesNotExist))
+                        })
                     })
 
                     Context("And the error is ENoSuchBucket", func() {
@@ -150,6 +170,26 @@ var _ = Describe("Partitions", func() {
                             router.ServeHTTP(rr, req)
 
                             Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error EBucketDoesNotExist", func() {
+                            updateBatch := NewUpdateBatch()
+                            encodedUpdateBatch, err := updateBatch.ToJSON()
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
+                            clusterFacade.defaultLocalBatchResponse = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(EBucketDoesNotExist))
                         })
                     })
 
@@ -339,16 +379,76 @@ var _ = Describe("Partitions", func() {
                 })
 
                 Context("And if LocalGet() returns an error", func() {
-                    It("Should respond with status code http.StatusInternalServerError", func() {
-                        req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                        clusterFacade.defaultLocalGetResponseError = errors.New("Some error")
+                    Context("And the error is ENoSuchSite", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                            clusterFacade.defaultLocalGetResponseError = ENoSuchSite
 
-                        Expect(err).Should(BeNil())
+                            Expect(err).Should(BeNil())
 
-                        rr := httptest.NewRecorder()
-                        router.ServeHTTP(rr, req)
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
 
-                        Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error EBucketDoesNotExist", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                            clusterFacade.defaultLocalGetResponseError = ENoSuchSite
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(ESiteDoesNotExist))
+                        })
+                    })
+
+                    Context("And the error is ENoSuchBucket", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                            clusterFacade.defaultLocalGetResponseError = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error EBucketDoesNotExist", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                            clusterFacade.defaultLocalGetResponseError = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(EBucketDoesNotExist))
+                        })
+                    })
+
+                    Context("Otherwise", func() {
+                        It("Should respond with status code http.StatusInternalServerError", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?key=a&key=b", nil)
+                            clusterFacade.defaultLocalGetResponseError = errors.New("Some error")
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+                        })
                     })
                 })
 
@@ -414,16 +514,76 @@ var _ = Describe("Partitions", func() {
                 })
 
                 Context("And if LocalGetMatches() returns an error", func() {
-                    It("Should respond with status code http.StatusInternalServerError", func() {
-                        req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                        clusterFacade.defaultLocalGetMatchesResponseError = errors.New("Some error")
+                    Context("And the error is ENoSuchSite", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = ENoSuchSite
 
-                        Expect(err).Should(BeNil())
+                            Expect(err).Should(BeNil())
 
-                        rr := httptest.NewRecorder()
-                        router.ServeHTTP(rr, req)
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
 
-                        Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error EBucketDoesNotExist", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = ENoSuchSite
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(ESiteDoesNotExist))
+                        })
+                    })
+
+                    Context("And the error is ENoSuchBucket", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error EBucketDoesNotExist", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(EBucketDoesNotExist))
+                        })
+                    })
+
+                    Context("Otherwise", func() {
+                        It("Should respond with status code http.StatusInternalServerError", func() {
+                            req, err := http.NewRequest("GET", "/partitions/68/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+                            clusterFacade.defaultLocalGetMatchesResponseError = errors.New("Some error")
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+                        })
                     })
                 })
 
