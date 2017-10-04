@@ -26,6 +26,18 @@ func (dummySite *DummySite) Iterator() SiteIterator {
     return nil
 }
 
+func (dummySite *DummySite) LockWrites() {
+}
+
+func (dummySite *DummySite) UnlockWrites() {
+}
+
+func (dummySite *DummySite) LockReads() {
+}
+
+func (dummySite *DummySite) UnlockReads() {
+}
+
 type DummySiteFactory struct {
     calls map[string]int
 }

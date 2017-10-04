@@ -568,16 +568,76 @@ func (node *ClusterNode) decommission(ctx context.Context) error {
     return EDecommissioned
 }
 
-func (node *ClusterNode) Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) error {
+    partition := node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return ENoSuchBucket
+    }
+
+    _, err := bucket.Batch(updateBatch)
+
+    if err != nil {
+        return ENoQuorum
+    }
+
     return nil
 }
 
-func (node *ClusterNode) Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
-    return nil, nil
+func (node *ClusterNode) Get(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, keys [][]byte) ([]*SiblingSet, error) {
+    partition := node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return nil, ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return nil, ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return nil, ENoSuchBucket
+    }
+
+    return bucket.Get(keys)
 }
 
-func (node *ClusterNode) GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
-    return nil, nil
+func (node *ClusterNode) GetMatches(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, keys [][]byte) (SiblingSetIterator, error) {
+    partition := node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return nil, ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return nil, ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return nil, ENoSuchBucket
+    }
+
+    return bucket.GetMatches(keys)
 }
 
 type ClusterNodeFacade struct {
@@ -678,75 +738,15 @@ func (clusterFacade *ClusterNodeFacade) GetMatches(siteID string, bucket string,
 }
 
 func (clusterFacade *ClusterNodeFacade) LocalGetMatches(partitionNumber uint64, siteID string, bucketName string, keys [][]byte) (SiblingSetIterator, error) {
-    partition := clusterFacade.node.partitionPool.Get(partitionNumber)
-
-    if partition == nil {
-        return nil, ENoSuchPartition
-    }
-
-    site := partition.Sites().Acquire(siteID)
-
-    if site == nil {
-        return nil, ENoSuchSite
-    }
-
-    bucket := site.Buckets().Get(bucketName)
-
-    if bucket == nil {
-        return nil, ENoSuchBucket
-    }
-
-    return bucket.GetMatches(keys)
+    return clusterFacade.node.GetMatches(context.TODO(), partitionNumber, siteID, bucketName, keys)
 }
 
 func (clusterFacade *ClusterNodeFacade) LocalGet(partitionNumber uint64, siteID string, bucketName string, keys [][]byte) ([]*SiblingSet, error) {
-    partition := clusterFacade.node.partitionPool.Get(partitionNumber)
-
-    if partition == nil {
-        return nil, ENoSuchPartition
-    }
-
-    site := partition.Sites().Acquire(siteID)
-
-    if site == nil {
-        return nil, ENoSuchSite
-    }
-
-    bucket := site.Buckets().Get(bucketName)
-
-    if bucket == nil {
-        return nil, ENoSuchBucket
-    }
-
-    return bucket.Get(keys)
+    return clusterFacade.node.Get(context.TODO(), partitionNumber, siteID, bucketName, keys)
 }
 
 func (clusterFacade *ClusterNodeFacade) LocalBatch(partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) error {
-    partition := clusterFacade.node.partitionPool.Get(partitionNumber)
-
-    if partition == nil {
-        return ENoSuchPartition
-    }
-
-    site := partition.Sites().Acquire(siteID)
-
-    if site == nil {
-        return ENoSuchSite
-    }
-
-    bucket := site.Buckets().Get(bucketName)
-
-    if bucket == nil {
-        return ENoSuchBucket
-    }
-
-    _, err := bucket.Batch(updateBatch)
-
-    if err != nil {
-        return ENoQuorum
-    }
-
-    return nil
+    return clusterFacade.node.Batch(context.TODO(), partitionNumber, siteID, bucketName, updateBatch)
 }
 
 func (clusterFacade *ClusterNodeFacade) AddRelay(ctx context.Context, relayID string) error {

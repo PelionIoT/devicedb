@@ -48,6 +48,7 @@ const (
     eNO_SUCH_RELAY = iota
     eNO_SUCH_BUCKET = iota
     eNO_QUORUM = iota
+    eOPERATION_LOCKED = iota
 )
 
 var (
@@ -75,6 +76,7 @@ var (
     ERelayDoesNotExist     = DBerror{ "The specified relay does not exist at this node.", eNO_SUCH_RELAY }
     EBucketDoesNotExist    = DBerror{ "The site does not contain the specified bucket.", eNO_SUCH_BUCKET }
     ENoQuorum              = DBerror{ "The database operation was not able to achieve participation from the necessary number of replicas.", eNO_QUORUM }
+    EOperationLocked       = DBerror{ "The attempted operation is currently locked on the partition that the specified data belongs to.", eOPERATION_LOCKED }
 )
 
 func DBErrorFromJSON(encodedError []byte) (DBerror, error) {

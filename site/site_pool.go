@@ -17,6 +17,14 @@ type SitePool interface {
     Remove(siteID string)
     // Iterate over all sites that exist in the site pool
     Iterator() SitePoolIterator
+    // Ensure no new writes can occur to any sites in this site pool
+    LockWrites()
+    // Ensure writes can occur to sites in this site pool
+    UnlockWrites()
+    // Ensure no new reads can occur from any sites in this site pool
+    LockReads()
+    // Ensure reads can occur from sites in this site pool
+    UnlockReads()
 }
 
 // A relay only ever contains one site database
@@ -41,10 +49,24 @@ func (relayNodeSitePool *RelayNodeSitePool) Iterator() SitePoolIterator {
     return &RelaySitePoolIterator{ }
 }
 
+func (relayNodeSitePool *RelayNodeSitePool) LockWrites() {
+}
+
+func (relayNodeSitePool *RelayNodeSitePool) UnlockWrites() {
+}
+
+func (relayNodeSitePool *RelayNodeSitePool) LockReads() {
+}
+
+func (relayNodeSitePool *RelayNodeSitePool) UnlockReads() {
+}
+
 type CloudNodeSitePool struct {
     SiteFactory SiteFactory
     lock sync.Mutex
     sites map[string]Site
+    writesLocked bool
+    readsLocked bool
 }
 
 func (cloudNodeSitePool *CloudNodeSitePool) Acquire(siteID string) Site {
@@ -59,6 +81,14 @@ func (cloudNodeSitePool *CloudNodeSitePool) Acquire(siteID string) Site {
 
     if site == nil {
         cloudNodeSitePool.sites[siteID] = cloudNodeSitePool.SiteFactory.CreateSite(siteID)
+    }
+
+    if cloudNodeSitePool.readsLocked {
+        cloudNodeSitePool.sites[siteID].LockReads()
+    }
+
+    if cloudNodeSitePool.writesLocked {
+        cloudNodeSitePool.sites[siteID].LockWrites()
     }
 
     return cloudNodeSitePool.sites[siteID]
@@ -99,4 +129,48 @@ func (cloudNodeSitePool *CloudNodeSitePool) Iterator() SitePoolIterator {
     }
 
     return &CloudSitePoolterator{ sites: sites, sitePool: cloudNodeSitePool }
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) LockWrites() {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    cloudNodeSitePool.writesLocked = true
+
+    for _, site := range cloudNodeSitePool.sites {
+        site.LockWrites()
+    }
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) UnlockWrites() {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    cloudNodeSitePool.writesLocked = false
+
+    for _, site := range cloudNodeSitePool.sites {
+        site.UnlockWrites()
+    }
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) LockReads() {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    cloudNodeSitePool.readsLocked = true
+
+    for _, site := range cloudNodeSitePool.sites {
+        site.LockReads()
+    }
+}
+
+func (cloudNodeSitePool *CloudNodeSitePool) UnlockReads() {
+    cloudNodeSitePool.lock.Lock()
+    defer cloudNodeSitePool.lock.Unlock()
+
+    cloudNodeSitePool.readsLocked = false
+
+    for _, site := range cloudNodeSitePool.sites {
+        site.UnlockReads()
+    }
 }

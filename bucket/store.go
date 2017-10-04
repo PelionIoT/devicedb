@@ -105,6 +105,8 @@ type Store struct {
     storageDriver StorageDriver
     merkleTree *MerkleTree
     multiLock *MultiLock
+    writesTryLock RWTryLock
+    readsTryLock RWTryLock
     merkleLock *MultiLock
     conflictResolver ConflictResolver
 }
@@ -383,6 +385,12 @@ func (store *Store) GarbageCollect(tombstonePurgeAge uint64) error {
 }
 
 func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
+    if !store.readsTryLock.TryRLock() {
+        return nil, EOperationLocked
+    }
+
+    defer store.readsTryLock.RUnlock()
+
     if len(keys) == 0 {
         Log.Warningf("Passed empty keys parameter in Get(%v)", keys)
         
@@ -440,6 +448,12 @@ func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
 }
 
 func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
+    if !store.readsTryLock.TryRLock() {
+        return nil, EOperationLocked
+    }
+
+    defer store.readsTryLock.RUnlock()
+
     if len(keys) == 0 {
         Log.Warningf("Passed empty keys parameter in GetMatches(%v)", keys)
         
@@ -474,6 +488,12 @@ func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
 }
 
 func (store *Store) GetAll() (SiblingSetIterator, error) {
+    if !store.readsTryLock.TryRLock() {
+        return nil, EOperationLocked
+    }
+
+    defer store.readsTryLock.RUnlock()
+
     iter, err := store.storageDriver.GetMatches([][]byte{ encodePartitionDataKey([]byte{ }) })
 
     if err != nil {
@@ -486,6 +506,12 @@ func (store *Store) GetAll() (SiblingSetIterator, error) {
 }
 
 func (store *Store) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
+    if !store.readsTryLock.TryRLock() {
+        return nil, EOperationLocked
+    }
+
+    defer store.readsTryLock.RUnlock()
+
     if nodeID >= store.merkleTree.NodeLimit() {
         return nil, EMerkleRange
     }
@@ -636,6 +662,12 @@ func (store *Store) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sib
 }
 
 func (store *Store) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
+    if !store.writesTryLock.TryRLock() {
+        return nil, EOperationLocked
+    }
+
+    defer store.writesTryLock.RUnlock()
+
     if batch == nil {
         Log.Warningf("Passed nil batch parameter in Batch(%v)", batch)
         
@@ -710,6 +742,12 @@ func (store *Store) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
 }
 
 func (store *Store) Merge(siblingSets map[string]*SiblingSet) error {
+    if !store.writesTryLock.TryRLock() {
+        return EOperationLocked
+    }
+
+    defer store.writesTryLock.RUnlock()
+
     if siblingSets == nil {
         Log.Warningf("Passed nil sibling sets in Merge(%v)", siblingSets)
         
@@ -825,6 +863,22 @@ func (store *Store) unlock(keys [][]byte, keysArePrefixed bool) {
     for _, key := range nodeStrings {
         store.merkleLock.Unlock([]byte(key))
     }
+}
+
+func (store *Store) LockWrites() {
+    store.writesTryLock.WLock()
+}
+
+func (store *Store) UnlockWrites() {
+    store.writesTryLock.WUnlock()
+}
+
+func (store *Store) LockReads() {
+    store.readsTryLock.WLock()
+}
+
+func (store *Store) UnlockReads() {
+    store.readsTryLock.WUnlock()
 }
 
 type UpdateBatch struct {

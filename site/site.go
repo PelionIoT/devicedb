@@ -8,6 +8,10 @@ type Site interface {
     Buckets() *BucketList
     Iterator() SiteIterator
     ID() string
+    LockWrites()
+    UnlockWrites()
+    LockReads()
+    UnlockReads()
 }
 
 type RelaySiteReplica struct {
@@ -31,6 +35,18 @@ func (relaySiteReplica *RelaySiteReplica) Iterator() SiteIterator {
     return &RelaySiteIterator{ }
 }
 
+func (relaySiteReplica *RelaySiteReplica) LockWrites() {
+}
+
+func (relaySiteReplica *RelaySiteReplica) UnlockWrites() {
+}
+
+func (relaySiteReplica *RelaySiteReplica) LockReads() {
+}
+
+func (relaySiteReplica *RelaySiteReplica) UnlockReads() {
+}
+
 type CloudSiteReplica struct {
     bucketList *BucketList
     id string
@@ -50,4 +66,28 @@ func (cloudSiteReplica *CloudSiteReplica) ID() string {
 
 func (cloudSiteReplica *CloudSiteReplica) Iterator() SiteIterator {
     return &CloudSiteIterator{ buckets: cloudSiteReplica.bucketList.All() }
+}
+
+func (cloudSiteReplica *CloudSiteReplica) LockWrites() {
+    for _, bucket := range cloudSiteReplica.bucketList.All() {
+        bucket.LockWrites()
+    }
+}
+
+func (cloudSiteReplica *CloudSiteReplica) UnlockWrites() {
+    for _, bucket := range cloudSiteReplica.bucketList.All() {
+        bucket.UnlockWrites()
+    }
+}
+
+func (cloudSiteReplica *CloudSiteReplica) LockReads() {
+    for _, bucket := range cloudSiteReplica.bucketList.All() {
+        bucket.LockReads()
+    }
+}
+
+func (cloudSiteReplica *CloudSiteReplica) UnlockReads() {
+    for _, bucket := range cloudSiteReplica.bucketList.All() {
+        bucket.UnlockReads()
+    }
 }
