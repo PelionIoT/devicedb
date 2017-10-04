@@ -3,7 +3,10 @@ package node_test
 import (
     "context"
 
+    . "devicedb/bucket"
     . "devicedb/cluster"
+    . "devicedb/data"
+    . "devicedb/node"
     . "devicedb/raft"
 )
 
@@ -99,4 +102,124 @@ func (builder *MockClusterConfigControllerBuilder) Create() ClusterConfigControl
 
 func (builder *MockClusterConfigControllerBuilder) SetDefaultConfigController(configController ClusterConfigController) {
     builder.defaultClusterConfigController = configController
+}
+
+type MockNode struct {
+    id uint64
+    batchCB func(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
+    defaultBatchError error
+    getCB func(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte)
+    defaultGetSiblingSetArray []*SiblingSet
+    defaultGetError error
+    getMatchesCB func(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte)
+    defaultGetMatchesSiblingSetIterator SiblingSetIterator
+    defaultGetMatchesError error
+}
+
+func NewMockNode(id uint64) *MockNode {
+    return &MockNode{
+        id: id,
+    }
+}
+
+func (node *MockNode) ID() uint64 {
+    return node.id
+}
+
+func (node *MockNode) Start(options NodeInitializationOptions) error {
+    return nil
+}
+
+func (node *MockNode) Stop() {
+}
+
+func (node *MockNode) Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+    if node.batchCB != nil {
+        node.batchCB(ctx, partition, siteID, bucket, updateBatch)
+    }
+
+    return node.defaultBatchError
+}
+
+func (node *MockNode) Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+    if node.getCB != nil {
+        node.getCB(ctx, partition, siteID, bucket, keys)
+    }
+
+    return node.defaultGetSiblingSetArray, node.defaultGetError
+}
+
+func (node *MockNode) GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+    if node.getMatchesCB != nil {
+        node.getMatchesCB(ctx, partition, siteID, bucket, keys)
+    }
+
+    return node.defaultGetMatchesSiblingSetIterator, node.defaultGetMatchesError
+}
+
+type siblingSetIteratorEntry struct {
+    Prefix []byte
+    Key []byte
+    Value *SiblingSet
+    Error error
+}
+
+type MemorySiblingSetIterator struct {
+    entries []*siblingSetIteratorEntry
+    nextEntry *siblingSetIteratorEntry
+}
+
+func NewMemorySiblingSetIterator() *MemorySiblingSetIterator {
+    return &MemorySiblingSetIterator{
+        entries: make([]*siblingSetIteratorEntry, 0),
+    }
+}
+
+func (iter *MemorySiblingSetIterator) AppendNext(prefix []byte, key []byte, value *SiblingSet, err error) {
+    iter.entries = append(iter.entries, &siblingSetIteratorEntry{
+        Prefix: prefix,
+        Key: key,
+        Value: value,
+        Error: err,
+    })
+}
+
+func (iter *MemorySiblingSetIterator) Next() bool {
+    iter.nextEntry = nil
+
+    if len(iter.entries) == 0 {
+        return false
+    }
+
+    iter.nextEntry = iter.entries[0]
+    iter.entries = iter.entries[1:]
+
+    if iter.nextEntry.Error != nil {
+        return false
+    }
+
+    return true
+}
+
+func (iter *MemorySiblingSetIterator) Prefix() []byte {
+    return iter.nextEntry.Prefix
+}
+
+func (iter *MemorySiblingSetIterator) Key() []byte {
+    return iter.nextEntry.Key
+}
+
+func (iter *MemorySiblingSetIterator) Value() *SiblingSet {
+    return iter.nextEntry.Value
+}
+
+func (iter *MemorySiblingSetIterator) Release() {
+}
+
+func (iter *MemorySiblingSetIterator) Error() error {
+    if iter.nextEntry == nil {
+        return nil
+    }
+
+    return iter.nextEntry.Error
 }

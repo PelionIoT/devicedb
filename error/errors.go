@@ -76,3 +76,13 @@ var (
     EBucketDoesNotExist    = DBerror{ "The site does not contain the specified bucket.", eNO_SUCH_BUCKET }
     ENoQuorum              = DBerror{ "The database operation was not able to achieve participation from the necessary number of replicas.", eNO_QUORUM }
 )
+
+func DBErrorFromJSON(encodedError []byte) (DBerror, error) {
+    var dbError DBerror
+
+    if err := json.Unmarshal(encodedError, &dbError); err != nil {
+        return DBerror{}, err
+    }
+
+    return dbError, nil
+}

@@ -586,6 +586,15 @@ func (clusterController *ClusterController) LocalNodeIsInCluster() bool {
     return ok
 }
 
+func (clusterController *ClusterController) NodeIsInCluster(nodeID uint64) bool {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+   
+    _, ok := clusterController.State.Nodes[nodeID]
+
+    return ok
+}
+
 func (clusterController *ClusterController) LocalNodeWasRemovedFromCluster() bool {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

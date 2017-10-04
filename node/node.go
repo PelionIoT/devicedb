@@ -1,5 +1,12 @@
 package node
 
+import (
+    "context"
+    
+    . "devicedb/bucket"
+    . "devicedb/data"
+)
+
 // A Node coordinates interactions between
 // internal node components
 type Node interface {
@@ -22,4 +29,7 @@ type Node interface {
     Start(options NodeInitializationOptions) error
     // Shut down the node
     Stop()
+    Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
+    Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
+    GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
 }

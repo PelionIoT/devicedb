@@ -165,7 +165,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     // state before changes to its partitions ownership and partition transfers
     // occur
     node.transferAgent = NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
-    node.clusterioAgent = clusterio.NewAgent(NewNodeClient(node.configController), NewPartitionResolver(node.configController))
+    node.clusterioAgent = clusterio.NewAgent(NewNodeClient(node, node.configController), NewPartitionResolver(node.configController))
     stateCoordinator.InitializeNodeState()
 
     serverStopResult := node.startNetworking()
@@ -566,6 +566,18 @@ func (node *ClusterNode) decommission(ctx context.Context) error {
     }
 
     return EDecommissioned
+}
+
+func (node *ClusterNode) Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+    return nil
+}
+
+func (node *ClusterNode) Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+    return nil, nil
+}
+
+func (node *ClusterNode) GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+    return nil, nil
 }
 
 type ClusterNodeFacade struct {
