@@ -413,6 +413,13 @@ func (clusterController *ClusterController) PartitionOwners(partition uint64) []
     return clusterController.PartitioningStrategy.Owners(clusterController.State.Tokens, partition, clusterController.State.ClusterSettings.ReplicationFactor)
 }
 
+func (clusterController *ClusterController) LocalNodeHoldsPartition(partition uint64) bool {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    return len(clusterController.State.Nodes[clusterController.LocalNodeID].PartitionReplicas[partition]) > 0
+}
+
 func (clusterController *ClusterController) PartitionHolders(partition uint64) []uint64 {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

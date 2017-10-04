@@ -95,6 +95,14 @@ var _ = Describe("ClusterioNodeClient", func() {
                 }
             })
 
+            Context("And if the call to Batch() on the local node returns ENoQuorum", func() {
+                It("Should return an error", func() {
+                    localNode.defaultBatchError = ENoQuorum
+
+                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(ENoQuorum))
+                })
+            })
+
             Context("And if the call to Batch() on the local node returns ENoSuchPartition", func() {
                 It("Should return an error", func() {
                     localNode.defaultBatchError = ENoSuchPartition
@@ -236,10 +244,48 @@ var _ = Describe("ClusterioNodeClient", func() {
             })
 
             Context("And the http request responds with a 200 status code", func() {
-                It("Should return nil", func() {
-                    server.AppendHandlers(ghttp.RespondWith(http.StatusOK, ""))
-                    Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Not(HaveOccurred()))
-                    Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                Context("And the response body cannot be parsed as a BatchResult as defined in the routes module", func() {
+                    It("Should return an error", func() {
+                        server.AppendHandlers(ghttp.RespondWith(http.StatusOK, "asdf"))
+                        Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                        Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                    })
+                })
+
+                Context("And the response body can be parsed as a BatchResult", func() {
+                    var batchResult BatchResult
+
+                    Context("And the NApplied field is 0", func() {
+                        BeforeEach(func() {
+                            batchResult.NApplied = 0
+                        })
+
+                        It("Should return ENoQuorum", func() {
+                            encodedBatchResult, err := json.Marshal(batchResult)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
+                            Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(ENoQuorum))
+                            Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                        })
+                    })
+
+                    Context("And the NApplied field is not 0", func() {
+                        BeforeEach(func() {
+                            batchResult.NApplied = 1
+                        })
+
+                        It("Should return nil", func() {
+                            encodedBatchResult, err := json.Marshal(batchResult)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
+                            Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Not(HaveOccurred()))
+                            Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                        })
+                    })
                 })
             })
 

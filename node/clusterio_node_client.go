@@ -78,6 +78,16 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
 
         return dbErr
     case 200:
+        var batchResult BatchResult
+
+        if err := json.Unmarshal(body, &batchResult); err != nil {
+            return err
+        }
+
+        if batchResult.NApplied == 0 {
+            return ENoQuorum
+        }
+
         return nil
     default:
         return EStorage

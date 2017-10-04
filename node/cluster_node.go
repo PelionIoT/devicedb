@@ -590,6 +590,10 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
     _, err := bucket.Batch(updateBatch)
 
     if err != nil {
+        return err
+    }
+
+    if !node.configController.ClusterController().LocalNodeHoldsPartition(partitionNumber) {
         return ENoQuorum
     }
 
