@@ -451,6 +451,10 @@ var _ = Describe("Cluster Operation", func() {
             })
 
             Describe("Making enough cluster configuration updates so that compaction occurs and then bringing on another node so it receives a snapshot", func() {
+                AfterEach(func() {
+                    nextPort += 2
+                })
+
                 It("Should allow the new node to be brough into the cluster successfully and it should have a consistent snapshot of the cluster state", func() {
                     // Add lots of sites. Once site addition = one raft log entry
                     fmt.Println("---------------------------ADDING LOTS OF SITES-------------------------")
@@ -458,6 +462,36 @@ var _ = Describe("Cluster Operation", func() {
                         Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
                     }
                     fmt.Println("---------------------------ADDED LOTS OF SITES-------------------------")
+
+                    // Add new node to the cluster
+                    nodeServer := tempServer(nextPort + (clusterSize * 2), nextPort + (clusterSize * 2) + 1)
+                    nodeStorage := tempStorageDriver()
+                    newNode := node.New(node.ClusterNodeConfig{
+                        CloudServer: nodeServer,
+                        StorageDriver: nodeStorage,
+                    })
+                    nodeInitialized := make(chan int)
+                    nodeStopped := make(chan error)
+
+                    go func() {
+                        nodeStopped <- newNode.Start(node.NodeInitializationOptions{
+                            JoinCluster: true,
+                            SeedNodeHost: "localhost",
+                            SeedNodePort: nextPort,
+                        })
+                    }()
+
+                    newNode.OnInitialized(func() {
+                        nodeInitialized <- 1
+                    })
+
+                    select {
+                    case <-nodeInitialized:
+                    case <-nodeStopped:
+                        Fail("Node was never initialized.")
+                    }
+
+                    Expect(newNode.ClusterConfigController().ClusterController().State).Should(Equal(nodes[0].ClusterConfigController().ClusterController().State))
                 })
             })
         })

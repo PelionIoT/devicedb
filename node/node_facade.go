@@ -11,6 +11,13 @@ func (nodeFacade *NodeCoordinatorFacade) ID() uint64 {
 func (nodeFacade *NodeCoordinatorFacade) AddPartition(partitionNumber uint64) {
     if nodeFacade.node.partitionPool.Get(partitionNumber) == nil {
         partition := nodeFacade.node.partitionFactory.CreatePartition(partitionNumber, nodeFacade.node.sitePool(partitionNumber))
+
+        for siteID, _ := range nodeFacade.node.ClusterConfigController().ClusterController().State.Sites {
+            if nodeFacade.node.configController.ClusterController().Partition(siteID) == partitionNumber {
+                partition.Sites().Add(siteID)
+            }
+        }
+
         partition.LockReads()
         partition.LockWrites()
         nodeFacade.node.partitionPool.Add(partition)
