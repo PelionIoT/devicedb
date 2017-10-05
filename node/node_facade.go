@@ -137,5 +137,5 @@ func (nodeFacade *NodeCoordinatorFacade) NotifyLeftCluster() {
 }
     
 func (nodeFacade *NodeCoordinatorFacade) NotifyEmpty() {
-    nodeFacade.node.empty <- 1
+    nodeFacade.node.notifyEmpty()
 }

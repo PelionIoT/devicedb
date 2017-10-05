@@ -61,6 +61,7 @@ type ClusterNode struct {
     merkleDepth uint8
     shutdownDecommissioner func()
     lock sync.Mutex
+    emptyMu sync.Mutex
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -122,7 +123,6 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.shutdown = make(chan int)
     node.joinedCluster = make(chan int, 1)
     node.leftCluster = make(chan int, 1)
-    node.empty = make(chan int, 1)
 
     if err := node.openStorageDriver(); err != nil {
         return err
@@ -475,6 +475,8 @@ func (node *ClusterNode) joinCluster(seedHost string, seedPort int) error {
 func (node *ClusterNode) LeaveCluster() (error, <-chan error) {
     node.lock.Lock()
     defer node.lock.Unlock()
+    
+    node.waitForEmpty()
 
     // allow at mot one decommissioner
     if node.shutdownDecommissioner != nil {
@@ -498,6 +500,22 @@ func (node *ClusterNode) LeaveCluster() (error, <-chan error) {
     }()
 
     return nil, node.leftClusterResult
+}
+
+func (node *ClusterNode) waitForEmpty() {
+    node.emptyMu.Lock()
+    defer node.emptyMu.Unlock()
+
+    node.empty = make(chan int, 1)
+}
+
+func (node *ClusterNode) notifyEmpty() {
+    node.emptyMu.Lock()
+    defer node.emptyMu.Unlock()
+
+    if node.empty != nil {
+        node.empty <- 1
+    }
 }
 
 func (node *ClusterNode) decommission(ctx context.Context) error {
@@ -594,7 +612,6 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
     }
 
     if !node.configController.ClusterController().LocalNodeHoldsPartition(partitionNumber) {
-        Log.Errorf("RETURNING E QUORUM NOW")
         return ENoQuorum
     }
 

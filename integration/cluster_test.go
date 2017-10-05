@@ -15,6 +15,7 @@ import (
     . "devicedb/data"
     . "devicedb/error"
     "devicedb/node"
+    "devicedb/raft"
     "devicedb/server"
     . "devicedb/storage"
     . "devicedb/util"
@@ -419,7 +420,7 @@ var _ = Describe("Cluster Operation", func() {
                     })
                 }
 
-                clusterClient = client.New(client.APIClientConfig{ Servers: servers })
+                clusterClient = client.New(client.APIClientConfig{ Servers: servers[:1] })
 
                 for i := 0; i < clusterSize; i++ {
                     select {
@@ -446,8 +447,18 @@ var _ = Describe("Cluster Operation", func() {
                 }
             })
 
-            It("Should work", func() {
+            Specify("Bringing up multiple nodes at once should eventually work", func() {
+            })
 
+            Describe("Making enough cluster configuration updates so that compaction occurs and then bringing on another node so it receives a snapshot", func() {
+                It("Should allow the new node to be brough into the cluster successfully and it should have a consistent snapshot of the cluster state", func() {
+                    // Add lots of sites. Once site addition = one raft log entry
+                    fmt.Println("---------------------------ADDING LOTS OF SITES-------------------------")
+                    for i := 0; i < raft.LogCompactionSize * 2; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
+                    }
+                    fmt.Println("---------------------------ADDED LOTS OF SITES-------------------------")
+                })
             })
         })
     })

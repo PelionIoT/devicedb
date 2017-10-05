@@ -177,8 +177,6 @@ func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNod
         }
     }
 
-    Log.Warningf("Add node %d host: %s, port: %d", clusterCommand.NodeID, clusterCommand.NodeConfig.Address.Host, clusterCommand.NodeConfig.Address.Port)
-
     // add the node if it isn't already added
     clusterCommand.NodeConfig.Tokens = make(map[uint64]bool)
     clusterCommand.NodeConfig.PartitionReplicas = make(map[uint64]map[uint64]bool)

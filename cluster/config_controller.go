@@ -233,10 +233,12 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
 
     respCh := cc.requestMap.MakeRequest(command.CommandID)
 
+    Log.Infof("%d Make proposition", cc.clusterController.LocalNodeID)
     if err := cc.raftNode.Propose(ctx, encodedCommand); err != nil {
         cc.requestMap.Respond(command.CommandID, nil)
         return err
     }
+    Log.Infof("Made proposition")
 
     select {
     case resp := <-respCh:
