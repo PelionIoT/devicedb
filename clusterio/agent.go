@@ -57,17 +57,33 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
+    var appliedNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
+
     for _, nodeID := range replicaNodes {
+        if appliedNodes[nodeID] {
+            continue
+        }
+
+        appliedNodes[nodeID] = true
+
         go func(nodeID uint64) {
             if err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch); err != nil {
                 Log.Errorf("Unable to replicate batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                failed <- err
+                for _, n := range replicaNodes {
+                    if nodeID == n {
+                        failed <- err
+                    }
+                }
 
                 return
             }
 
-            applied <- 1
+            for _, n := range replicaNodes {
+                if nodeID == n {
+                    applied <- 1
+                }
+            }
         }(nodeID)
     }
 
@@ -127,19 +143,35 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
+    var appliedNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
+    
     for _, nodeID := range replicaNodes {
+        if appliedNodes[nodeID] {
+            continue
+        }
+
+        appliedNodes[nodeID] = true
+
         go func(nodeID uint64) {
             siblingSets, err := agent.NodeClient.Get(ctxDeadline, nodeID, partitionNumber, siteID, bucket, keys)
 
             if err != nil {
                 Log.Errorf("Unable to get keys from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                failed <- err
+                for _, n := range replicaNodes {
+                    if nodeID == n {
+                        failed <- err
+                    }
+                }
 
                 return
             }
 
-            readResults <- getResult{ nodeID: nodeID, siblingSets: siblingSets }
+            for _, n := range replicaNodes {
+                if nodeID == n {
+                    readResults <- getResult{ nodeID: nodeID, siblingSets: siblingSets }
+                }
+            }
         }(nodeID)
     }
 
@@ -164,7 +196,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
 
                 if nRead == agent.NQuorum(len(replicaNodes)) {
                     // calculate result set
-                    var resultSet []*SiblingSet = make([]*SiblingSet, len(replicaNodes))
+                    var resultSet []*SiblingSet = make([]*SiblingSet, len(keys))
 
                     for i, key := range keys {
                         resultSet[i] = readMerger.Get(string(key))
@@ -201,19 +233,35 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
+    var appliedNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
+
     for _, nodeID := range replicaNodes {
+        if appliedNodes[nodeID] {
+            continue
+        }
+
+        appliedNodes[nodeID] = true
+
         go func(nodeID uint64) {
             ssIterator, err := agent.NodeClient.GetMatches(ctxDeadline, nodeID, partitionNumber, siteID, bucket, keys)
 
             if err != nil {
                 Log.Errorf("Unable to get matches from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                failed <- err
+                for _, n := range replicaNodes {
+                    if nodeID == n {
+                        failed <- err
+                    }
+                }
 
                 return
             }
 
-            readResults <- getMatchesResult{ nodeID: nodeID, siblingSetIterator: ssIterator }
+            for _, n := range replicaNodes {
+                if nodeID == n {
+                    readResults <- getMatchesResult{ nodeID: nodeID, siblingSetIterator: ssIterator }
+                }
+            }
         }(nodeID)
     }
 

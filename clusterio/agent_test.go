@@ -74,44 +74,88 @@ var _ = Describe("Agent", func() {
             }
         })
 
-        It("Should call NodeClient.Batch() once for each node returned by its call to ReplicaNodes", func() {
-            partitionResolver := NewMockPartitionResolver()
-            nodeClient := NewMockNodeClient()
-            partitionResolver.defaultPartitionResponse = 500
-            partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-            nodeClientBatchCalled := make(chan int, 3)
-            var mapMutex sync.Mutex
-            remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
-            nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                defer GinkgoRecover()
+        Context("When all nodes returned by the call to ReplicaNodes are unique", func() {
+            It("Should call NodeClient.Batch() once for each node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                nodeClientBatchCalled := make(chan int, 3)
+                var mapMutex sync.Mutex
+                remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
+                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+                    defer GinkgoRecover()
 
-                mapMutex.Lock()
-                defer mapMutex.Unlock()
-                _, ok := remainingNodes[nodeID]
-                Expect(ok).Should(BeTrue())
-                delete(remainingNodes, nodeID)
-                Expect(partition).Should(Equal(uint64(500)))
-                Expect(siteID).Should(Equal("site1"))
-                Expect(bucket).Should(Equal("default"))
+                    mapMutex.Lock()
+                    defer mapMutex.Unlock()
+                    _, ok := remainingNodes[nodeID]
+                    Expect(ok).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
 
-                nodeClientBatchCalled <- 1
+                    nodeClientBatchCalled <- 1
 
-                return nil
-            }
-
-            agent := NewAgent(nil, nil)
-            agent.PartitionResolver = partitionResolver
-            agent.NodeClient = nodeClient
-
-            agent.Batch(context.TODO(), "site1", "default", nil)
-
-            for i := 0; i < 3; i += 1 {
-                select {
-                case <-nodeClientBatchCalled:
-                case <-time.After(time.Second):
-                    Fail("Should have invoked NodeClient.Batch()")
+                    return nil
                 }
-            }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+
+                agent.Batch(context.TODO(), "site1", "default", nil)
+
+                for i := 0; i < 3; i += 1 {
+                    select {
+                    case <-nodeClientBatchCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Batch()")
+                    }
+                }
+            })
+        })
+
+        Context("When some nodes returned by the call to ReplicaNodes are duplicated", func() {
+            It("Should call NodeClient.Batch() once for each unique node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 4 }
+                nodeClientBatchCalled := make(chan int, 2)
+                var mapMutex sync.Mutex
+                remainingNodes := map[uint64]bool{ 2: true, 4: true }
+                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+                    defer GinkgoRecover()
+
+                    mapMutex.Lock()
+                    defer mapMutex.Unlock()
+                    _, ok := remainingNodes[nodeID]
+                    Expect(ok).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+
+                    nodeClientBatchCalled <- 1
+
+                    return nil
+                }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+
+                agent.Batch(context.TODO(), "site1", "default", nil)
+
+                for i := 0; i < 2; i += 1 {
+                    select {
+                    case <-nodeClientBatchCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Batch()")
+                    }
+                }
+            })
         })
 
         Context("When no quorum is not established", func() {
@@ -500,46 +544,92 @@ var _ = Describe("Agent", func() {
             }
         })
 
-        It("Should call NodeClient.Get() once for each node returned by its call to ReplicaNodes", func() {
-            partitionResolver := NewMockPartitionResolver()
-            nodeClient := NewMockNodeClient()
-            partitionResolver.defaultPartitionResponse = 500
-            partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-            nodeClientGetCalled := make(chan int, 3)
-            var mapMutex sync.Mutex
-            remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
-            nodeClient.getCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
-                defer GinkgoRecover()
+        Context("When all nodes returned by the call to ReplicaNodes are unique", func() {
+            It("Should call NodeClient.Get() once for each node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                nodeClientGetCalled := make(chan int, 3)
+                var mapMutex sync.Mutex
+                remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
+                nodeClient.getCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+                    defer GinkgoRecover()
 
-                mapMutex.Lock()
-                defer mapMutex.Unlock()
-                _, ok := remainingNodes[nodeID]
-                Expect(ok).Should(BeTrue())
-                delete(remainingNodes, nodeID)
-                Expect(partition).Should(Equal(uint64(500)))
-                Expect(siteID).Should(Equal("site1"))
-                Expect(bucket).Should(Equal("default"))
-                Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b"), []byte("c") }))
+                    mapMutex.Lock()
+                    defer mapMutex.Unlock()
+                    _, ok := remainingNodes[nodeID]
+                    Expect(ok).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+                    Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b"), []byte("c") }))
 
-                nodeClientGetCalled <- 1
+                    nodeClientGetCalled <- 1
 
-                return []*SiblingSet{ nil, nil, nil }, nil
-            }
-
-            agent := NewAgent(nil, nil)
-            agent.PartitionResolver = partitionResolver
-            agent.NodeClient = nodeClient
-            agent.NodeReadRepairer = NewMockNodeReadRepairer()
-
-            agent.Get(context.TODO(), "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
-
-            for i := 0; i < 3; i += 1 {
-                select {
-                case <-nodeClientGetCalled:
-                case <-time.After(time.Second):
-                    Fail("Should have invoked NodeClient.Get()")
+                    return []*SiblingSet{ nil, nil, nil }, nil
                 }
-            }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+                agent.NodeReadRepairer = NewMockNodeReadRepairer()
+
+                agent.Get(context.TODO(), "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
+
+                for i := 0; i < 3; i += 1 {
+                    select {
+                    case <-nodeClientGetCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Get()")
+                    }
+                }
+            })
+        })
+
+        Context("When some nodes returned by the call to ReplicaNodes are duplicated", func() {
+            It("Should call NodeClient.Get() once for each unique node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 4 }
+                nodeClientGetCalled := make(chan int, 2)
+                var mapMutex sync.Mutex
+                remainingNodes := map[uint64]bool{ 2: true, 4: true }
+                nodeClient.getCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
+                    defer GinkgoRecover()
+
+                    mapMutex.Lock()
+                    defer mapMutex.Unlock()
+                    _, ok := remainingNodes[nodeID]
+                    Expect(ok).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+                    Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b"), []byte("c") }))
+
+                    nodeClientGetCalled <- 1
+
+                    return []*SiblingSet{ nil, nil, nil }, nil
+                }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+                agent.NodeReadRepairer = NewMockNodeReadRepairer()
+
+                agent.Get(context.TODO(), "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
+
+                for i := 0; i < 2; i += 1 {
+                    select {
+                    case <-nodeClientGetCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Get()")
+                    }
+                }
+            })
         })
 
         Context("When no quorum is established", func() {
@@ -1023,46 +1113,92 @@ var _ = Describe("Agent", func() {
             }
         })
 
-        It("Should call NodeClient.GetMatches() once for each node returned by its call to ReplicaNodes", func() {
-            partitionResolver := NewMockPartitionResolver()
-            nodeClient := NewMockNodeClient()
-            partitionResolver.defaultPartitionResponse = 500
-            partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-            nodeClientGetMatchesCalled := make(chan int, 3)
-            var mapMutex sync.Mutex
-            remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
-            nodeClient.getMatchesCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
-                defer GinkgoRecover()
+        Context("When all nodes returned by the call to ReplicaNodes are unique", func() {
+            It("Should call NodeClient.GetMatches() once for each node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                nodeClientGetMatchesCalled := make(chan int, 3)
+                var mapMutex sync.Mutex
+                remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
+                nodeClient.getMatchesCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+                    defer GinkgoRecover()
 
-                mapMutex.Lock()
-                defer mapMutex.Unlock()
-                _, ok := remainingNodes[nodeID]
-                Expect(ok).Should(BeTrue())
-                delete(remainingNodes, nodeID)
-                Expect(partition).Should(Equal(uint64(500)))
-                Expect(siteID).Should(Equal("site1"))
-                Expect(bucket).Should(Equal("default"))
-                Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b"), []byte("c") }))
+                    mapMutex.Lock()
+                    defer mapMutex.Unlock()
+                    _, ok := remainingNodes[nodeID]
+                    Expect(ok).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+                    Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b"), []byte("c") }))
 
-                nodeClientGetMatchesCalled <- 1
+                    nodeClientGetMatchesCalled <- 1
 
-                return NewMemorySiblingSetIterator(), nil
-            }
-
-            agent := NewAgent(nil, nil)
-            agent.PartitionResolver = partitionResolver
-            agent.NodeClient = nodeClient
-            agent.NodeReadRepairer = NewMockNodeReadRepairer()
-
-            agent.GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
-
-            for i := 0; i < 3; i += 1 {
-                select {
-                case <-nodeClientGetMatchesCalled:
-                case <-time.After(time.Second):
-                    Fail("Should have invoked NodeClient.Get()")
+                    return NewMemorySiblingSetIterator(), nil
                 }
-            }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+                agent.NodeReadRepairer = NewMockNodeReadRepairer()
+
+                agent.GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
+
+                for i := 0; i < 3; i += 1 {
+                    select {
+                    case <-nodeClientGetMatchesCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Get()")
+                    }
+                }
+            })
+        })
+
+        Context("When some nodes returned by the call to ReplicaNodes are duplicates", func() {
+            It("Should call NodeClient.GetMatches() once for each unique node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 4 }
+                nodeClientGetMatchesCalled := make(chan int, 3)
+                var mapMutex sync.Mutex
+                remainingNodes := map[uint64]bool{ 2: true, 4: true }
+                nodeClient.getMatchesCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
+                    defer GinkgoRecover()
+
+                    mapMutex.Lock()
+                    defer mapMutex.Unlock()
+                    _, ok := remainingNodes[nodeID]
+                    Expect(ok).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+                    Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b"), []byte("c") }))
+
+                    nodeClientGetMatchesCalled <- 1
+
+                    return NewMemorySiblingSetIterator(), nil
+                }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+                agent.NodeReadRepairer = NewMockNodeReadRepairer()
+
+                agent.GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
+
+                for i := 0; i < 2; i += 1 {
+                    select {
+                    case <-nodeClientGetMatchesCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Get()")
+                    }
+                }
+            })
         })
 
         Context("When no quorum is established", func() {

@@ -70,9 +70,25 @@ func (nodeFacade *NodeCoordinatorFacade) UnlockPartitionReads(partitionNumber ui
 }
 
 func (nodeFacade *NodeCoordinatorFacade) AddSite(siteID string) {
+    partitionNumber := nodeFacade.node.configController.ClusterController().Partition(siteID)
+    partition := nodeFacade.node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return
+    }
+
+    partition.Sites().Add(siteID)
 }
 
 func (nodeFacade *NodeCoordinatorFacade) RemoveSite(siteID string) {
+    partitionNumber := nodeFacade.node.configController.ClusterController().Partition(siteID)
+    partition := nodeFacade.node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return
+    }
+
+    partition.Sites().Remove(siteID)
 }
 
 func (nodeFacade *NodeCoordinatorFacade) AddRelay(relayID string) {

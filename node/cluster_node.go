@@ -9,7 +9,7 @@ import (
     "time"
 
     . "devicedb/bucket"
-    . "devicedb/client"
+    "devicedb/client"
     . "devicedb/cluster"
     "devicedb/clusterio"
     . "devicedb/data"
@@ -40,7 +40,7 @@ type ClusterNodeConfig struct {
 }
 
 type ClusterNode struct {
-    interClusterClient *Client
+    interClusterClient *client.Client
     configController ClusterConfigController
     configControllerBuilder ClusterConfigControllerBuilder
     cloudServer *CloudServer
@@ -74,7 +74,7 @@ func New(config ClusterNodeConfig) *ClusterNode {
         raftStore: NewRaftStorage(NewPrefixedStorageDriver([]byte{ RaftStoreStoragePrefix }, config.StorageDriver)),
         raftTransport: NewTransportHub(0),
         configControllerBuilder: &ConfigControllerBuilder{ },
-        interClusterClient: NewClient(ClientConfig{ }),
+        interClusterClient: client.NewClient(client.ClientConfig{ }),
         merkleDepth: config.MerkleDepth,
         partitionFactory: NewDefaultPartitionFactory(),
         partitionPool: NewDefaultPartitionPool(),
@@ -594,6 +594,7 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
     }
 
     if !node.configController.ClusterController().LocalNodeHoldsPartition(partitionNumber) {
+        Log.Errorf("RETURNING E QUORUM NOW")
         return ENoQuorum
     }
 
@@ -644,6 +645,10 @@ func (node *ClusterNode) GetMatches(ctx context.Context, partitionNumber uint64,
     return bucket.GetMatches(keys)
 }
 
+func (node *ClusterNode) ClusterIO() clusterio.ClusterIOAgent {
+    return node.clusterioAgent
+}
+
 type ClusterNodeFacade struct {
     node *ClusterNode
 }
@@ -660,7 +665,7 @@ func (clusterFacade *ClusterNodeFacade) ReplaceNode(ctx context.Context, nodeID 
     return clusterFacade.node.configController.ReplaceNode(ctx, nodeID, replacementNodeID)
 }
 
-func (clusterFacade *ClusterNodeFacade) ClusterClient() *Client {
+func (clusterFacade *ClusterNodeFacade) ClusterClient() *client.Client {
     return clusterFacade.node.interClusterClient
 }
 

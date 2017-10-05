@@ -190,6 +190,10 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
     }
 
     switch commandBody.(type) {
+    case ClusterAddNodeBody:
+        command.Type = ClusterAddNode
+    case ClusterRemoveNodeBody:
+        command.Type = ClusterRemoveNode
     case ClusterUpdateNodeBody:
         command.Type = ClusterUpdateNode
     case ClusterTakePartitionReplicaBody:
@@ -198,6 +202,14 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
         command.Type = ClusterSetReplicationFactor
     case ClusterSetPartitionCountBody:
         command.Type = ClusterSetPartitionCount
+    case ClusterAddSiteBody:
+        command.Type = ClusterAddSite
+    case ClusterRemoveSiteBody:
+        command.Type = ClusterRemoveSite
+    case ClusterAddRelayBody:
+        command.Type = ClusterAddRelay
+    case ClusterRemoveRelayBody:
+        command.Type = ClusterRemoveRelay
     default:
         return ENoSuchCommand
     }

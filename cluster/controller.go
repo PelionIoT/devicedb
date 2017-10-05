@@ -230,7 +230,7 @@ func (clusterController *ClusterController) RemoveNode(clusterCommand ClusterRem
 func (clusterController *ClusterController) TakePartitionReplica(clusterCommand ClusterTakePartitionReplicaBody) error {
     localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
 
-    partitionOwners := clusterController.PartitioningStrategy.Owners(clusterController.State.Tokens, clusterCommand.NodeID, clusterController.State.ClusterSettings.ReplicationFactor)
+    partitionOwners := clusterController.PartitioningStrategy.Owners(clusterController.State.Tokens, clusterCommand.Partition, clusterController.State.ClusterSettings.ReplicationFactor)
 
     if clusterCommand.Replica >= uint64(len(partitionOwners)) || len(partitionOwners) == 0 {
         // May be best to return an error
@@ -345,25 +345,45 @@ func (clusterController *ClusterController) SetPartitionCount(clusterCommand Clu
 }
 
 func (clusterController *ClusterController) AddSite(clusterCommand ClusterAddSiteBody) error {
+    if clusterController.State.SiteExists(clusterCommand.SiteID) {
+        return nil
+    }
+
     clusterController.State.AddSite(clusterCommand.SiteID)
+    clusterController.notifyLocalNode(DeltaSiteAdded, SiteAdded{ SiteID: clusterCommand.SiteID })
 
     return nil
 }
 
 func (clusterController *ClusterController) RemoveSite(clusterCommand ClusterRemoveSiteBody) error {
+    if !clusterController.State.SiteExists(clusterCommand.SiteID) {
+        return nil
+    }
+
     clusterController.State.RemoveSite(clusterCommand.SiteID)
+    clusterController.notifyLocalNode(DeltaSiteRemoved, SiteRemoved{ SiteID: clusterCommand.SiteID })
 
     return nil
 }
 
 func (clusterController *ClusterController) AddRelay(clusterCommand ClusterAddRelayBody) error {
+    if _, ok := clusterController.State.Relays[clusterCommand.RelayID]; ok {
+        return nil
+    }
+
     clusterController.State.AddRelay(clusterCommand.RelayID)
+    clusterController.notifyLocalNode(DeltaRelayAdded, RelayAdded{ RelayID: clusterCommand.RelayID })
 
     return nil
 }
 
 func (clusterController *ClusterController) RemoveRelay(clusterCommand ClusterRemoveRelayBody) error {
+    if _, ok := clusterController.State.Relays[clusterCommand.RelayID]; !ok {
+        return nil
+    }
+
     clusterController.State.RemoveRelay(clusterCommand.RelayID)
+    clusterController.notifyLocalNode(DeltaRelayRemoved, RelayRemoved{ RelayID: clusterCommand.RelayID })
 
     return nil
 }
@@ -377,7 +397,12 @@ func (clusterController *ClusterController) MoveRelay(clusterCommand ClusterMove
         return ENoSuchRelay
     }
 
+    if clusterController.State.Relays[clusterCommand.RelayID] == clusterCommand.SiteID {
+        return nil
+    }
+
     clusterController.State.MoveRelay(clusterCommand.RelayID, clusterCommand.SiteID)
+    clusterController.notifyLocalNode(DeltaRelayMoved, RelayMoved{ RelayID: clusterCommand.RelayID, SiteID: clusterCommand.SiteID })
 
     return nil
 }

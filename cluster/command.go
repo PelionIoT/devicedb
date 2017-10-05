@@ -283,6 +283,46 @@ func DecodeClusterCommandBody(command ClusterCommand) (interface{}, error) {
         }
 
         return body, nil
+    case ClusterAddSite:
+        var body ClusterAddSiteBody
+
+        if err := json.Unmarshal(command.Data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterRemoveSite:
+        var body ClusterRemoveSiteBody
+
+        if err := json.Unmarshal(command.Data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterAddRelay:
+        var body ClusterAddRelayBody
+
+        if err := json.Unmarshal(command.Data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterRemoveRelay:
+        var body ClusterRemoveRelayBody
+
+        if err := json.Unmarshal(command.Data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterMoveRelay:
+        var body ClusterMoveRelayBody
+
+        if err := json.Unmarshal(command.Data, &body); err != nil {
+            break
+        }
+
+        return body, nil
     default:
         return nil, ENoSuchCommand
     }
