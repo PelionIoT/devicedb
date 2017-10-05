@@ -5,6 +5,7 @@ import (
     "crypto/tls"
     "crypto/x509"
     "errors"
+    "fmt"
     "io/ioutil"
     "time"
 
@@ -12,6 +13,7 @@ import (
     . "devicedb/cluster"
     "devicedb/client"
     . "devicedb/data"
+    . "devicedb/error"
     "devicedb/node"
     "devicedb/server"
     . "devicedb/storage"
@@ -20,6 +22,8 @@ import (
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
 )
+
+var nextPort = 9000
 
 func loadCerts(id string) (*tls.Config, *tls.Config, error) {
     clientCertificate, err := tls.LoadX509KeyPair("../test_certs/" + id + ".client.cert.pem", "../test_certs/" + id + ".client.key.pem")
@@ -79,69 +83,371 @@ func tempStorageDriver() StorageDriver {
 
 var _ = Describe("Cluster Operation", func() {
     Describe("Cluster IO", func() {
-        Context("Single node cluster", func() {
+        Context("In a single node cluster", func() {
             var clusterClient *client.APIClient
             var node1Server *server.CloudServer
             var node1 *node.ClusterNode
             var node1Storage StorageDriver
+            var nodeInitialized chan int = make(chan int)
+            var nodeStopped chan error = make(chan error)
 
             BeforeEach(func() {
-                node1Server = tempServer(8080, 9090)
+                node1Server = tempServer(nextPort, nextPort + 1)
                 node1Storage = tempStorageDriver()
                 node1 = node.New(node.ClusterNodeConfig{
                     CloudServer: node1Server,
                     StorageDriver: node1Storage,
                 })
-                clusterClient = client.New(client.APIClientConfig{ Servers: []string{ "localhost:8080" } })
+                clusterClient = client.New(client.APIClientConfig{ Servers: []string{ fmt.Sprintf("localhost:%d", nextPort) } })
+                go func() {
+                    nodeStopped <- node1.Start(node.NodeInitializationOptions{ 
+                        StartCluster: true,
+                        ClusterSettings: ClusterSettings{
+                            Partitions: 4,
+                            ReplicationFactor: 3,
+                        },
+                    })
+                }()
+
+                node1.OnInitialized(func() {
+                    nodeInitialized <- 1
+                })
+
+                select {
+                case <-nodeInitialized:
+                case <-nodeStopped:
+                    Fail("Node was never initialized.")
+                }
             })
 
-            Describe("Batch update should be successful and replicate to the single node", func() {
-                Specify("It should be replicated to the RF number of nodes", func() {
-                    var nodeInitialized chan int = make(chan int)
-                    var nodeStopped chan error = make(chan error)
+            AfterEach(func() {
+                nextPort += 2
+                node1.Stop()
 
-                    go func() {
-                        nodeStopped <- node1.Start(node.NodeInitializationOptions{ 
-                            StartCluster: true,
-                            ClusterSettings: ClusterSettings{
-                                Partitions: 4,
-                                ReplicationFactor: 3,
-                            },
-                        })
-                    }()
+                select {
+                case <-nodeStopped:
+                case <-time.After(time.Second):
+                    Fail("Unable to stop node")
+                }
+            })
 
-                    node1.OnInitialized(func() {
-                        nodeInitialized <- 1
+            Describe("Putting a key into a site", func() {
+                Context("When that site was added but has since been removed", func() {
+                    BeforeEach(func() {
+                        Expect(clusterClient.AddSite(context.TODO(), "site1")).Should(Not(HaveOccurred()))
+                        Expect(clusterClient.RemoveSite(context.TODO(), "site1")).Should(Not(HaveOccurred()))
                     })
 
+                    It("Should fail with an ESiteDoesNotExist error", func() {
+                        // This timeout should work most of the time. May fail if partition transfers don't complete before this test is started
+                        <-time.After(time.Second)
+                        var err error
+                        var update *UpdateBatch = NewUpdateBatch()
+                        _, err = update.Put([]byte("a"), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                        Expect(err).Should(Not(HaveOccurred()))
+
+                        _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+                    })
+                })
+
+                Context("When that site has not been added", func() {
+                    It("Should fail with an ESiteDoesNotExist error", func() {
+                        // This timeout should work most of the time. May fail if partition transfers don't complete before this test is started
+                        <-time.After(time.Second)
+                        var err error
+                        var update *UpdateBatch = NewUpdateBatch()
+                        _, err = update.Put([]byte("a"), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                        Expect(err).Should(Not(HaveOccurred()))
+
+                        _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+                    })
+                })
+
+                Context("When that site has been added", func() {
+                    BeforeEach(func() {
+                        Expect(clusterClient.AddSite(context.TODO(), "site1")).Should(Not(HaveOccurred()))
+                    })
+
+                    Context("And the bucket is not valid", func() {
+                        It("Should fail with an EBucketDoesNotExist error", func() {
+                            <-time.After(time.Second)
+                            var err error
+                            var update *UpdateBatch = NewUpdateBatch()
+                            _, err = update.Put([]byte("a"), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "badbucket", update)
+
+                            Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                            _, err = node1.ClusterIO().Get(context.TODO(), "site1", "badbucket", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                            _, err = node1.ClusterIO().GetMatches(context.TODO(), "site1", "badbucket", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Equal(EBucketDoesNotExist))
+                        })
+                    })
+
+                    Context("And the bucket is valid", func() {
+                        It("should succeed in being written to the single node for that site", func() {
+                            var err error
+                            var update *UpdateBatch = NewUpdateBatch()
+                            _, err = update.Put([]byte("a"), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            siblingSets, err := node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(len(siblingSets)).Should(Equal(1))
+                            Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))
+
+                            siblingSetIterator, err := node1.ClusterIO().GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(siblingSetIterator.Next()).Should(BeTrue())
+                            Expect(siblingSetIterator.Prefix()).Should(Equal([]byte("a")))
+                            Expect(siblingSetIterator.Key()).Should(Equal([]byte("a")))
+                            Expect(siblingSetIterator.Value().Value()).Should(Equal([]byte("hello")))
+                        })
+                    })
+                })
+            })
+
+            Describe("Deleting a key from a site", func() {
+                Context("When that site was added but has since been removed", func() {
+                    BeforeEach(func() {
+                        Expect(clusterClient.AddSite(context.TODO(), "site1")).Should(Not(HaveOccurred()))
+                        Expect(clusterClient.RemoveSite(context.TODO(), "site1")).Should(Not(HaveOccurred()))
+                    })
+
+                    It("Should fail with an ESiteDoesNotExist error", func() {
+                        // This timeout should work most of the time. May fail if partition transfers don't complete before this test is started
+                        <-time.After(time.Second)
+                        var err error
+                        var update *UpdateBatch = NewUpdateBatch()
+                        _, err = update.Delete([]byte("a"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                        Expect(err).Should(Not(HaveOccurred()))
+
+                        _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+                    })
+                })
+
+                Context("When that site has not been added", func() {
+                    It("Should fail with an ESiteDoesNotExist error", func() {
+                        // This timeout should work most of the time. May fail if partition transfers don't complete before this test is started
+                        <-time.After(time.Second)
+                        var err error
+                        var update *UpdateBatch = NewUpdateBatch()
+                        _, err = update.Delete([]byte("a"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                        Expect(err).Should(Not(HaveOccurred()))
+
+                        _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                        _, err = node1.ClusterIO().GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
+                    })
+                })
+
+                Context("When that site has been added", func() {
+                    BeforeEach(func() {
+                        Expect(clusterClient.AddSite(context.TODO(), "site1")).Should(Not(HaveOccurred()))
+
+                        var update *UpdateBatch = NewUpdateBatch()
+                        _, err := update.Put([]byte("a"), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                        Expect(err).Should(Not(HaveOccurred()))
+
+                        _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                        Expect(err).Should(Not(HaveOccurred()))
+                    })
+
+                    Context("And the bucket is not valid", func() {
+                        It("Should fail with an EBucketDoesNotExist error", func() {
+                            var err error
+                            var update *UpdateBatch = NewUpdateBatch()
+                            _, err = update.Delete([]byte("a"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "badbucket", update)
+
+                            Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                            _, err = node1.ClusterIO().Get(context.TODO(), "site1", "badbucket", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Equal(EBucketDoesNotExist))
+
+                            _, err = node1.ClusterIO().GetMatches(context.TODO(), "site1", "badbucket", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Equal(EBucketDoesNotExist))
+                        })
+                    })
+
+                    Context("And the bucket is valid", func() {
+                        It("should succeed in deleting that key from the single node for that site", func() {
+                            <-time.After(time.Second)
+                            var err error
+                            var update *UpdateBatch = NewUpdateBatch()
+
+                            siblingSets, err := node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(len(siblingSets)).Should(Equal(1))
+
+                            _, err = update.Delete([]byte("a"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            siblingSets, err = node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(len(siblingSets)).Should(Equal(1))
+                            Expect(siblingSets[0].IsTombstoneSet()).Should(BeTrue())
+                            Expect(siblingSets[0].Value()).Should(BeNil())
+
+                            siblingSetIterator, err := node1.ClusterIO().GetMatches(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(siblingSetIterator.Next()).Should(BeTrue())
+                            Expect(siblingSetIterator.Value().IsTombstoneSet()).Should(BeTrue())
+                            Expect(siblingSetIterator.Value().Value()).Should(BeNil())
+                        })
+                    })
+                })
+            })
+        })
+
+        Context("In a multi node cluster", func() {
+            var clusterSize int = 5
+            var clusterClient *client.APIClient
+            var nodes []*node.ClusterNode
+            var nodeInitialized chan int
+            var nodeStopped chan error
+
+            BeforeEach(func() {
+                nodes = make([]*node.ClusterNode, clusterSize)
+                servers := make([]string, clusterSize)
+                nodeInitialized = make(chan int, clusterSize)
+                nodeStopped = make(chan error, clusterSize)
+
+                for i := 0; i < clusterSize; i++ {
+                    nodeServer := tempServer(nextPort + (i * 2), nextPort + (i * 2) + 1)
+                    nodeStorage := tempStorageDriver()
+                    nodes[i] = node.New(node.ClusterNodeConfig{
+                        CloudServer: nodeServer,
+                        StorageDriver: nodeStorage,
+                    })
+
+                    servers[i] = fmt.Sprintf("localhost:%d", nextPort + (i * 2))
+
+                    go func(nodeIndex int) {
+                        if nodeIndex == 0 {
+                            nodeStopped <- nodes[nodeIndex].Start(node.NodeInitializationOptions{ 
+                                StartCluster: true,
+                                ClusterSettings: ClusterSettings{
+                                    Partitions: 4,
+                                    ReplicationFactor: 3,
+                                },
+                                ClusterHost: "localhost",
+                                ClusterPort: nextPort,
+                            })
+                        } else {
+                            nodeStopped <- nodes[nodeIndex].Start(node.NodeInitializationOptions{
+                                JoinCluster: true,
+                                SeedNodeHost: "localhost",
+                                SeedNodePort: nextPort,
+                            })
+                        }
+                    }(i)
+
+                    nodes[i].OnInitialized(func() {
+                        nodeInitialized <- i
+                    })
+                }
+
+                clusterClient = client.New(client.APIClientConfig{ Servers: servers })
+
+                for i := 0; i < clusterSize; i++ {
                     select {
                     case <-nodeInitialized:
                     case <-nodeStopped:
                         Fail("Node was never initialized.")
                     }
+                }
+            })
 
-                    var err error
-                    var update *UpdateBatch = NewUpdateBatch()
-                    _, err = update.Put([]byte("a"), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+            AfterEach(func() {
+                nextPort += (clusterSize * 2) + 1
 
-                    Expect(err).Should(Not(HaveOccurred()))
+                for i := 0; i < clusterSize; i++ {
+                    nodes[i].Stop()
+                }
 
-                    err = clusterClient.AddSite(context.TODO(), "site1")
+                for i := 0; i < clusterSize; i++ {
+                    select {
+                    case <-nodeStopped:
+                    case <-time.After(time.Second):
+                        Fail("Unable to stop node")
+                    }
+                }
+            })
 
-                    Expect(err).Should(Not(HaveOccurred()))
+            It("Should work", func() {
 
-                    <-time.After(time.Second * 1)
-
-                    _, _, err = node1.ClusterIO().Batch(context.TODO(), "site1", "default", update)
-
-                    Expect(err).Should(Not(HaveOccurred()))
-
-                    siblingSets, err := node1.ClusterIO().Get(context.TODO(), "site1", "default", [][]byte{ []byte("a") })
-
-                    Expect(err).Should(Not(HaveOccurred()))
-                    Expect(len(siblingSets)).Should(Equal(1))
-                    Expect(siblingSets[0].Value()).Should(Equal([]byte("hello")))
-                })
             })
         })
     })

@@ -293,6 +293,10 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
             var entries []APIEntry = make([]APIEntry, 0)
 
             for ssIterator.Next() {
+                if ssIterator.Value().IsTombstoneSet() {
+                    continue
+                }
+
                 internalEntry := InternalEntry{
                     Prefix: string(ssIterator.Prefix()),
                     Key: string(ssIterator.Key()),

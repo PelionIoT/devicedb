@@ -263,6 +263,7 @@ func (raftNode *RaftNode) applyConfigurationChange(entry raftpb.Entry, cancelCon
         return err
     }
 
+
     if cancelConfChange {
         // From the etcd/raft docs: "The configuration change may be cancelled at this point by setting the NodeID field to zero before calling ApplyConfChange"
         switch confChange.Type {

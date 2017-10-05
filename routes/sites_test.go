@@ -891,13 +891,18 @@ var _ = Describe("Sites", func() {
                             Expect(rr.Code).Should(Equal(http.StatusOK))
                         })
 
-                        It("Should respond with a JSON-encoded list of APIEntrys objects", func() {
+                        It("Should respond with a JSON-encoded list of APIEntrys objects, filtering out any entries that are tombstones", func() {
+                            sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), []byte("value"), 0)
+                            defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{ sibling: true })
+                            tombstoneSet := NewSiblingSet(map[*Sibling]bool{ NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), nil, 0): true })
+
                             req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
                             clusterFacade.defaultGetMatchesResponseError = nil
                             memorySiblingSetIterator := NewMemorySiblingSetIterator()
                             clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
-                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), nil, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("bxyz"), nil, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("bxyz"), tombstoneSet, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("c"), []byte("bxyz"), defaultSiblingSet, nil)
 
                             Expect(err).Should(BeNil())
 
@@ -908,20 +913,24 @@ var _ = Describe("Sites", func() {
 
                             Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
                             Expect(entries).Should(Equal([]APIEntry{ 
-                                APIEntry{ Prefix: "a", Key: "asdf", Siblings: nil, Context: "" },
-                                APIEntry{ Prefix: "b", Key: "bxyz", Siblings: nil, Context: "" },
+                                APIEntry{ Prefix: "a", Key: "asdf", Siblings: []string{ "value" }, Context: "e30=" },
+                                APIEntry{ Prefix: "c", Key: "bxyz", Siblings: []string{ "value" }, Context: "e30=" },
                             }))
                         })
                     })
 
                     Context("And the returned iterator encounters an error", func() {
                         It("Should respond with status code http.StatusInternalServerError", func() {
+                            sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), []byte("value"), 0)
+                            defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{ sibling: true })
+                            tombstoneSet := NewSiblingSet(map[*Sibling]bool{ NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), nil, 0): true })
+
                             req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
                             clusterFacade.defaultGetMatchesResponseError = nil
                             memorySiblingSetIterator := NewMemorySiblingSetIterator()
                             clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
-                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), nil, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), nil, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), tombstoneSet, nil)
                             memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
 
                             Expect(err).Should(BeNil())
@@ -933,12 +942,16 @@ var _ = Describe("Sites", func() {
                         })
 
                         It("Should respond with an EStorage body", func() {
+                            sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), []byte("value"), 0)
+                            defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{ sibling: true })
+                            tombstoneSet := NewSiblingSet(map[*Sibling]bool{ NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), nil, 0): true })
+
                             req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
                             clusterFacade.defaultGetMatchesResponseError = nil
                             memorySiblingSetIterator := NewMemorySiblingSetIterator()
                             clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
-                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), nil, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), nil, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
+                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), tombstoneSet, nil)
                             memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
 
                             Expect(err).Should(BeNil())
