@@ -108,7 +108,6 @@ func (hub *TransportHub) OnReceive(cb func(context.Context, raftpb.Message) erro
 }
 
 func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message, proxy bool) error {
-    Log.Infof("%d Send %d -> %d", hub.localPeerID, msg.From, msg.To)
     encodedMessage, err := msg.Marshal()
 
     if err != nil {

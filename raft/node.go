@@ -15,7 +15,7 @@ import (
 var ECancelConfChange = errors.New("Conf change cancelled")
 
 // Limit on the number of entries that can accumulate before a snapshot and compaction occurs
-const LogCompactionSize = 1000
+var LogCompactionSize int = 1000
 
 type RaftNodeConfig struct {
     ID uint64
@@ -238,7 +238,6 @@ func (raftNode *RaftNode) run() {
                 return
             }
 
-            Log.Infof("Node %d advance", raftNode.config.ID)
             raftNode.node.Advance()
         case <-raftNode.stop:
             return
@@ -292,7 +291,7 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
         return nil
     }
 
-    if raftNode.lastCommittedIndex - lastSnapshot.Metadata.Index >= LogCompactionSize {
+    if raftNode.lastCommittedIndex - lastSnapshot.Metadata.Index >= uint64(LogCompactionSize) {
         // data is my config state snapshot
         data, err := raftNode.config.GetSnapshot()
 
@@ -300,7 +299,6 @@ func (raftNode *RaftNode) takeSnapshotIfEnoughEntries() error {
             return err
         }
 
-        Log.Infof("Node %d compacting entries up to %d", raftNode.config.ID, raftNode.lastCommittedIndex)
         _, err = raftNode.config.Storage.CreateSnapshot(raftNode.lastCommittedIndex, &raftNode.currentRaftConfState, data)
 
         if err != nil {

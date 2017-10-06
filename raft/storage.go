@@ -4,7 +4,6 @@ import (
     "sync"
     "errors"
 
-    . "devicedb/logging"
     . "devicedb/storage"
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
@@ -578,8 +577,6 @@ func (raftStorage *RaftStorage) ApplyAll(hs raftpb.HardState, ents []raftpb.Entr
             return nil
         }
 
-        Log.Infof("Append from %d to %d", ents[0].Index, ents[len(ents) - 1].Index)
-
         err := raftStorage.memoryStorage.Append(ents)
 
         if err != nil {
@@ -639,8 +636,6 @@ func (raftStorage *RaftStorage) ApplyAll(hs raftpb.HardState, ents []raftpb.Entr
 
     // apply snapshot
     if !raft.IsEmptySnap(snap) {
-        nodeID, _ := raftStorage.NodeID()
-        Log.Infof("Local node (id = %d) Applying snapshot whose index starts at %d", nodeID, snap.Metadata.Index)
         firstIndex, _ := raftStorage.memoryStorage.FirstIndex()
         lastIndex, _ := raftStorage.memoryStorage.LastIndex()
         err := raftStorage.memoryStorage.ApplySnapshot(snap)

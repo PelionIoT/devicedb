@@ -372,6 +372,156 @@ var _ = Describe("Cluster Operation", func() {
             })
         })
 
+        Describe("Regression test for node snapshot startup", func() {
+            var partitions int = 64
+            var clusterSize int = 2
+            var clusterClient *client.APIClient
+            var nodes []*node.ClusterNode
+            var nodeInitialized chan int
+            var nodeStopped chan error
+            var originalRaftLogCompactionSize int = raft.LogCompactionSize
+
+            BeforeEach(func() {
+                // This forces compaction to happen often. This means that
+                // when the next node is brought up it should not learn
+                // of its joining the cluster through a log entry, but rather
+                // through the first snapshot received. This was broken in the
+                // past. When the snapshot was applied the state deltas were not
+                // passed to the local node
+                raft.LogCompactionSize = 1
+                nodes = make([]*node.ClusterNode, clusterSize)
+                servers := make([]string, clusterSize)
+                nodeInitialized = make(chan int, clusterSize)
+                nodeStopped = make(chan error, clusterSize)
+
+                for i := 0; i < clusterSize; i++ {
+                    nodeServer := tempServer(nextPort + (i * 2), nextPort + (i * 2) + 1)
+                    nodeStorage := tempStorageDriver()
+                    nodes[i] = node.New(node.ClusterNodeConfig{
+                        CloudServer: nodeServer,
+                        StorageDriver: nodeStorage,
+                        MerkleDepth: 4,
+                    })
+
+                    servers[i] = fmt.Sprintf("localhost:%d", nextPort + (i * 2))
+
+                    go func(nodeIndex int) {
+                        if nodeIndex == 0 {
+                            nodeStopped <- nodes[nodeIndex].Start(node.NodeInitializationOptions{ 
+                                StartCluster: true,
+                                ClusterSettings: ClusterSettings{
+                                    Partitions: uint64(partitions),
+                                    ReplicationFactor: 3,
+                                },
+                                ClusterHost: "localhost",
+                                ClusterPort: nextPort,
+                            })
+                        } else {
+                            nodeStopped <- nodes[nodeIndex].Start(node.NodeInitializationOptions{
+                                JoinCluster: true,
+                                SeedNodeHost: "localhost",
+                                SeedNodePort: nextPort,
+                            })
+                        }
+                    }(i)
+
+                    nodes[i].OnInitialized(func() {
+                        nodeInitialized <- i
+                    })
+                }
+
+                clusterClient = client.New(client.APIClientConfig{ Servers: servers[:1] })
+
+                for i := 0; i < clusterSize; i++ {
+                    select {
+                    case <-nodeInitialized:
+                    case <-nodeStopped:
+                        Fail("Node was never initialized.")
+                    }
+                }
+            })
+
+            AfterEach(func() {
+                raft.LogCompactionSize = originalRaftLogCompactionSize
+                nextPort += (clusterSize * 2) + 1
+
+                for i := 0; i < clusterSize; i++ {
+                    nodes[i].Stop()
+                }
+
+                for i := 0; i < clusterSize; i++ {
+                    select {
+                    case <-nodeStopped:
+                    case <-time.After(time.Second):
+                        Fail("Unable to stop node")
+                    }
+                }
+            })
+
+            Describe("Cluster node addition snapshot regression test", func() {
+                AfterEach(func() {
+                    nextPort += 2
+                })
+
+                It("Should bring up the new node without hanging", func() {
+                    // Add lots of sites. Once site addition = one raft log entry
+                    fmt.Println("---------------------------ADDING LOTS OF SITES-------------------------")
+                    for i := 0; i < raft.LogCompactionSize * 2; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
+                    }
+                    fmt.Println("---------------------------ADDED LOTS OF SITES-------------------------")
+
+                    // Add new node to the cluster
+                    nodeServer := tempServer(nextPort + (clusterSize * 2), nextPort + (clusterSize * 2) + 1)
+                    nodeStorage := tempStorageDriver()
+                    newNode := node.New(node.ClusterNodeConfig{
+                        CloudServer: nodeServer,
+                        StorageDriver: nodeStorage,
+                    })
+                    nodeInitialized := make(chan int)
+                    nodeStopped := make(chan error)
+
+                    go func() {
+                        nodeStopped <- newNode.Start(node.NodeInitializationOptions{
+                            JoinCluster: true,
+                            SeedNodeHost: "localhost",
+                            SeedNodePort: nextPort,
+                        })
+                    }()
+
+                    newNode.OnInitialized(func() {
+                        nodeInitialized <- 1
+                    })
+
+                    select {
+                    case <-nodeInitialized:
+                    case <-nodeStopped:
+                        Fail("Node was never initialized.")
+                    case <-time.After(time.Second * 10):
+                        Fail("Initialization never completed")
+                    }
+
+                    //newNode.ClusterConfigController().Pause()
+
+
+                    fmt.Println("---------------------------ADDING LOTS OF SITES AGAIN-------------------------")
+                    <-time.After(time.Second * 5)
+                    for i := 0; i < raft.LogCompactionSize; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
+                    }
+                    fmt.Println("---------------------------ADDED LOTS OF SITES AGAIN-------------------------")
+
+                    //newNode.ClusterConfigController().Resume()
+
+                    for i := 0; i < partitions; i++ {
+                        Expect(newNode.ClusterConfigController().ClusterController().PartitionOwners(uint64(i))).Should(Equal(nodes[0].ClusterConfigController().ClusterController().PartitionOwners(uint64(i))))
+                    }
+
+                    Expect(newNode.ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(BeEmpty()))
+                })
+            })
+        })
+
         Context("In a multi node cluster", func() {
             var partitions int = 64
             var clusterSize int = 5
@@ -460,7 +610,7 @@ var _ = Describe("Cluster Operation", func() {
                 It("Should allow the new node to be brough into the cluster successfully and it should have a consistent snapshot of the cluster state", func() {
                     // Add lots of sites. Once site addition = one raft log entry
                     fmt.Println("---------------------------ADDING LOTS OF SITES-------------------------")
-                    for i := 0; i < raft.LogCompactionSize; i++ {
+                    for i := 0; i < raft.LogCompactionSize * 2; i++ {
                         Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
                     }
                     fmt.Println("---------------------------ADDED LOTS OF SITES-------------------------")

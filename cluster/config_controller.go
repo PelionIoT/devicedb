@@ -342,7 +342,6 @@ func (cc *ConfigController) Start() error {
 
             switch clusterCommand.Type {
             case ClusterAddNode:
-                Log.Debugf("New entry  at node %d [%d] adds node: %d", cc.clusterController.LocalNodeID, entry.Index, clusterCommandBody.(ClusterAddNodeBody).NodeID)
                 if clusterCommandBody.(ClusterAddNodeBody).NodeID != clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address.NodeID {
                     return EBadContext
                 }
