@@ -373,6 +373,7 @@ var _ = Describe("Cluster Operation", func() {
         })
 
         Context("In a multi node cluster", func() {
+            var partitions int = 64
             var clusterSize int = 5
             var clusterClient *client.APIClient
             var nodes []*node.ClusterNode
@@ -391,6 +392,7 @@ var _ = Describe("Cluster Operation", func() {
                     nodes[i] = node.New(node.ClusterNodeConfig{
                         CloudServer: nodeServer,
                         StorageDriver: nodeStorage,
+                        MerkleDepth: 4,
                     })
 
                     servers[i] = fmt.Sprintf("localhost:%d", nextPort + (i * 2))
@@ -400,7 +402,7 @@ var _ = Describe("Cluster Operation", func() {
                             nodeStopped <- nodes[nodeIndex].Start(node.NodeInitializationOptions{ 
                                 StartCluster: true,
                                 ClusterSettings: ClusterSettings{
-                                    Partitions: 4,
+                                    Partitions: uint64(partitions),
                                     ReplicationFactor: 3,
                                 },
                                 ClusterHost: "localhost",
@@ -458,7 +460,7 @@ var _ = Describe("Cluster Operation", func() {
                 It("Should allow the new node to be brough into the cluster successfully and it should have a consistent snapshot of the cluster state", func() {
                     // Add lots of sites. Once site addition = one raft log entry
                     fmt.Println("---------------------------ADDING LOTS OF SITES-------------------------")
-                    for i := 0; i < raft.LogCompactionSize * 2; i++ {
+                    for i := 0; i < raft.LogCompactionSize; i++ {
                         Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
                     }
                     fmt.Println("---------------------------ADDED LOTS OF SITES-------------------------")
@@ -491,7 +493,23 @@ var _ = Describe("Cluster Operation", func() {
                         Fail("Node was never initialized.")
                     }
 
-                    Expect(newNode.ClusterConfigController().ClusterController().State).Should(Equal(nodes[0].ClusterConfigController().ClusterController().State))
+                    //newNode.ClusterConfigController().Pause()
+
+
+                    fmt.Println("---------------------------ADDING LOTS OF SITES AGAIN-------------------------")
+                    <-time.After(time.Second * 5)
+                    for i := 0; i < raft.LogCompactionSize; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site-%d", i))).Should(Not(HaveOccurred()))
+                    }
+                    fmt.Println("---------------------------ADDED LOTS OF SITES AGAIN-------------------------")
+
+                    //newNode.ClusterConfigController().Resume()
+
+                    for i := 0; i < partitions; i++ {
+                        Expect(newNode.ClusterConfigController().ClusterController().PartitionOwners(uint64(i))).Should(Equal(nodes[0].ClusterConfigController().ClusterController().PartitionOwners(uint64(i))))
+                    }
+
+                    Expect(newNode.ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(BeEmpty()))
                 })
             })
         })

@@ -5,6 +5,7 @@ import (
     "sync"
 
     . "devicedb/data"
+    . "devicedb/logging"
 )
 
 const MaxPartitionCount uint64 = 65536
@@ -197,7 +198,7 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
 
             // steal a token from the jth node
             for token, owner := range assignments {
-                if owner == uint64(j) {
+                if owner == nodes[j].Address.NodeID {//uint64(j) {
                     assignments[token] = nodes[i].Address.NodeID
                     tokenCounts[i]++
                     tokenCounts[j]--
@@ -209,6 +210,8 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
 
         // loop invariant: all nodes in nodes[:i+1] that have positive capacity have been assigned at least tokenCountFloor tokens and at most tokenCountCeil tokens
     }
+
+    Log.Infof("New assignment: %v", assignments)
 
     return assignments, nil
 }

@@ -297,8 +297,19 @@ func (cc *ConfigController) Start() error {
     })
 
     cc.raftNode.OnSnapshot(func(snap raftpb.Snapshot) error {
-        // but this wont alert to any token gains or anything
-        return cc.clusterController.State.Recover(snap.Data)
+        err := cc.clusterController.ApplySnapshot(snap.Data)
+
+        if err != nil {
+            return err
+        }
+
+        if replayDone {
+            if cc.onLocalUpdatesCB != nil && len(cc.clusterController.Deltas()) > 0 {
+                cc.onLocalUpdatesCB(cc.clusterController.Deltas())
+            }
+        }
+
+        return nil
     })
 
     cc.raftNode.OnCommittedEntry(func(entry raftpb.Entry) error {
@@ -331,6 +342,7 @@ func (cc *ConfigController) Start() error {
 
             switch clusterCommand.Type {
             case ClusterAddNode:
+                Log.Debugf("New entry  at node %d [%d] adds node: %d", cc.clusterController.LocalNodeID, entry.Index, clusterCommandBody.(ClusterAddNodeBody).NodeID)
                 if clusterCommandBody.(ClusterAddNodeBody).NodeID != clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address.NodeID {
                     return EBadContext
                 }

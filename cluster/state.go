@@ -301,3 +301,17 @@ type ClusterSettings struct {
 func (clusterSettings *ClusterSettings) AreInitialized() bool {
     return clusterSettings.ReplicationFactor != 0 && clusterSettings.Partitions != 0
 }
+
+type NodeConfigList []NodeConfig
+
+func (nodeConfigList NodeConfigList) Len() int {
+    return len(nodeConfigList)
+}
+
+func (nodeConfigList NodeConfigList) Swap(i, j int) {
+    nodeConfigList[i], nodeConfigList[j] = nodeConfigList[j], nodeConfigList[i]
+}
+
+func (nodeConfigList NodeConfigList) Less(i, j int) bool {
+    return nodeConfigList[i].Address.NodeID < nodeConfigList[j].Address.NodeID
+}

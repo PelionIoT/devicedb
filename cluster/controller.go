@@ -3,6 +3,7 @@ package cluster
 import (
     "errors"
     "sync"
+    "sort"
     "devicedb/raft"
 
     . "devicedb/logging"
@@ -683,6 +684,7 @@ func (clusterController *ClusterController) assignTokens() {
         nodes = append(nodes, *nodeConfig)
     }
 
+    sort.Sort(NodeConfigList(nodes))
     newTokenAssignment, _ := clusterController.PartitioningStrategy.AssignTokens(nodes, clusterController.State.Tokens, clusterController.State.ClusterSettings.Partitions)
 
     localNodeOwnedPartitionReplicas := clusterController.localNodeOwnedPartitionReplicas()

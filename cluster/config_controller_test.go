@@ -126,51 +126,6 @@ var _ = Describe("ConfigController", func() {
             })
         })
     })
-
-    Describe("Adding a node to a cluster", func() {
-        Specify("All existing cluster nodes should receive the new node's address before sending it messages", func() {
-            // This is important for any external transport module that needs to know where a node resides before communicating
-            // with it
-        })
-
-        Specify("If a majority of cluster nodes are not available when requesting that a node be added the addition should fail", func() {
-        })
-    })
-
-    Describe("A node resuming communication with the cluster after being unable to communicate with the majority for some time", func() {
-        Context("A snapshot has occurred", func() {
-            Specify("The node should catch up with the rest of the cluster by receiving a snapshot from the leader", func() {
-            })
-        })
-
-        Context("No snapshot has occurred", func() {
-            Specify("The node should catch up with the rest of the cluster by receiving a series of cluster commands", func() {
-            })
-        })
-    })
-
-    Describe("Removing a node from cluster", func() {
-        Specify("If a majority of cluster nodes are not available when requesting that a node be removed the removal should fail", func() {
-        })
-    })
-    
-    Describe("Replacing a node", func() {
-        Context("The specified replacement node doesnt belong to the cluster", func() {
-        })
-
-        Context("The specified replacement node already has tokens assigned to it", func() {
-        })
-        
-        Context("The specified replacement node exists and doesnt have tokens assigned to it", func() {
-        })
-
-        Specify("", func() {
-            // Makes node addition proposal for new node with capacity zero so no tokens are assigned to it
-            // Once it has been added make node removal proposal with flag to indicate intent to give all its tokens to the new node
-            // When committed the node removal should be cancelled if the other node no longer exists in the config (maybe it was removed quickly after)
-            // If not cancelled here then give all of the old node's tokens to the new node and apply the configuration change
-        })
-    })
 })
 
 // Node ip change?

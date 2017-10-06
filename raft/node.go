@@ -167,8 +167,8 @@ func (raftNode *RaftNode) run() {
         // makes sure cleanup happens when the loop exits
         raftNode.lastCommittedIndex = 0
         raftNode.lastReplayIndex = 0
-        raftNode.config.Storage.Close()
         raftNode.node.Stop()
+        raftNode.config.Storage.Close()
         raftNode.currentRaftConfState = raftpb.ConfState{ }
     }()
 
@@ -238,6 +238,7 @@ func (raftNode *RaftNode) run() {
                 return
             }
 
+            Log.Infof("Node %d advance", raftNode.config.ID)
             raftNode.node.Advance()
         case <-raftNode.stop:
             return
