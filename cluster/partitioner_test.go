@@ -304,6 +304,78 @@ var _ = Describe("Partitioner", func() {
             Expect(newAssignment).Should(Equal(assignment))
             Expect(err).Should(BeNil())
         })
+
+        It("Should redistribute tokens evenly when an existing assignment is used to create a new assignment with a new node", func() {
+            ps := &SimplePartitioningStrategy{ }
+            var partitions uint64 = 256
+
+            // by making this 7, we ensure that 256 will be divided 8 ways on the redistribution
+            nodes := make([]NodeConfig, 8)
+            currentAssignment := make([]uint64, partitions)
+
+            for i, _ := range nodes {
+                nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+            }
+
+            // Use only the first 7 nodes
+            assignment, err := ps.AssignTokens(nodes[:7], currentAssignment, partitions)
+
+            Expect(AssignmentIsValid(nodes[:7], partitions, assignment)).Should(BeTrue())
+            Expect(err).Should(BeNil())
+
+            for i, node := range nodes {
+                tokens := make(map[uint64]bool)
+
+                for token, owner := range assignment {
+                    if owner == nodes[i].Address.NodeID {
+                        tokens[uint64(token)] = true
+                    }
+                }
+
+                nodes[i] = NodeConfig{
+                    Capacity: 1,
+                    Tokens: tokens,
+                    Address: node.Address,
+                }
+            }
+
+
+            fmt.Println("Do second assignment")
+            // Use all 8 nodes
+            newAssignment, err := ps.AssignTokens(nodes, assignment, partitions)
+
+            for i, node := range nodes {
+                tokens := make(map[uint64]bool)
+
+                for token, owner := range newAssignment {
+                    if owner == nodes[i].Address.NodeID {
+                        tokens[uint64(token)] = true
+                    }
+                }
+
+                nodes[i] = NodeConfig{
+                    Capacity: 1,
+                    Tokens: tokens,
+                    Address: node.Address,
+                }
+            }
+
+            for i := 0; i < len(nodes); i++ {
+                fmt.Printf("Node %d has len %d\n", i, len(nodes[i].Tokens))
+                Expect(nodes[i].Tokens).Should(HaveLen(256 / 8))
+            }
+        })
+
+        It("Should space out tokens evenly instead of in contiguous chunks to promote an even distribution of partitions when Owners() is called", func() {
+            Context("Initial distribution", func() {
+            })
+
+            Context("Adding a node", func() {
+            })
+
+            Context("Removing a node", func() {
+            })
+        })
     })
 
     Describe("#Owners", func() {
@@ -343,6 +415,37 @@ var _ = Describe("Partitioner", func() {
                 Expect(ps.Owners([]uint64{ 1, 2, 1, 4, 5, 1, 2, 1 }, 7, 3)).Should(Equal([]uint64{ 1, 2, 4 }))
             })
         })
+
+        /*It("real world", func() {
+            var tokens []uint64 = []uint64{ 6358263745130116665, 6358263745130116665, 6358263745130116665, 6358263745130116665, 16079144712221986386, 16079144712221986386, 6358263745130116665, 6358263745130116665, 6358263745130116665, 6358263745130116665, 2246914422633611543, 16079144712221986386, 16079144712221986386, 16079144712221986386, 16079144712221986386, 16079144712221986386, 6358263745130116665, 6358263745130116665, 6358263745130116665, 6358263745130116665, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 9532536096950133028, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 2246914422633611543, 16079144712221986386, 16079144712221986386, 16079144712221986386, 16079144712221986386, 16079144712221986386, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842, 17539875848483892842 }
+            var nodes []uint64 = []uint64{ 9532536096950133028, 17539875848483892842, 6358263745130116665, 16079144712221986386, 2246914422633611543 }
+            var partitionCounts map[uint64]int = make(map[uint64]int)
+            var tokenCounts map[uint64]int = make(map[uint64]int)
+
+            for _, nodeID := range nodes {
+                tokenCounts[nodeID] = 0
+                partitionCounts[nodeID] = 0
+            }
+
+            for _, nodeID := range tokens {
+                tokenCounts[nodeID]++
+            }
+
+            fmt.Printf("Node tokens counts: %v\n", tokenCounts)
+
+            Expect(len(tokens)).Should(Equal(64))
+
+            for i := 0; i < len(tokens); i++ {
+                ps := &SimplePartitioningStrategy{ }
+
+                for _, nodeID := range ps.Owners(tokens, uint64(i), 3) {
+                    fmt.Printf("Partition %d owned by node %d\n", i, nodeID)
+                    partitionCounts[nodeID]++
+                }
+            }
+
+            fmt.Printf("Node partition counts: %v\n", partitionCounts)
+        })*/
     })
 
     Describe("#Partition", func() {

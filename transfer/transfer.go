@@ -8,6 +8,7 @@ import (
     "math"
 
     . "devicedb/data"
+    . "devicedb/logging"
     . "devicedb/partition"
 )
 
@@ -78,6 +79,8 @@ func (transfer *IncomingTransfer) NextChunk() (PartitionChunk, error) {
     checksum := ChecksumEntries(nextPartitionChunk.Entries)
 
     if checksum.High() != nextPartitionChunk.Checksum.High() || checksum.Low() != nextPartitionChunk.Checksum.Low() {
+        Log.Criticalf("Checksums don't match received high: %d calculated high: %d received low: %d calculated low: %d", nextPartitionChunk.Checksum.High(), checksum.High(), nextPartitionChunk.Checksum.Low(), checksum.Low())
+
         return PartitionChunk{}, EEntryChecksum
     }
 
@@ -166,7 +169,7 @@ func (transfer *OutgoingTransfer) NextChunk() (PartitionChunk, error) {
     return PartitionChunk{
         Index: index,
         Entries: entries,
-        Checksum: Hash{},
+        Checksum: ChecksumEntries(entries),
     }, nil
 }
 

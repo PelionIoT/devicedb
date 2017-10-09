@@ -21,9 +21,7 @@ type SitesEndpoint struct {
 func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
     // Add a site
     router.HandleFunc("/sites/{siteID}", func(w http.ResponseWriter, r *http.Request) {
-        Log.Criticalf("Adding site %s", mux.Vars(r)["siteID"])
         err := sitesEndpoint.ClusterFacade.AddSite(r.Context(), mux.Vars(r)["siteID"])
-        Log.Criticalf("Added site %s", mux.Vars(r)["siteID"])
 
         if err != nil {
             Log.Warningf("PUT /relays/{relayID}: %v", err.Error())

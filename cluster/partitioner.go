@@ -8,6 +8,42 @@ import (
     . "devicedb/logging"
 )
 
+type NodeTokenCount struct {
+    NodeID uint64
+    TokenCount int
+}
+
+type NodeTokenCountHeap []NodeTokenCount
+
+func (nodeTokenCountHeap NodeTokenCountHeap) Len() int {
+    return len(nodeTokenCountHeap)
+}
+
+func (nodeTokenCountHeap NodeTokenCountHeap) Swap(i, j int) {
+    nodeTokenCountHeap[i], nodeTokenCountHeap[j] = nodeTokenCountHeap[j], nodeTokenCountHeap[i]
+}
+
+func (nodeTokenCountHeap NodeTokenCountHeap) Less(i, j int) bool {
+    if nodeTokenCountHeap[i].TokenCount == nodeTokenCountHeap[j].TokenCount {
+        return nodeTokenCountHeap[i].NodeID < nodeTokenCountHeap[j].NodeID
+    }
+
+    return nodeTokenCountHeap[i].TokenCount > nodeTokenCountHeap[j].TokenCount
+}
+
+func (nodeTokenCountHeap *NodeTokenCountHeap) Push(x interface{}) {
+    *nodeTokenCountHeap = append(*nodeTokenCountHeap, x.(NodeTokenCount))
+}
+
+func (nodeTokenCountHeap *NodeTokenCountHeap) Pop() interface{} {
+    old := *nodeTokenCountHeap
+    n := len(old)
+    x := old[n - 1]
+    *nodeTokenCountHeap = old[0 : n - 1]
+
+    return x
+}
+
 const MaxPartitionCount uint64 = 65536
 const DefaultPartitionCount uint64 = 1024
 const MinPartitionCount uint64 = 64
@@ -189,6 +225,8 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
             continue
         }
 
+        // Should evenly space tokens throughout the ring for this node for even
+        // partition distributions
         for j := 0; tokenCounts[i] < tokenCountFloor && j < len(tokenCounts); j++ {
             if j == i || tokenCounts[j] <= tokenCountFloor {
                 // a node can't steal a token from itself and it can't steal a token
@@ -198,12 +236,15 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
 
             // steal a token from the jth node
             for token, owner := range assignments {
-                if owner == nodes[j].Address.NodeID {//uint64(j) {
+                if owner == nodes[j].Address.NodeID {
                     assignments[token] = nodes[i].Address.NodeID
                     tokenCounts[i]++
                     tokenCounts[j]--
-                    
-                    break
+                  
+                    // We have taken all the tokens that we can take from this node. need to move on
+                    if tokenCounts[j] == tokenCountFloor {
+                        break
+                    }
                 }
             }
         }
@@ -211,7 +252,7 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
         // loop invariant: all nodes in nodes[:i+1] that have positive capacity have been assigned at least tokenCountFloor tokens and at most tokenCountCeil tokens
     }
 
-    Log.Infof("New assignment: %v", assignments)
+    Log.Infof("New assignment %v", assignments)
 
     return assignments, nil
 }

@@ -65,20 +65,24 @@ var _ = Describe("ConfigController", func() {
             })
 
             // Start Config Controller
+            fmt.Println("Call Start() on config controller")
             Expect(configController.Start()).Should(BeNil())
+            fmt.Println("Called Start() on config controller")
             // Wait for node to be added to single-node cluster
             <-receivedDeltas
+            fmt.Println("Received deltas")
 
             ownedTokens := make(map[uint64]bool)
 
             configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
-                Expect(len(deltas)).Should(Equal(1024))
-
                 for _, delta := range deltas {
-                    Expect(delta.Type).Should(Equal(DeltaNodeGainToken))
-                    Expect(delta.Delta.(NodeGainToken).NodeID).Should(Equal(uint64(0x1)))
-                    ownedTokens[delta.Delta.(NodeGainToken).Token] = true
+                    if delta.Type == DeltaNodeGainToken {
+                        Expect(delta.Delta.(NodeGainToken).NodeID).Should(Equal(uint64(0x1)))
+                        ownedTokens[delta.Delta.(NodeGainToken).Token] = true
+                    }
                 }
+
+                Expect(len(ownedTokens)).Should(Equal(1024))
 
                 receivedDeltas <- 1
             })
@@ -87,7 +91,9 @@ var _ = Describe("ConfigController", func() {
             Expect(configController.ClusterCommand(context.TODO(), ClusterSetPartitionCountBody{ Partitions: 1024 })).Should(BeNil())
             Expect(configController.ClusterCommand(context.TODO(), ClusterSetReplicationFactorBody{ ReplicationFactor: 2 })).Should(BeNil())
 
+            fmt.Println("Wait for  deltas 2")
             <-receivedDeltas
+            fmt.Println("Received deltas 2")
 
             // Verify changes
             Expect(len(ownedTokens)).Should(Equal(1024))

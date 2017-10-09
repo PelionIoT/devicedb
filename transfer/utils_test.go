@@ -230,6 +230,22 @@ func (bucket *MockBucket) Get(keys [][]byte) ([]*SiblingSet, error) {
     return nil, nil
 }
 
+func (bucket *MockBucket) GetAll() (SiblingSetIterator, error) {
+    return nil, nil
+}
+
+func (bucket *MockBucket) LockReads() {
+}
+
+func (bucket *MockBucket) UnlockReads() {
+}
+
+func (bucket *MockBucket) LockWrites() {
+}
+
+func (bucket *MockBucket) UnlockWrites() {
+}
+
 func (bucket *MockBucket) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
     return nil, nil
 }
@@ -294,6 +310,26 @@ func NewMockSite(buckets *BucketList) *MockSite {
     }
 }
 
+func (site *MockSite) ID() string {
+    return ""
+}
+
+func (site *MockSite) LockWrites() {
+}
+
+func (site *MockSite) UnlockWrites() {
+}
+
+func (site *MockSite) LockReads() {
+}
+
+func (site *MockSite) UnlockReads() {
+}
+
+func (site *MockSite) Iterator() SiteIterator {
+    return nil
+}
+
 func (site *MockSite) Buckets() *BucketList {
     return site.buckets
 }
@@ -309,6 +345,22 @@ func NewMockSitePool() *MockSitePool {
     return &MockSitePool{
         acquireResponses: make([]Site, 0),
     }
+}
+
+func (sitePool *MockSitePool) Iterator() SitePoolIterator {
+    return nil
+}
+
+func (sitePool *MockSitePool) LockWrites() {
+}
+
+func (sitePool *MockSitePool) UnlockWrites() {
+}
+
+func (sitePool *MockSitePool) LockReads() {
+}
+
+func (sitePool *MockSitePool) UnlockReads() {
 }
 
 func (sitePool *MockSitePool) Acquire(siteID string) Site {
