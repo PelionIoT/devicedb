@@ -26,6 +26,7 @@ type ClusterController struct {
     notificationsEnabledLock sync.Mutex
     stateUpdateLock sync.Mutex
     nextDeltaSet []ClusterStateDelta
+    localNodeOwnedPartitionReplicaCache map[uint64]map[uint64]bool
 }
 
 func (clusterController *ClusterController) Partition(key string) uint64 {
@@ -107,6 +108,7 @@ func (clusterController *ClusterController) Deltas() []ClusterStateDelta {
 func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()
+    clusterController.localNodeOwnedPartitionReplicaCache = nil
     localNodeOwnedPartitionReplica := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
     localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
@@ -531,6 +533,10 @@ func (clusterController *ClusterController) localNodeOwnedPartitionReplicas() ma
         return map[uint64]map[uint64]bool{ }
     }
 
+    if clusterController.localNodeOwnedPartitionReplicaCache != nil {
+        return clusterController.localNodeOwnedPartitionReplicaCache
+    }
+
     partitionReplicas := make(map[uint64]map[uint64]bool)
 
     for i := 0; i < len(clusterController.State.Tokens); i++ {
@@ -547,7 +553,9 @@ func (clusterController *ClusterController) localNodeOwnedPartitionReplicas() ma
         }
     }
 
-    Log.Criticalf("Node %d owns partitions %v", clusterController.LocalNodeID, partitionReplicas)
+    clusterController.localNodeOwnedPartitionReplicaCache = partitionReplicas
+
+    //Log.Criticalf("Node %d owns partitions %v", clusterController.LocalNodeID, partitionReplicas)
 
     return partitionReplicas
 }
@@ -664,8 +672,10 @@ func (clusterController *ClusterController) initializeClusterIfReady() {
 }
 
 func (clusterController *ClusterController) reassignTokens(oldOwnerID, newOwnerID uint64) {
+    clusterController.localNodeOwnedPartitionReplicaCache = nil
     localNodeOwnedPartitionReplicas := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
+    clusterController.localNodeOwnedPartitionReplicaCache = nil
 
     // make new owner match old owners capacity
     clusterController.State.Nodes[newOwnerID].Capacity = clusterController.State.Nodes[oldOwnerID].Capacity
@@ -690,8 +700,10 @@ func (clusterController *ClusterController) assignTokens() {
     sort.Sort(NodeConfigList(nodes))
     newTokenAssignment, _ := clusterController.PartitioningStrategy.AssignTokens(nodes, clusterController.State.Tokens, clusterController.State.ClusterSettings.Partitions)
 
+    clusterController.localNodeOwnedPartitionReplicaCache = nil
     localNodeOwnedPartitionReplicas := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
+    clusterController.localNodeOwnedPartitionReplicaCache = nil
 
     for token, owner := range newTokenAssignment {
         clusterController.State.AssignToken(owner, uint64(token))

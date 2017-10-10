@@ -177,6 +177,10 @@ func (raftNode *RaftNode) run() {
     if !raft.IsEmptySnap(lastSnapshot) {
         // call onSnapshot callback to give initial state to system config
         raftNode.onSnapshotCB(lastSnapshot)
+
+        if lastSnapshot.Metadata.Index == raftNode.lastReplayIndex {
+            raftNode.lastCommittedIndex = raftNode.lastReplayIndex
+        }
     }
 
     raftNode.notifyIfReplayDone()

@@ -6,7 +6,7 @@ import (
     "sync"
 
     . "devicedb/data"
-    . "devicedb/logging"
+    //. "devicedb/logging"
 )
 
 type NodeTokenCount struct {
@@ -254,7 +254,7 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
         // loop invariant: all nodes in nodes[:i+1] that have positive capacity have been assigned at least tokenCountFloor tokens and at most tokenCountCeil tokens
     }
 
-    Log.Infof("New assignment %v", assignments)
+    //Log.Infof("New assignment %v", assignments)
 
     return assignments, nil
 }

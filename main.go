@@ -17,6 +17,8 @@ import (
 
     . "devicedb/client"
     . "devicedb/server"
+    "devicedb/storage"
+    "devicedb/node"
     . "devicedb/version"
     . "devicedb/compatibility"
     . "devicedb/shared"
@@ -594,38 +596,45 @@ func main() {
 
         var seedHost string
         var seedPort int
+        var startOptions node.NodeInitializationOptions
 
         if *clusterStartJoin != "" {
             seedHost, seedPort, _ = parseJoinAddress(*clusterStartJoin)
+            startOptions.JoinCluster = true
+            startOptions.SeedNodeHost = seedHost
+            startOptions.SeedNodePort = seedPort
+        } else {
+            startOptions.StartCluster = true
+            startOptions.ClusterSettings.Partitions = *clusterStartPartitions
+            startOptions.ClusterSettings.ReplicationFactor = *clusterStartReplicationFactor
         }
 
-        cloudServerConfig := CloudServerConfig{
-            Store: *clusterStartStore,
-            ReplicationFactor: *clusterStartReplicationFactor,
-            Partitions: *clusterStartPartitions,
-            Host: *clusterStartHost,
-            Port: int(*clusterStartPort),
-            RelayHost: *clusterStartRelayHost,
-            RelayPort: int(*clusterStartRelayPort),
-            SeedHost: seedHost,
-            SeedPort: seedPort,
-            Capacity: 1,
+        startOptions.ClusterHost = *clusterStartHost
+        startOptions.ClusterPort = int(*clusterStartPort)
+        startOptions.ExternalHost = *clusterStartRelayHost
+        startOptions.ExternalPort = int(*clusterStartRelayPort)
+
+        cloudNodeStorage := storage.NewLevelDBStorageDriver(*clusterStartStore, nil)
+        cloudServer := NewCloudServer(CloudServerConfig{
+            InternalHost: *clusterStartHost,
+            InternalPort: int(*clusterStartPort),
+            ExternalHost: *clusterStartRelayHost,
+            ExternalPort: int(*clusterStartRelayPort),
+            NodeID: 1,
             RelayTLSConfig: &tls.Config{
                 Certificates: []tls.Certificate{ cert },
                 ClientCAs: rootCAs,
                 ClientAuth: tls.RequireAndVerifyClientCert,
             },
-        }
+        })
+        cloudNode := node.New(node.ClusterNodeConfig{
+            CloudServer: cloudServer,
+            StorageDriver: cloudNodeStorage,
+            MerkleDepth: 4,
+            Capacity: 1,
+        })
 
-        cloudServer, err := NewCloudServer(cloudServerConfig)
-
-        if err != nil {
-            Log.Errorf("Error: Unable to start cloud server: %v", err.Error())
-
-            os.Exit(1)
-        }
-
-        if err := cloudServer.Start(); err != nil {
+        if err := cloudNode.Start(startOptions); err != nil {
             os.Exit(1)
         }
 

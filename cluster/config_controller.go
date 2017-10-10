@@ -303,6 +303,10 @@ func (cc *ConfigController) Start() error {
             return err
         }
 
+        for _, nodeConfig := range cc.clusterController.State.Nodes {
+            cc.raftTransport.AddPeer(nodeConfig.Address)
+        }
+
         if replayDone {
             if cc.onLocalUpdatesCB != nil && len(cc.clusterController.Deltas()) > 0 {
                 cc.onLocalUpdatesCB(cc.clusterController.Deltas())
