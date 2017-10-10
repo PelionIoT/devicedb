@@ -181,6 +181,7 @@ func (clusterController *ClusterController) AddNode(clusterCommand ClusterAddNod
     // add the node if it isn't already added
     clusterCommand.NodeConfig.Tokens = make(map[uint64]bool)
     clusterCommand.NodeConfig.PartitionReplicas = make(map[uint64]map[uint64]bool)
+    clusterCommand.NodeConfig.OwnedPartitionReplicas = make(map[uint64]map[uint64]bool)
 
     clusterController.State.AddNode(clusterCommand.NodeConfig)
 
@@ -545,6 +546,8 @@ func (clusterController *ClusterController) localNodeOwnedPartitionReplicas() ma
             }
         }
     }
+
+    Log.Criticalf("Node %d owns partitions %v", clusterController.LocalNodeID, partitionReplicas)
 
     return partitionReplicas
 }

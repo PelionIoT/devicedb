@@ -21,6 +21,9 @@ type PartitionDownloader interface {
     // should return that closed channel until CancelDownload is called
     // which resets it
     Download(partition uint64) <-chan int
+    // Resets the downloader's internal state for this partition. Next time Download() is called
+    // for this partition it should start a new download
+    Reset(partition uint64)
     // Returns a boolean indicating whether or not a download is in progress
     // for this partition
     IsDownloading(partition uint64) bool
@@ -74,12 +77,21 @@ func (downloader *Downloader) notifyDownloadStop(partition uint64) {
     }
 }
 
+func (downloader *Downloader) Reset(partition uint64) {
+    downloader.lock.Lock()
+    defer downloader.lock.Unlock()
+
+    delete(downloader.currentDownloads, partition)
+}
+
 func (downloader *Downloader) Download(partition uint64) <-chan int {
     downloader.lock.Lock()
     defer downloader.lock.Unlock()
 
+    Log.Errorf("Node %d starting download process for %d", downloader.configController.ClusterController().LocalNodeID, partition)
     // A download is already underway for this partition
     if _, ok := downloader.currentDownloads[partition]; ok {
+        Log.Errorf("Node %d aborting download process for %d: it already has a download going", downloader.configController.ClusterController().LocalNodeID, partition)
         return downloader.currentDownloads[partition]
     }
 
@@ -89,6 +101,7 @@ func (downloader *Downloader) Download(partition uint64) <-chan int {
     // Since this node is already a holder of this partition there is no need to
     // start a download. Just propose any pending transfers straight away
     if _, ok := node.PartitionReplicas[partition]; ok {
+        Log.Errorf("Node %d aborting download process for %d: it already holds a replica of this partition", downloader.configController.ClusterController().LocalNodeID, partition)
         close(done)
 
         return done

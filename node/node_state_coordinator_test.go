@@ -74,6 +74,7 @@ type MockNodeCoordinatorFacade struct {
     leftCluster chan int
     empty chan int
     id uint64
+    neighborsWithCapacity int
 }
 
 func NewMockNodeCoordinatorFacade(id uint64) *MockNodeCoordinatorFacade {
@@ -187,6 +188,10 @@ func (nodeFacade *MockNodeCoordinatorFacade) MoveRelay(relayID string, siteID st
 
 func (nodeFacade *MockNodeCoordinatorFacade) Relays() map[string]string {
     return nodeFacade.relays
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) NeighborsWithCapacity() int {
+    return nodeFacade.neighborsWithCapacity
 }
 
 func (nodeFacade *MockNodeCoordinatorFacade) OwnedPartitionReplicas() map[uint64]map[uint64]bool {
@@ -651,15 +656,31 @@ var _ = Describe("NodeStateCoordinator", func() {
             })
 
             Context("When the node holds at least one partition replica", func() {
-                It("Should not call NotifyEmpty() on the node facade", func() {
-                    nodeFacade.HeldPartitionReplicaSet().Add(1, 1)
-                    stateCoordinator.ProcessClusterUpdates(deltas)
+                Context("And there are no cluster members with capacity", func() {
+                    It("Should call NotifyEmpty() on the node facade", func() {
+                        nodeFacade.neighborsWithCapacity = 0
+                        stateCoordinator.ProcessClusterUpdates(deltas)
 
-                    select {
-                    case <-nodeFacade.Empty():
-                        Fail("Empty notification happened")
-                    default:
-                    }
+                        select {
+                        case <-nodeFacade.Empty():
+                        default:
+                            Fail("Empty notification did not happen")
+                        }
+                    })
+                })
+
+                Context("And there is still a cluster member with some capacity", func() {
+                    It("Should not call NotifyEmpty() on the node facade", func() {
+                        nodeFacade.neighborsWithCapacity = 1
+                        nodeFacade.HeldPartitionReplicaSet().Add(1, 1)
+                        stateCoordinator.ProcessClusterUpdates(deltas)
+
+                        select {
+                        case <-nodeFacade.Empty():
+                            Fail("Empty notification happened")
+                        default:
+                        }
+                    })
                 })
             })
         })

@@ -2,6 +2,7 @@ package cluster
 
 import (
     "errors"
+    "sort"
     "sync"
 
     . "devicedb/data"
@@ -53,6 +54,7 @@ var ENoNodesAvailable = errors.New("Unable to assign tokens because there are no
 
 type PartitioningStrategy interface {
     AssignTokens(nodes []NodeConfig, currentTokenAssignment []uint64, partitions uint64) ([]uint64, error)
+    AssignPartitions(nodes []NodeConfig, currentPartitionAssignment [][]uint64)
     Owners(tokenAssignment []uint64, partition uint64, replicationFactor uint64) []uint64
     Partition(key string, partitionCount uint64) uint64
 }
@@ -256,6 +258,64 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
 
     return assignments, nil
 }
+    
+func (ps *SimplePartitioningStrategy) AssignPartitions(nodes []NodeConfig, currentPartitionAssignment [][]uint64) {
+    sort.Sort(NodeConfigList(nodes))
+
+    var nodeOwnershipHistogram map[uint64]int = make(map[uint64]int)
+
+    for _, node := range nodes {
+        if node.Capacity > 0 {
+            nodeOwnershipHistogram[node.Address.NodeID] = 0
+        }
+    }
+
+    // build histogram and mark any partition replicas in the assignment that were assigned to nodes
+    // that are no longer in the cluster
+    for partition := 0; partition < len(currentPartitionAssignment); partition++ {
+        for replica := 0; replica < len(currentPartitionAssignment[partition]); replica++ {
+            ownerID := currentPartitionAssignment[partition][replica]
+
+            if _, ok := nodeOwnershipHistogram[ownerID]; !ok {
+                currentPartitionAssignment[partition][replica] = 0
+                continue
+            }
+
+            nodeOwnershipHistogram[ownerID]++
+        }
+    }
+
+    if len(nodeOwnershipHistogram) == 0 {
+        return
+    }
+
+    var minimumPartitionReplicas int = (len(currentPartitionAssignment) * len(currentPartitionAssignment[0])) / len(nodeOwnershipHistogram)
+
+    for _, node := range nodes {
+        var nodeID uint64 = node.Address.NodeID
+
+        if _, ok := nodeOwnershipHistogram[nodeID]; !ok {
+            continue
+        }
+
+        if nodeOwnershipHistogram[nodeID] < minimumPartitionReplicas {
+            for partition := 0; partition < len(currentPartitionAssignment); partition++ {
+                for replica := 0; replica < len(currentPartitionAssignment[partition]); replica++ {
+                    ownerID := currentPartitionAssignment[partition][replica]
+
+                    if ownerID == 0 || nodeOwnershipHistogram[ownerID] > minimumPartitionReplicas {
+                        currentPartitionAssignment[partition][replica] = nodeID
+                        nodeOwnershipHistogram[nodeID]++
+
+                        if ownerID != 0 {
+                            nodeOwnershipHistogram[ownerID]--
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 func (ps *SimplePartitioningStrategy) Owners(tokenAssignment []uint64, partition uint64, replicationFactor uint64) []uint64 {
     if tokenAssignment == nil {
@@ -271,11 +331,6 @@ func (ps *SimplePartitioningStrategy) Owners(tokenAssignment []uint64, partition
 
     for i := 0; i < len(tokenAssignment) && len(ownersSet) < int(replicationFactor); i++ {
         realIndex := (i + int(partition)) % len(tokenAssignment)
-
-        // 0 is not a valid node ID. These indicate tokens that have not been assigned yet
-        if tokenAssignment[realIndex] == 0 {
-            continue
-        }
 
         if _, ok := ownersSet[tokenAssignment[realIndex]]; !ok {
             ownersSet[tokenAssignment[realIndex]] = true

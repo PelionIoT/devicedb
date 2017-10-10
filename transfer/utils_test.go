@@ -914,6 +914,9 @@ func NewMockPartitionDownloader() *MockPartitionDownloader {
     }
 }
 
+func (downloader *MockPartitionDownloader) Reset(partition uint64) {
+}
+
 func (downloader *MockPartitionDownloader) Download(partition uint64) <-chan int {
     downloader.notifyDownload(partition)
 

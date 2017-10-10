@@ -92,6 +92,7 @@ var _ = Describe("ClusterNode", func() {
                 clusterNode := New(ClusterNodeConfig{
                     StorageDriver: throwAwayStorageDriver,
                     CloudServer: throwAwayCloudServer,
+                    Capacity: 1,
                 })
 
                 memoryStore := NewRaftMemoryStorage()
@@ -145,6 +146,7 @@ var _ = Describe("ClusterNode", func() {
                 clusterNode := New(ClusterNodeConfig{
                     StorageDriver: throwAwayStorageDriver,
                     CloudServer: throwAwayCloudServer,
+                    Capacity: 1,
                 })
 
                 memoryStore := NewRaftMemoryStorage()
@@ -201,6 +203,7 @@ var _ = Describe("ClusterNode", func() {
                     clusterNode := New(ClusterNodeConfig{
                         StorageDriver: throwAwayStorageDriver,
                         CloudServer: throwAwayCloudServer,
+                        Capacity: 1,
                     })
 
                     startResult := make(chan error)
@@ -258,11 +261,13 @@ var _ = Describe("ClusterNode", func() {
                     seedNode := New(ClusterNodeConfig{
                         StorageDriver: seedNodeStorageDriver,
                         CloudServer: seedNodeServer,
+                        Capacity: 1,
                     })
 
                     newNode := New(ClusterNodeConfig{
                         StorageDriver: newNodeStorageDriver,
                         CloudServer: newNodeServer,
+                        Capacity: 1,
                     })
 
                     seedNodeStartResult := make(chan error)
@@ -345,6 +350,7 @@ var _ = Describe("ClusterNode", func() {
                     node := New(ClusterNodeConfig{
                         StorageDriver: nodeStorageDriver,
                         CloudServer: nodeServer,
+                        Capacity: 1,
                     })
 
                     memoryStore := NewRaftMemoryStorage()
@@ -395,6 +401,7 @@ var _ = Describe("ClusterNode", func() {
                     node2 := New(ClusterNodeConfig{
                         StorageDriver: node2StorageDriver,
                         CloudServer: node2Server,
+                        Capacity: 1,
                     })
 
                     memoryStore.SetIsEmpty(false)
@@ -432,6 +439,7 @@ var _ = Describe("ClusterNode", func() {
                 node := New(ClusterNodeConfig{
                     StorageDriver: nodeStorageDriver,
                     CloudServer: nodeServer,
+                    Capacity: 1,
                 })
 
                 memoryStore := NewRaftMemoryStorage()
@@ -482,6 +490,7 @@ var _ = Describe("ClusterNode", func() {
                 node2 := New(ClusterNodeConfig{
                     StorageDriver: node2StorageDriver,
                     CloudServer: node2Server,
+                    Capacity: 1,
                 })
 
                 memoryStore.SetIsEmpty(false)
@@ -515,6 +524,7 @@ var _ = Describe("ClusterNode", func() {
                 node3 := New(ClusterNodeConfig{
                     StorageDriver: node3StorageDriver,
                     CloudServer: node3Server,
+                    Capacity: 1,
                 })
 
                 node3.UseRaftStore(memoryStore)

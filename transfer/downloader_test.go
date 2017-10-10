@@ -1224,32 +1224,72 @@ var _ = Describe("Downloader", func() {
             })
             
             Context("And a download already successfully completed for this partition", func() {
-                It("Should return the done channel for that partition which should be closed", func() {
-                    partnerStrategy := NewMockTransferPartnerStrategy()
-                    partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
-                    transferTransport := NewMockTransferTransport()
-                    infiniteReader := NewInfiniteReader()
-                    transferTransport.SetDefaultGetResponse(infiniteReader, func() { }, nil)
-                    incomingTransfer := NewMockPartitionTransfer()
-                    // Default response to ensure the transfer completes right away
-                    incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ }, io.EOF)
-                    transferFactory := NewMockPartitionTransferFactory()
-                    transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
+                Context("And Reset() has not yet been called for that partition", func() {
+                    It("Should return the done channel for that partition which should be closed", func() {
+                        partnerStrategy := NewMockTransferPartnerStrategy()
+                        partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
+                        transferTransport := NewMockTransferTransport()
+                        infiniteReader := NewInfiniteReader()
+                        transferTransport.SetDefaultGetResponse(infiniteReader, func() { }, nil)
+                        incomingTransfer := NewMockPartitionTransfer()
+                        // Default response to ensure the transfer completes right away
+                        incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ }, io.EOF)
+                        transferFactory := NewMockPartitionTransferFactory()
+                        transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
 
-                    // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
-                    downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, nil)
-                    done := downloader.Download(0)
+                        // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                        downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, nil)
+                        done := downloader.Download(0)
 
-                    // Wait for the download to finish
-                    select {
-                    case <-done:
-                    case <-time.After(time.Second):
-                        Fail("Test timed out")
-                    }
+                        // Wait for the download to finish
+                        select {
+                        case <-done:
+                        case <-time.After(time.Second):
+                            Fail("Test timed out")
+                        }
 
-                    Expect(downloader.Download(0)).Should(Equal(done))
-                    Expect(downloader.Download(0)).Should(Equal(done))
-                    Expect(downloader.Download(0)).Should(Equal(done))
+                        Expect(downloader.Download(0)).Should(Equal(done))
+                        Expect(downloader.Download(0)).Should(Equal(done))
+                        Expect(downloader.Download(0)).Should(Equal(done))
+                    })
+                })
+
+                Context("And Reset() has been called for that partition", func() {
+                    It("Should start a new download for that partition", func() {
+                        partnerStrategy := NewMockTransferPartnerStrategy()
+                        partnerStrategy.SetDefaultChooseTransferPartnerResponse(2)
+                        transferTransport := NewMockTransferTransport()
+                        infiniteReader := NewInfiniteReader()
+                        transferTransport.SetDefaultGetResponse(infiniteReader, func() { }, nil)
+                        incomingTransfer := NewMockPartitionTransfer()
+                        // Default response to ensure the transfer completes right away
+                        incomingTransfer.SetDefaultNextChunkResponse(PartitionChunk{ }, io.EOF)
+                        transferFactory := NewMockPartitionTransferFactory()
+                        transferFactory.SetDefaultIncomingTransfer(incomingTransfer)
+
+                        // download won't be able to make progress since the transfer strategy will return an error. That way the done channel won't close
+                        downloader := NewDownloader(configController, transferTransport, partnerStrategy, transferFactory, nil)
+                        done := downloader.Download(0)
+
+                        // Wait for the download to finish
+                        select {
+                        case <-done:
+                        case <-time.After(time.Second):
+                            Fail("Test timed out")
+                        }
+
+                        Expect(downloader.Download(0)).Should(Equal(done))
+                        Expect(downloader.Download(0)).Should(Equal(done))
+                        Expect(downloader.Download(0)).Should(Equal(done))
+
+                        downloader.Reset(0)
+                        done2 := downloader.Download(0)
+
+                        Expect(done2).Should(Not(Equal(done)))
+                        Expect(downloader.Download(0)).Should(Equal(done2))
+                        Expect(downloader.Download(0)).Should(Equal(done2))
+                        Expect(downloader.Download(0)).Should(Equal(done2))
+                    })
                 })
             })
         })

@@ -135,6 +135,18 @@ func (nodeFacade *NodeCoordinatorFacade) HeldPartitionReplicas() map[uint64]map[
     return heldPartitionReplicas
 }
 
+func (nodeFacade *NodeCoordinatorFacade) NeighborsWithCapacity() int {
+    var n int
+
+    for _, node := range nodeFacade.node.configController.ClusterController().State.Nodes {
+        if node.Capacity > 0 {
+            n++
+        }
+    }
+
+    return n
+}
+
 func (nodeFacade *NodeCoordinatorFacade) NotifyJoinedCluster() {
     nodeFacade.node.joinedCluster <- 1
 }

@@ -378,6 +378,274 @@ var _ = Describe("Partitioner", func() {
         })
     })
 
+    Describe("#AssignPartitions", func() {
+        Context("When the first node is added", func() {
+            It("Should assign all partition replicas to that node", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 1)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i, _ := range nodes {
+                    nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+                }
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(nodes[0].Address.NodeID))
+                    }
+                }
+            })
+        })
+
+        Context("When a new node has been added", func() {
+            It("Should assign an equal proportion of partition replicas to the new node", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 1)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i, _ := range nodes {
+                    nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+                }
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(nodes[0].Address.NodeID))
+                    }
+                }
+
+                nodes = append(nodes, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(len(nodes) + 1) } })
+
+                ps.AssignPartitions(nodes, currentAssignment)
+                
+                var hist map[uint64]int = make(map[uint64]int)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Or(Equal(nodes[0].Address.NodeID), Equal(nodes[1].Address.NodeID)))
+                        hist[currentAssignment[i][j]] = hist[currentAssignment[i][j]] + 1
+                    }
+                }
+
+                Expect(hist).Should(Equal(map[uint64]int{ nodes[0].Address.NodeID: partitions * replicationFactor / 2, nodes[1].Address.NodeID: partitions * replicationFactor / 2 }))
+            })
+        })
+
+        Context("When a node is removed", func() {
+            It("Should equally distribute its partitions to the other nodes", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 1)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i, _ := range nodes {
+                    nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+                }
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(nodes[0].Address.NodeID))
+                    }
+                }
+
+                nodes = append(nodes, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(len(nodes) + 1) } })
+
+                ps.AssignPartitions(nodes, currentAssignment)
+                
+                var hist map[uint64]int = make(map[uint64]int)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Or(Equal(nodes[0].Address.NodeID), Equal(nodes[1].Address.NodeID)))
+                        hist[currentAssignment[i][j]] = hist[currentAssignment[i][j]] + 1
+                    }
+                }
+
+                Expect(hist).Should(Equal(map[uint64]int{ nodes[0].Address.NodeID: partitions * replicationFactor / 2, nodes[1].Address.NodeID: partitions * replicationFactor / 2 }))
+
+                ps.AssignPartitions(nodes[1:], currentAssignment)
+
+               for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(nodes[1].Address.NodeID))
+                    }
+                }
+            })
+        })
+
+        Context("When there are no nodes", func() {
+            It("Should not assign partitions anywhere", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 0)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(uint64(0)))
+                    }
+                }
+            })
+        })
+
+        Context("When there are only nodes with 0 capacity", func() {
+            It("Should not assign partitions anywhere", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 3)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i, _ := range nodes {
+                    nodes[i] = NodeConfig{ Capacity: 0, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+                }
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(uint64(0)))
+                    }
+                }
+            })
+        })
+
+        Context("When there is no change to the nodes", func() {
+            It("Should make no change to the assignment", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 2)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i, _ := range nodes {
+                    nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+                }
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                var hist map[uint64]int = make(map[uint64]int)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Or(Equal(nodes[0].Address.NodeID), Equal(nodes[1].Address.NodeID)))
+                        hist[currentAssignment[i][j]] = hist[currentAssignment[i][j]] + 1
+                    }
+                }
+
+                Expect(hist).Should(Equal(map[uint64]int{ nodes[0].Address.NodeID: partitions * replicationFactor / 2, nodes[1].Address.NodeID: partitions * replicationFactor / 2 }))
+
+                var assignmentCopy [][]uint64 = make([][]uint64, len(currentAssignment))
+                
+                for i := 0; i < len(currentAssignment); i++ {
+                    assignmentCopy[i] = make([]uint64, len(currentAssignment[i]))
+
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        assignmentCopy[i][j] = currentAssignment[i][j]
+                    }
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                Expect(currentAssignment).Should(Equal(assignmentCopy))
+            })
+        })
+
+        Context("When a node's capacity is changed to 0", func() {
+            It("Should equally distribute its partitions to the other nodes", func() {
+                var partitions int = 256
+                var replicationFactor int = 3
+                ps := &SimplePartitioningStrategy{ }
+
+                nodes := make([]NodeConfig, 1)
+                currentAssignment := make([][]uint64, partitions)
+
+                for i, _ := range nodes {
+                    nodes[i] = NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(i) + 1 } }
+                }
+
+                for i := 0; i < partitions; i++ {
+                    currentAssignment[i] = make([]uint64, replicationFactor)
+                }
+
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(nodes[0].Address.NodeID))
+                    }
+                }
+
+                nodes = append(nodes, NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: uint64(len(nodes) + 1) } })
+
+                ps.AssignPartitions(nodes, currentAssignment)
+                
+                var hist map[uint64]int = make(map[uint64]int)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Or(Equal(nodes[0].Address.NodeID), Equal(nodes[1].Address.NodeID)))
+                        hist[currentAssignment[i][j]] = hist[currentAssignment[i][j]] + 1
+                    }
+                }
+
+                Expect(hist).Should(Equal(map[uint64]int{ nodes[0].Address.NodeID: partitions * replicationFactor / 2, nodes[1].Address.NodeID: partitions * replicationFactor / 2 }))
+
+                nodes[0].Capacity = 0
+                ps.AssignPartitions(nodes, currentAssignment)
+
+                for i := 0; i < len(currentAssignment); i++ {
+                    for j := 0; j < len(currentAssignment[i]); j++ {
+                        Expect(currentAssignment[i][j]).Should(Equal(nodes[1].Address.NodeID))
+                    }
+                }
+            })
+        })
+    })
+
     Describe("#Owners", func() {
         It("should return an empty array if tokenAssignments is nil", func() {
             ps := &SimplePartitioningStrategy{ }
@@ -399,10 +667,10 @@ var _ = Describe("Partitioner", func() {
 
             It("should exclude 0 as a possible node", func() {
                 ps := &SimplePartitioningStrategy{ }
-                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 0, 3)).Should(Equal([]uint64{ 1, 2, 1 }))
-                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 4, 3)).Should(Equal([]uint64{ 2, 1, 2 }))
-                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 7, 3)).Should(Equal([]uint64{ 2, 1, 2 }))
-                Expect(ps.Owners([]uint64{ 0, 0, 0, 0, 0, 0, 0, 0 }, 7, 3)).Should(Equal([]uint64{ }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 0, 3)).Should(Equal([]uint64{ 0, 1, 2 }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 4, 3)).Should(Equal([]uint64{ 2, 0, 1 }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 1, 2, 2, 2, 2 }, 7, 3)).Should(Equal([]uint64{ 2, 0, 1 }))
+                Expect(ps.Owners([]uint64{ 0, 0, 0, 0, 0, 0, 0, 0 }, 7, 3)).Should(Equal([]uint64{ 0, 0, 0 }))
             })
         })
 

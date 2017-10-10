@@ -37,6 +37,7 @@ type ClusterNodeConfig struct {
     StorageDriver StorageDriver
     CloudServer *CloudServer
     MerkleDepth uint8
+    Capacity uint64
 }
 
 type ClusterNode struct {
@@ -59,6 +60,7 @@ type ClusterNode struct {
     empty chan int
     initializedCB func()
     merkleDepth uint8
+    capacity uint64
     shutdownDecommissioner func()
     lock sync.Mutex
     emptyMu sync.Mutex
@@ -77,6 +79,7 @@ func New(config ClusterNodeConfig) *ClusterNode {
         configControllerBuilder: &ConfigControllerBuilder{ },
         interClusterClient: client.NewClient(client.ClientConfig{ }),
         merkleDepth: config.MerkleDepth,
+        capacity: config.Capacity,
         partitionFactory: NewDefaultPartitionFactory(),
         partitionPool: NewDefaultPartitionPool(),
     }
@@ -383,7 +386,7 @@ func (node *ClusterNode) joinCluster(seedHost string, seedPort int) error {
     }
 
     newMemberConfig := NodeConfig{
-        Capacity: 1,
+        Capacity: node.capacity,
         Address: PeerAddress{
             NodeID: node.ID(),
             Host: node.cloudServer.InternalHost(),

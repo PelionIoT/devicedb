@@ -17,6 +17,9 @@ type testPartitioningStrategy struct {
     owners [][]uint64
 }
 
+func (ps *testPartitioningStrategy) AssignPartitions(nodes []NodeConfig, currentPartitionAssignment [][]uint64) {
+}
+
 func (ps *testPartitioningStrategy) AssignTokens(nodes []NodeConfig, currentTokenAssignment []uint64, partitions uint64) ([]uint64, error) {
     ps.calls++
 
@@ -279,6 +282,7 @@ var _ = Describe("Controller", func() {
                             Address: PeerAddress{ NodeID: 1 },
                             Tokens: map[uint64]bool{ 0: true, 1: true, 2: true, 3: true },
                             PartitionReplicas: map[uint64]map[uint64]bool{ },
+                            OwnedPartitionReplicas: map[uint64]map[uint64]bool{ },
                         }
                         clusterState := ClusterState{
                             Nodes: map[uint64]*NodeConfig{ },
@@ -375,6 +379,7 @@ var _ = Describe("Controller", func() {
                     Address: PeerAddress{ NodeID: 2 },
                     Tokens: map[uint64]bool{ },
                     PartitionReplicas: map[uint64]map[uint64]bool{ },
+                    OwnedPartitionReplicas: map[uint64]map[uint64]bool{ },
                 }
                 clusterState := ClusterState{
                     Nodes: map[uint64]*NodeConfig{ 

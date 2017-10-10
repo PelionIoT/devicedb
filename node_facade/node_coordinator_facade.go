@@ -41,6 +41,8 @@ type ClusterNodeCoordinatorFacade interface {
     AddRelay(relayID string)
     RemoveRelay(relayID string)
     MoveRelay(relayID string, siteID string)
+    // Return a count of cluster members that have non-zero capacity
+    NeighborsWithCapacity() int
     // Obtain a two dimensional map indicating which partition replicas are
     // currently owned by this node. map[partitionNumber][replicaNumber]
     OwnedPartitionReplicas() map[uint64]map[uint64]bool

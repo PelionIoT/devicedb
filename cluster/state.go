@@ -24,6 +24,8 @@ type PartitionReplica struct {
     // a transitional state and the partition replica is being transferred to a new node. The owner is based only on
     // the current token assignments
     Holder uint64
+    // The ID of the node that owns this partition
+    Owner uint64
 }
 
 type NodeConfig struct {
@@ -33,6 +35,8 @@ type NodeConfig struct {
     Capacity uint64
     // The tokens owned by this node
     Tokens map[uint64]bool
+    // a set of partition replicas owned by this node
+    OwnedPartitionReplicas map[uint64]map[uint64]bool
     // a set of partition replicas held by this node. This is derived from the cluster state and is used 
     // only internally for quick lookup. It is not stored or transferred as part of a node's configuration
     PartitionReplicas map[uint64]map[uint64]bool
@@ -57,6 +61,28 @@ func (nodeConfig *NodeConfig) relinquishPartitionReplica(partition, replica uint
 
     if len(replicas) == 0 {
         delete(nodeConfig.PartitionReplicas, partition)
+    }
+}
+
+func (nodeConfig *NodeConfig) takePartitionReplicaOwnership(partition, replica uint64) {
+    if _, ok := nodeConfig.OwnedPartitionReplicas[partition]; !ok {
+        nodeConfig.OwnedPartitionReplicas[partition] = make(map[uint64]bool)
+    }
+
+    nodeConfig.OwnedPartitionReplicas[partition][replica] = true
+}
+
+func (nodeConfig *NodeConfig) relinquishPartitionReplicaOwnership(partition, replica uint64) {
+    replicas, ok := nodeConfig.OwnedPartitionReplicas[partition]
+
+    if !ok {
+        return
+    }
+
+    delete(replicas, replica)
+
+    if len(replicas) == 0 {
+        delete(nodeConfig.OwnedPartitionReplicas, partition)
     }
 }
 
@@ -182,6 +208,14 @@ func (clusterState *ClusterState) RemoveNode(node uint64) {
         }
     }
 
+    // any partition that was owned by this node is now held by nobody
+    for partition, replicas := range clusterState.Nodes[node].OwnedPartitionReplicas {
+        for replica, _ := range replicas {
+            clusterState.Nodes[node].relinquishPartitionReplicaOwnership(partition, replica)
+            clusterState.Partitions[partition][replica].Owner = 0
+        }
+    }
+
     // any token that was owned by this node is now owned by nobody
     for token, _ := range clusterState.Nodes[node].Tokens {
         clusterState.Nodes[node].relinquishToken(token)
@@ -224,7 +258,37 @@ func (clusterState *ClusterState) AssignToken(node, token uint64) error {
     return nil
 }
 
-// change the owner of a partition replica
+// change the owner of a partition replicas
+func (clusterState *ClusterState) AssignPartitionReplicaOwnership(partition, replica, node uint64) error {
+    if partition >= uint64(len(clusterState.Partitions)) {
+        return ENoSuchPartition
+    }
+
+    replicas := clusterState.Partitions[partition]
+    _, okNode := clusterState.Nodes[node]
+
+    if !okNode {
+        return ENoSuchNode
+    }
+
+    if replica >= uint64(len(replicas)) {
+        return ENoSuchReplica
+    }
+
+    currentOwner := replicas[replica].Owner
+
+    if currentOwner != 0 {
+        // invariant should be maintained that a partition replica is owned by exactly one node at a time
+        clusterState.Nodes[currentOwner].relinquishPartitionReplicaOwnership(partition, replica)
+    }
+
+    replicas[replica].Owner = node
+    clusterState.Nodes[node].takePartitionReplicaOwnership(partition, replica)
+
+    return nil
+}
+
+// change the holder of a partition replica
 func (clusterState *ClusterState) AssignPartitionReplica(partition, replica, node uint64) error {
     if partition >= uint64(len(clusterState.Partitions)) {
         return ENoSuchPartition

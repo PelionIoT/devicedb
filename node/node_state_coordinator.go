@@ -117,7 +117,7 @@ func (coordinator *ClusterNodeStateCoordinator) ProcessClusterUpdates(deltas []C
         }
     }
 
-    if len(coordinator.nodeFacade.OwnedPartitionReplicas()) == 0 && len(coordinator.nodeFacade.HeldPartitionReplicas()) == 0 {
+    if len(coordinator.nodeFacade.OwnedPartitionReplicas()) == 0 && (len(coordinator.nodeFacade.HeldPartitionReplicas()) == 0 || coordinator.nodeFacade.NeighborsWithCapacity() == 0) {
         coordinator.nodeFacade.NotifyEmpty()
     }
 }

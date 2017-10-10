@@ -98,6 +98,7 @@ var _ = Describe("Cluster Operation", func() {
                 node1 = node.New(node.ClusterNodeConfig{
                     CloudServer: node1Server,
                     StorageDriver: node1Storage,
+                    Capacity: 1,
                 })
                 clusterClient = client.New(client.APIClientConfig{ Servers: []string{ fmt.Sprintf("localhost:%d", nextPort) } })
                 go func() {
@@ -400,6 +401,7 @@ var _ = Describe("Cluster Operation", func() {
                     nodes[i] = node.New(node.ClusterNodeConfig{
                         CloudServer: nodeServer,
                         StorageDriver: nodeStorage,
+                        Capacity: 1,
                         MerkleDepth: 4,
                     })
 
@@ -477,6 +479,7 @@ var _ = Describe("Cluster Operation", func() {
                     newNode := node.New(node.ClusterNodeConfig{
                         CloudServer: nodeServer,
                         StorageDriver: nodeStorage,
+                        Capacity: 1,
                     })
                     nodeInitialized := make(chan int)
                     nodeStopped := make(chan error)
@@ -523,7 +526,7 @@ var _ = Describe("Cluster Operation", func() {
         })
 
         Context("In a multi node cluster", func() {
-            var partitions int = 16
+            var partitions int = 32
             var clusterSize int = 3
             var clusterClient *client.APIClient
             var nodes []*node.ClusterNode
@@ -543,6 +546,7 @@ var _ = Describe("Cluster Operation", func() {
                         CloudServer: nodeServer,
                         StorageDriver: nodeStorage,
                         MerkleDepth: 4,
+                        Capacity: 1,
                     })
 
                     servers[i] = fmt.Sprintf("localhost:%d", nextPort + (i * 2))
@@ -599,6 +603,417 @@ var _ = Describe("Cluster Operation", func() {
                 }
             })
 
+            Describe("Partition transfers after replacing a node", func() {
+                BeforeEach(func() {
+                    // With any luck there will be one or more sites per partition
+                    fmt.Println("Adding 1000 sites to the cluster")
+                    for i := 0; i < 1000; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site%d", i))).Should(Not(HaveOccurred()))
+                    }
+
+                    fmt.Println("Waiting for the cluster nodes to catch up")
+                    <-time.After(time.Second * 10)
+                    fmt.Println("Writing keys to each site")
+
+                    for i := 0; i < 1000; i++ {
+                        var siteID string = fmt.Sprintf("site%d", i)
+
+                        for j := 0; j < 10; j++ {
+                            var key string = fmt.Sprintf("key-%d", j)
+
+                            fmt.Printf("Writing key %s to site %s\n", key, siteID)
+
+                            var update *UpdateBatch = NewUpdateBatch()
+                            _, err := update.Put([]byte(key), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            _, _, err = nodes[0].ClusterIO().Batch(context.TODO(), siteID, "default", update)
+                            Expect(err).Should(Not(HaveOccurred()))
+                        }
+                    }
+
+                    nodeServer := tempServer(nextPort + (clusterSize * 2), nextPort + (clusterSize * 2) + 1)
+                    nodeStorage := tempStorageDriver()
+                    newNode := node.New(node.ClusterNodeConfig{
+                        CloudServer: nodeServer,
+                        StorageDriver: nodeStorage,
+                        MerkleDepth: 4,
+                        Capacity: 0,
+                    })
+                    nodeInitialized := make(chan int)
+                    nodeStopped := make(chan error)
+
+                    go func() {
+                        nodeStopped <- newNode.Start(node.NodeInitializationOptions{
+                            JoinCluster: true,
+                            SeedNodeHost: "localhost",
+                            SeedNodePort: nextPort,
+                        })
+                    }()
+
+                    newNode.OnInitialized(func() {
+                        nodeInitialized <- 1
+                    })
+
+                    select {
+                    case <-nodeInitialized:
+                    case <-nodeStopped:
+                        Fail("Node was never initialized.")
+                    }
+
+                    nodes = append(nodes, newNode)
+                })
+
+                AfterEach(func() {
+                    nextPort += 2
+                })
+
+                Specify("The replacement node should take over the partitions that the node it is replacing was in charge of and transfer all the data needed from the backup nodes", func() {
+                    // Get the ID of the third node
+                    var removedNodeID uint64 = nodes[2].ID()
+                    var replacementNodeID uint64 = nodes[3].ID()
+                    var removedNodeOwnedPartitions map[uint64]bool = make(map[uint64]bool)
+                    var removedNodeOwnedSites map[string]bool = make(map[string]bool)
+
+                    for _, partitionReplica := range nodes[2].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas() {
+                        removedNodeOwnedPartitions[partitionReplica.Partition] = true
+                    }
+
+                    Expect(removedNodeOwnedPartitions).Should(Not(BeEmpty()))
+
+                    for i := 0; i < 1000; i++ {
+                        if removedNodeOwnedPartitions[nodes[2].ClusterConfigController().ClusterController().Partition(fmt.Sprintf("site%d", i))] {
+                            removedNodeOwnedSites[fmt.Sprintf("site%d", i)] = true
+                        }
+                    }
+
+                    Expect(removedNodeOwnedSites).Should(Not(BeEmpty()))
+
+                    <-time.After(time.Second * 5)
+                    fmt.Println(nodes[0].ClusterConfigController().ClusterController().State.Tokens)
+                    <-time.After(time.Second * 5)
+                    //Expect(nodes[0].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(HaveLen(32)))
+                    //Expect(nodes[1].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(HaveLen(32)))
+
+                    // Make sure the first two nodes do not have the data for all sites before the third node is removed
+                    var nodeSites map[uint64]map[string]bool = make(map[uint64]map[string]bool)
+
+                    for nodeID := 0; nodeID < 4; nodeID++ {
+                        nodeSites[nodes[nodeID].ID()] = make(map[string]bool)
+
+                        for i := 0; i < 1000; i++ {
+                            siteID := fmt.Sprintf("site%d", i)
+                            partition := nodes[2].ClusterConfigController().ClusterController().Partition(siteID)
+                            _, err := nodes[nodeID].Get(context.TODO(), partition, siteID, "default", [][]byte{ []byte("key1") })
+
+                            if err == nil {
+                                nodeSites[nodes[nodeID].ID()][siteID] = true
+                            }
+                        }
+                    }
+
+                    Expect(nodeSites[nodes[0].ID()]).Should(Not(BeEmpty()))
+                    Expect(nodeSites[nodes[1].ID()]).Should(Not(BeEmpty()))
+                    Expect(nodeSites[nodes[2].ID()]).Should(Not(BeEmpty()))
+                    // This node hasn't been given any capacity yet
+                    Expect(nodeSites[nodes[3].ID()]).Should(BeEmpty())
+
+                    // Make sure none of them have all the sites
+                    /*Expect(nodeSites[nodes[0].ID()]).Should(Not(HaveLen(1000)))
+                    Expect(nodeSites[nodes[1].ID()]).Should(Not(HaveLen(1000)))
+                    Expect(nodeSites[nodes[2].ID()]).Should(Not(HaveLen(1000)))*/
+
+                    fmt.Println("Getting ready to remove the node from the cluster")
+                    <-time.After(time.Second * 10)
+
+                    // Remove the third node from the cluster
+                    Expect(nodes[0].ClusterConfigController().ReplaceNode(context.TODO(), removedNodeID, replacementNodeID)).Should(Not(HaveOccurred()))
+
+                    fmt.Println("Waiting for the node to be removed from the cluster and its data to be transferred around")
+                    <-time.After(time.Second * 10)
+
+                    for i := 0; i < 1000; i++ {
+                        siteID := fmt.Sprintf("site%d", i)
+                        partition := nodes[0].ClusterConfigController().ClusterController().Partition(siteID)
+
+                        // Make sure the original two nodes still have the same sites as before, no more no less
+                        for nodeID := 0; nodeID < 2; nodeID++ {
+                            keys := make([][]byte, 0)
+                            for i := 0; i < 10; i++ {
+                                keys = append(keys, []byte(fmt.Sprintf("key-%d", i)))
+                            }
+
+                            siblingSets, err := nodes[nodeID].Get(context.TODO(), partition, siteID, "default", keys)
+
+                            if nodeSites[nodes[nodeID].ID()][siteID] {
+                                Expect(err).Should(Not(HaveOccurred()))
+                                Expect(siblingSets).Should(HaveLen(10))
+
+                                for _, siblingSet := range siblingSets {
+                                    Expect(siblingSet).Should(Not(BeNil()))
+                                    Expect(siblingSet.Value()).Should(Equal([]byte("hello")))
+                                }
+                            } else {
+                                Expect(err).Should(Or(Equal(ENoSuchSite), Equal(ENoSuchPartition)))
+                            }
+                        }
+
+                        keys := make([][]byte, 0)
+                        for i := 0; i < 10; i++ {
+                            keys = append(keys, []byte(fmt.Sprintf("key-%d", i)))
+                        }
+
+                        siblingSets, err := nodes[3].Get(context.TODO(), partition, siteID, "default", keys)
+
+                        if nodeSites[nodes[2].ID()][siteID] {
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(siblingSets).Should(HaveLen(10))
+
+                            for _, siblingSet := range siblingSets {
+                                Expect(siblingSet).Should(Not(BeNil()))
+                                Expect(siblingSet.Value()).Should(Equal([]byte("hello")))
+                            }
+                        } else {
+                            Expect(err).Should(Or(Equal(ENoSuchSite), Equal(ENoSuchPartition)))
+                        }
+                    }
+                })
+            })
+
+            Describe("Partition transfers after decommissioning a node", func() {
+                BeforeEach(func() {
+                    // With any luck there will be one or more sites per partition
+                    fmt.Println("Adding 1000 sites to the cluster")
+                    for i := 0; i < 1000; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site%d", i))).Should(Not(HaveOccurred()))
+                    }
+
+                    fmt.Println("Waiting for the cluster nodes to catch up")
+                    <-time.After(time.Second * 10)
+                    fmt.Println("Writing keys to each site")
+
+                    for i := 0; i < 1000; i++ {
+                        var siteID string = fmt.Sprintf("site%d", i)
+
+                        for j := 0; j < 10; j++ {
+                            var key string = fmt.Sprintf("key-%d", j)
+
+                            fmt.Printf("Writing key %s to site %s\n", key, siteID)
+
+                            var update *UpdateBatch = NewUpdateBatch()
+                            _, err := update.Put([]byte(key), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            _, _, err = nodes[0].ClusterIO().Batch(context.TODO(), siteID, "default", update)
+                            Expect(err).Should(Not(HaveOccurred()))
+                        }
+                    }
+                })
+
+                AfterEach(func() {
+                    nextPort += 2
+                })
+
+                Specify("The remaining two nodes should take over reponsibility for the partitions replicas that the decommissioned node was responsible for", func() {
+                    // Get the ID of the third node
+                    var removedNodeOwnedPartitions map[uint64]bool = make(map[uint64]bool)
+                    var removedNodeOwnedSites map[string]bool = make(map[string]bool)
+
+                    for _, partitionReplica := range nodes[2].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas() {
+                        removedNodeOwnedPartitions[partitionReplica.Partition] = true
+                    }
+
+                    Expect(removedNodeOwnedPartitions).Should(Not(BeEmpty()))
+
+                    for i := 0; i < 1000; i++ {
+                        if removedNodeOwnedPartitions[nodes[2].ClusterConfigController().ClusterController().Partition(fmt.Sprintf("site%d", i))] {
+                            removedNodeOwnedSites[fmt.Sprintf("site%d", i)] = true
+                        }
+                    }
+
+                    Expect(removedNodeOwnedSites).Should(Not(BeEmpty()))
+
+                    <-time.After(time.Second * 5)
+                    fmt.Println(nodes[0].ClusterConfigController().ClusterController().State.Tokens)
+                    <-time.After(time.Second * 5)
+                    //Expect(nodes[0].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(HaveLen(32)))
+                    //Expect(nodes[1].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(HaveLen(32)))
+
+                    // Make sure the first two nodes do not have the data for all sites before the third node is removed
+                    for nodeID := 0; nodeID < 2; nodeID++ {
+                        for i := 0; i < 1000; i++ {
+                            siteID := fmt.Sprintf("site%d", i)
+                            partition := nodes[2].ClusterConfigController().ClusterController().Partition(siteID)
+                            _, err := nodes[nodeID].Get(context.TODO(), partition, siteID, "default", [][]byte{ []byte("key1") })
+
+                            // OK we found a site that this node does not yet contain
+                            if err == ESiteDoesNotExist {
+                                break
+                            }
+
+                            // This node contains all the sites for some reason
+                            if i == 1000 {
+                                Fail("One of the first two nodes contains all the sites already")
+                            }
+                        }
+                    }
+
+                    fmt.Println("Getting ready to remove the node from the cluster")
+                    <-time.After(time.Second * 10)
+
+                    // Remove the third node from the cluster
+                    err, leftCluster := nodes[2].LeaveCluster()
+                    Expect(err).Should(Not(HaveOccurred()))
+
+                    fmt.Println("Waiting for the node to be removed from the cluster and its data to be transferred around")
+                    <-time.After(time.Second * 10)
+
+                    select {
+                    case <-leftCluster:
+                    case <-time.After(time.Second * 10):
+                        Fail("The node did not finish leaving the cluster")
+                    }
+
+                    // Make sure that after giving some time for transfers to complete, the remaining two nodes have assumed responsibility for all site data
+                    // and both have all data for all sites
+                    for i := 0; i < 1000; i++ {
+                        siteID := fmt.Sprintf("site%d", i)
+                        partition := nodes[0].ClusterConfigController().ClusterController().Partition(siteID)
+
+                        for nodeID := 0; nodeID < 2; nodeID++ {
+                            keys := make([][]byte, 0)
+                            for i := 0; i < 10; i++ {
+                                keys = append(keys, []byte(fmt.Sprintf("key-%d", i)))
+                            }
+
+                            siblingSets, err := nodes[nodeID].Get(context.TODO(), partition, siteID, "default", keys)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(siblingSets).Should(HaveLen(10))
+
+                            for _, siblingSet := range siblingSets {
+                                Expect(siblingSet).Should(Not(BeNil()))
+                                Expect(siblingSet.Value()).Should(Equal([]byte("hello")))
+                            }
+                        }
+                    }
+                })
+            })
+
+            Describe("Partition transfers after removing a node", func() {
+                BeforeEach(func() {
+                    // With any luck there will be one or more sites per partition
+                    fmt.Println("Adding 1000 sites to the cluster")
+                    for i := 0; i < 1000; i++ {
+                        Expect(clusterClient.AddSite(context.TODO(), fmt.Sprintf("site%d", i))).Should(Not(HaveOccurred()))
+                    }
+
+                    fmt.Println("Waiting for the cluster nodes to catch up")
+                    <-time.After(time.Second * 10)
+                    fmt.Println("Writing keys to each site")
+
+                    for i := 0; i < 1000; i++ {
+                        var siteID string = fmt.Sprintf("site%d", i)
+
+                        for j := 0; j < 10; j++ {
+                            var key string = fmt.Sprintf("key-%d", j)
+
+                            fmt.Printf("Writing key %s to site %s\n", key, siteID)
+
+                            var update *UpdateBatch = NewUpdateBatch()
+                            _, err := update.Put([]byte(key), []byte("hello"), NewDVV(NewDot("cloud-0", 0), map[string]uint64{ }))
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            _, _, err = nodes[0].ClusterIO().Batch(context.TODO(), siteID, "default", update)
+                            Expect(err).Should(Not(HaveOccurred()))
+                        }
+                    }
+                })
+
+                AfterEach(func() {
+                    nextPort += 2
+                })
+
+                Specify("The remaining two nodes should take over reponsibility for the partitions replicas that the removed node was responsible for", func() {
+                    // Get the ID of the third node
+                    var removedNodeID uint64 = nodes[2].ID()
+                    var removedNodeOwnedPartitions map[uint64]bool = make(map[uint64]bool)
+                    var removedNodeOwnedSites map[string]bool = make(map[string]bool)
+
+                    for _, partitionReplica := range nodes[2].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas() {
+                        removedNodeOwnedPartitions[partitionReplica.Partition] = true
+                    }
+
+                    Expect(removedNodeOwnedPartitions).Should(Not(BeEmpty()))
+
+                    for i := 0; i < 1000; i++ {
+                        if removedNodeOwnedPartitions[nodes[2].ClusterConfigController().ClusterController().Partition(fmt.Sprintf("site%d", i))] {
+                            removedNodeOwnedSites[fmt.Sprintf("site%d", i)] = true
+                        }
+                    }
+
+                    Expect(removedNodeOwnedSites).Should(Not(BeEmpty()))
+
+                    <-time.After(time.Second * 5)
+                    fmt.Println(nodes[0].ClusterConfigController().ClusterController().State.Tokens)
+                    <-time.After(time.Second * 5)
+                    //Expect(nodes[0].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(HaveLen(32)))
+                    //Expect(nodes[1].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()).Should(Not(HaveLen(32)))
+
+                    // Make sure the first two nodes do not have the data for all sites before the third node is removed
+                    for nodeID := 0; nodeID < 2; nodeID++ {
+                        for i := 0; i < 1000; i++ {
+                            siteID := fmt.Sprintf("site%d", i)
+                            partition := nodes[2].ClusterConfigController().ClusterController().Partition(siteID)
+                            _, err := nodes[nodeID].Get(context.TODO(), partition, siteID, "default", [][]byte{ []byte("key1") })
+
+                            // OK we found a site that this node does not yet contain
+                            if err == ESiteDoesNotExist {
+                                break
+                            }
+
+                            // This node contains all the sites for some reason
+                            if i == 1000 {
+                                Fail("One of the first two nodes contains all the sites already")
+                            }
+                        }
+                    }
+
+                    fmt.Println("Getting ready to remove the node from the cluster")
+                    <-time.After(time.Second * 10)
+
+                    // Remove the third node from the cluster
+                    Expect(nodes[0].ClusterConfigController().RemoveNode(context.TODO(), removedNodeID)).Should(Not(HaveOccurred()))
+
+                    fmt.Println("Waiting for the node to be removed from the cluster and any data to be transferred around")
+                    <-time.After(time.Second * 10)
+
+                    // Make sure that after giving some time for transfers to complete, the remaining two nodes have assumed responsibility for all site data
+                    // and both have all data for all sites
+                    for i := 0; i < 1000; i++ {
+                        siteID := fmt.Sprintf("site%d", i)
+                        partition := nodes[0].ClusterConfigController().ClusterController().Partition(siteID)
+
+                        for nodeID := 0; nodeID < 2; nodeID++ {
+                            keys := make([][]byte, 0)
+                            for i := 0; i < 10; i++ {
+                                keys = append(keys, []byte(fmt.Sprintf("key-%d", i)))
+                            }
+
+                            siblingSets, err := nodes[nodeID].Get(context.TODO(), partition, siteID, "default", keys)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+                            Expect(siblingSets).Should(HaveLen(10))
+
+                            for _, siblingSet := range siblingSets {
+                                Expect(siblingSet).Should(Not(BeNil()))
+                                Expect(siblingSet.Value()).Should(Equal([]byte("hello")))
+                            }
+                        }
+                    }
+                })
+            })
+
             Describe("Partition transfers after adding a node", func() {
                 BeforeEach(func() {
                     // With any luck there will be one or more sites per partition
@@ -640,6 +1055,7 @@ var _ = Describe("Cluster Operation", func() {
                         CloudServer: nodeServer,
                         StorageDriver: nodeStorage,
                         MerkleDepth: 4,
+                        Capacity: 1,
                     })
                     nodeInitialized := make(chan int)
                     nodeStopped := make(chan error)
@@ -731,6 +1147,7 @@ var _ = Describe("Cluster Operation", func() {
                     newNode := node.New(node.ClusterNodeConfig{
                         CloudServer: nodeServer,
                         StorageDriver: nodeStorage,
+                        Capacity: 1,
                     })
                     nodeInitialized := make(chan int)
                     nodeStopped := make(chan error)

@@ -89,6 +89,7 @@ func (transferAgent *HTTPTransferAgent) stopTransfer(partition, replica uint64) 
 
     if transferAgent.transferProposer.PendingProposals(partition) == 0 {
         transferAgent.partitionDownloader.CancelDownload(partition)
+        transferAgent.partitionDownloader.Reset(partition)
     }
 }
 
