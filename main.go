@@ -28,6 +28,8 @@ import (
     . "devicedb/merkle"
     . "devicedb/bucket"
     . "devicedb/data"
+
+    "github.com/olekukonko/tablewriter"
 )
 
 var templateConfig string =
@@ -242,6 +244,7 @@ Cluster Commands:
     remove        Force a node to be removed from the cluster
     decommission  Migrate data away from a node then remove it from the cluster
     replace       Replace a dead node with a new node
+    overview      Show an overview of the nodes in the cluster
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
 `
@@ -289,6 +292,7 @@ func main() {
     clusterRemoveCommand := flag.NewFlagSet("remove", flag.ExitOnError)
     clusterDecommissionCommand := flag.NewFlagSet("decommission", flag.ExitOnError)
     clusterReplaceCommand := flag.NewFlagSet("replace", flag.ExitOnError)
+    clusterOverviewCommand := flag.NewFlagSet("overview", flag.ExitOnError)
     clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
 
     startConfigFile := startCommand.String("conf", "", "The config file for this server")
@@ -327,6 +331,9 @@ func main() {
     clusterReplaceNodeID := clusterReplaceCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")
     clusterReplaceReplacementNodeID := clusterReplaceCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
 
+    clusterOverviewHost := clusterOverviewCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to query the cluster state.")
+    clusterOverviewPort := clusterOverviewCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+
     if len(os.Args) < 2 {
         fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
         fmt.Fprintf(os.Stderr, "%s", usage)
@@ -350,6 +357,8 @@ func main() {
             clusterDecommissionCommand.Parse(os.Args[3:])
         case "replace":
             clusterReplaceCommand.Parse(os.Args[3:])
+        case "overview":
+            clusterOverviewCommand.Parse(os.Args[3:])
         case "help":
             clusterHelpCommand.Parse(os.Args[3:])
         case "-help":
@@ -706,6 +715,15 @@ func main() {
         fmt.Fprintf(os.Stderr, "Node was replaced.\n")
 
         os.Exit(1)
+    }
+
+    if clusterOverviewCommand.Parsed() {
+        table := tablewriter.NewWriter(os.Stdout)
+        table.SetHeader([]string{ "Node ID", "Host", "Port" })
+        table.Append([]string{ "2323423432", *clusterOverviewHost, fmt.Sprintf("%d", *clusterOverviewPort) })
+        table.Render()
+
+        os.Exit(0)
     }
 
     if clusterHelpCommand.Parsed() {
