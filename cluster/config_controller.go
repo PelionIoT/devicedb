@@ -13,7 +13,10 @@ import (
     "context"
     "errors"
     "sync"
+    "time"
 )
+
+const ProposalRetryPeriodSeconds = 15
 
 type ClusterConfigController interface {
     AddNode(ctx context.Context, nodeConfig NodeConfig) error
@@ -137,15 +140,18 @@ func (cc *ConfigController) ReplaceNode(ctx context.Context, replacedNodeID uint
         return err
     }
 
-    select {
-    case resp := <-respCh:
-        return resp.(proposalResponse).err
-    case <-ctx.Done():
-        cc.requestMap.Respond(replaceCommand.CommandID, nil)
-        return ECancelled
-    case <-cc.stop:
-        cc.requestMap.Respond(replaceCommand.CommandID, nil)
-        return EStopped
+    for {
+        select {
+        case resp := <-respCh:
+            return resp.(proposalResponse).err
+        case <-time.After(time.Second * ProposalRetryPeriodSeconds):
+        case <-ctx.Done():
+            cc.requestMap.Respond(replaceCommand.CommandID, nil)
+            return ECancelled
+        case <-cc.stop:
+            cc.requestMap.Respond(replaceCommand.CommandID, nil)
+            return EStopped
+        }
     }
 }
 
@@ -172,15 +178,18 @@ func (cc *ConfigController) RemoveNode(ctx context.Context, nodeID uint64) error
         return err
     }
 
-    select {
-    case resp := <-respCh:
-        return resp.(proposalResponse).err
-    case <-ctx.Done():
-        cc.requestMap.Respond(removeCommand.CommandID, nil)
-        return ECancelled
-    case <-cc.stop:
-        cc.requestMap.Respond(removeCommand.CommandID, nil)
-        return EStopped
+    for {
+        select {
+        case resp := <-respCh:
+            return resp.(proposalResponse).err
+        case <-time.After(time.Second * ProposalRetryPeriodSeconds):
+        case <-ctx.Done():
+            cc.requestMap.Respond(removeCommand.CommandID, nil)
+            return ECancelled
+        case <-cc.stop:
+            cc.requestMap.Respond(removeCommand.CommandID, nil)
+            return EStopped
+        }
     }
 }
 
@@ -233,22 +242,39 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
 
     respCh := cc.requestMap.MakeRequest(command.CommandID)
 
-    Log.Infof("%d Make proposition", cc.clusterController.LocalNodeID)
-    if err := cc.raftNode.Propose(ctx, encodedCommand); err != nil {
-        cc.requestMap.Respond(command.CommandID, nil)
-        return err
-    }
-    Log.Infof("Made proposition")
+    // Note: It is possible that the proposal is lost due to message loss. Proposals are not
+    // re-sent if being forwarded from follower to leader. It is possible for the call to
+    // Propose() to accept a proposal and queue it for forwarding to the leader but there is no mechanism
+    // to re-send the proposal message if it is lost due to network congestion or if 
+    // the leader is down. Since the intention of this method is to block until the given command
+    // has been committed to the log, it needs to retry proposals after a timeout period.
+    // 
+    // This issue was discovered when the downloader attempted to submit a cluster command
+    // that would transfer holdership of a partition replica to the requesting node but the TCP
+    // connection reached the "file open" limit and some messages were dropped. A way to mitigate
+    // this as well is to send the message serially instead of at the same time with multiple goroutines
+    for {
+        Log.Debugf("Making raft proposal for command %d", command.CommandID)
 
-    select {
-    case resp := <-respCh:
-        return resp.(proposalResponse).err
-    case <-ctx.Done():
-        cc.requestMap.Respond(command.CommandID, nil)
-        return ECancelled
-    case <-cc.stop:
-        cc.requestMap.Respond(command.CommandID, nil)
-        return EStopped
+        if err := cc.raftNode.Propose(ctx, encodedCommand); err != nil {
+            cc.requestMap.Respond(command.CommandID, nil)
+            return err
+        }
+
+        select {
+        case resp := <-respCh:
+            Log.Debugf("Command %d accepted", command.CommandID)
+            return resp.(proposalResponse).err
+        case <-time.After(time.Second * ProposalRetryPeriodSeconds):
+            // Time to retry the proposal
+            Log.Debugf("Re-attempting proposal for command %d", command.CommandID)
+        case <-ctx.Done():
+            cc.requestMap.Respond(command.CommandID, nil)
+            return ECancelled
+        case <-cc.stop:
+            cc.requestMap.Respond(command.CommandID, nil)
+            return EStopped
+        }
     }
 }
 
@@ -269,29 +295,22 @@ func (cc *ConfigController) Start() error {
     })
 
     cc.raftNode.OnMessages(func(messages []raftpb.Message) error {
-        var wg sync.WaitGroup
+        // This used to send messages in parallel using one goroutine per
+        // message but this overwhelms the TCP connection and results
+        // in more lost messages. Should send serially
+        for _, msg := range messages {
+            err := cc.raftTransport.Send(context.TODO(), msg, false)
 
-        for _, message := range messages {
-            wg.Add(1)
+            if err != nil {
+                cc.raftNode.ReportUnreachable(msg.To)
 
-            go func(msg raftpb.Message) {
-                err := cc.raftTransport.Send(context.TODO(), msg, false)
-
-                if err != nil {
-                    if msg.Type == raftpb.MsgSnap {
-                        cc.raftNode.ReportSnapshot(msg.To, raftEtc.SnapshotFailure)
-                    } else {
-                        cc.raftNode.ReportUnreachable(msg.To)
-                    }
-                } else if msg.Type == raftpb.MsgSnap {
-                    cc.raftNode.ReportSnapshot(msg.To, raftEtc.SnapshotFinish)
+                if msg.Type == raftpb.MsgSnap {
+                    cc.raftNode.ReportSnapshot(msg.To, raftEtc.SnapshotFailure)
                 }
-
-                wg.Done()
-            }(message)
+            } else if msg.Type == raftpb.MsgSnap {
+                cc.raftNode.ReportSnapshot(msg.To, raftEtc.SnapshotFinish)
+            }
         }
-
-        wg.Wait()
 
         return nil
     })

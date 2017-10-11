@@ -50,6 +50,7 @@ func (transferProposer *TransferProposer) QueueTransferProposal(partition uint64
             return
         }
 
+        // Problem: All transfers are queued and proposed but ClusterCommand() does not return for some of them
         err := transferProposer.configController.ClusterCommand(ctx, ClusterTakePartitionReplicaBody{ NodeID: transferProposer.configController.ClusterController().LocalNodeID, Partition: partition, Replica: replica })
 
         transferProposer.lock.Lock()
