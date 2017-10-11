@@ -312,6 +312,7 @@ func main() {
     clusterStartReplicationFactor := clusterStartCommand.Uint64("replication_factor", uint64(3), "The number of replcas required for every database key. (Only specified when starting a new cluster)")
     clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
     clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
+    clusterStartReplacement := clusterStartCommand.Bool("replacement", false, "Specify this flag if this node is being added to replace some other node in the cluster.")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
     clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
@@ -627,11 +628,18 @@ func main() {
                 ClientAuth: tls.RequireAndVerifyClientCert,
             },
         })
+
+        var capacity uint64 = 1
+
+        if *clusterStartReplacement {
+            capacity = 0
+        }
+
         cloudNode := node.New(node.ClusterNodeConfig{
             CloudServer: cloudServer,
             StorageDriver: cloudNodeStorage,
             MerkleDepth: 4,
-            Capacity: 1,
+            Capacity: capacity,
         })
 
         if err := cloudNode.Start(startOptions); err != nil {
@@ -658,9 +666,20 @@ func main() {
     }
 
     if clusterDecommissionCommand.Parsed() {
-        fmt.Fprintf(os.Stderr, "Asking node at %s on port %d to decommission node %d\n", *clusterDecommissionHost, *clusterDecommissionPort, *clusterDecommissionNodeID)
-        os.Exit(1)
+        fmt.Fprintf(os.Stderr, "Decommissioning node %d...\n", *clusterDecommissionNodeID)
 
+        client := NewClient(ClientConfig{ })
+        err := client.DecommissionNode(context.TODO(), PeerAddress{ Host: *clusterDecommissionHost, Port: int(*clusterDecommissionPort) }, *clusterDecommissionNodeID)
+
+        if err != nil {
+            Log.Errorf("Error: Unable to decommission node %d: %v", *clusterDecommissionNodeID, err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Node %d is now being decommissioned.\n", *clusterDecommissionNodeID)
+
+        os.Exit(0)
     }
 
     if clusterReplaceCommand.Parsed() {
@@ -669,7 +688,23 @@ func main() {
             os.Exit(1)
         }
 
-        fmt.Fprintf(os.Stderr, "Asking node at %s on port %d to replace node %d with node %d\n", *clusterReplaceHost, *clusterReplacePort, *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
+        if *clusterReplaceNodeID == 0 {
+            fmt.Fprintf(os.Stderr, "Replacing node at %s:%d with node %d...\n", *clusterReplaceHost, *clusterReplacePort, *clusterReplaceReplacementNodeID)
+        } else {
+            fmt.Fprintf(os.Stderr, "Replacing node at %d with node %d...\n", *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
+        }
+
+        client := NewClient(ClientConfig{ })
+        err := client.ReplaceNode(context.TODO(), PeerAddress{ Host: *clusterReplaceHost, Port: int(*clusterReplacePort) }, *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
+
+        if err != nil {
+            Log.Errorf("Error: Unable to replace node: %v", err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Node was replaced.\n")
+
         os.Exit(1)
     }
 

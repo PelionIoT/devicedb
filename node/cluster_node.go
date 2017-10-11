@@ -219,6 +219,9 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.notifyInitialized()
 
     select {
+    case <-node.leftCluster:
+        Log.Infof("Local node (id = %d) shutting down...", nodeID)
+        return ERemoved
     case err := <-serverStopResult:
         Log.Errorf("Local node (id = %d) stopped with error: %v", nodeID, err.Error())
         return err
