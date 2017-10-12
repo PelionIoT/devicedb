@@ -158,20 +158,12 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
             if err != nil {
                 Log.Errorf("Unable to get keys from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                for _, n := range replicaNodes {
-                    if nodeID == n {
-                        failed <- err
-                    }
-                }
+                failed <- err
 
                 return
             }
 
-            for _, n := range replicaNodes {
-                if nodeID == n {
-                    readResults <- getResult{ nodeID: nodeID, siblingSets: siblingSets }
-                }
-            }
+            readResults <- getResult{ nodeID: nodeID, siblingSets: siblingSets }
         }(nodeID)
     }
 
@@ -179,7 +171,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
     var allAttemptsMade chan int = make(chan int, 1)
 
     go func() {
-        for nRead + nFailed < len(replicaNodes) {
+        for nRead + nFailed < len(appliedNodes) {
             select {
             case err := <-failed:
                 nFailed++
@@ -194,7 +186,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
                     readMerger.InsertKeyReplica(r.nodeID, string(key), r.siblingSets[i])
                 }
 
-                if nRead == agent.NQuorum(len(replicaNodes)) {
+                if nRead == agent.NQuorum(len(appliedNodes)) {
                     // calculate result set
                     var resultSet []*SiblingSet = make([]*SiblingSet, len(keys))
 
@@ -248,20 +240,12 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
             if err != nil {
                 Log.Errorf("Unable to get matches from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                for _, n := range replicaNodes {
-                    if nodeID == n {
-                        failed <- err
-                    }
-                }
+                failed <- err
 
                 return
             }
 
-            for _, n := range replicaNodes {
-                if nodeID == n {
-                    readResults <- getMatchesResult{ nodeID: nodeID, siblingSetIterator: ssIterator }
-                }
-            }
+            readResults <- getMatchesResult{ nodeID: nodeID, siblingSetIterator: ssIterator }
         }(nodeID)
     }
 
@@ -269,7 +253,7 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
     var allAttemptsMade chan int = make(chan int, 1)
 
     go func() {
-        for nFailed + nRead < len(replicaNodes) {
+        for nFailed + nRead < len(appliedNodes) {
             select {
             case err := <-failed:
                 nFailed++
@@ -289,7 +273,7 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
                     nRead++
                 }
 
-                if nRead == agent.NQuorum(len(replicaNodes)) {
+                if nRead == agent.NQuorum(len(appliedNodes)) {
                     quorumReached <- 1
                 }
             }

@@ -128,6 +128,10 @@ func (client *APIClient) Get(ctx context.Context, siteID string, bucket string, 
 
     encodedAPIEntries, err := client.sendRequest(ctx, "GET", url, nil)
 
+    if err != nil {
+        return nil, err
+    }
+
     var apiEntries []routes.APIEntry
 
     err = json.Unmarshal(encodedAPIEntries, &apiEntries)
@@ -160,6 +164,10 @@ func (client *APIClient) GetMatches(ctx context.Context, siteID string, bucket s
     }
 
     encodedAPIEntries, err := client.sendRequest(ctx, "GET", url, nil)
+
+    if err != nil {
+        return EntryIterator{}, err
+    }
 
     var apiEntries []routes.APIEntry
 

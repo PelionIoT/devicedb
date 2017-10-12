@@ -24,6 +24,10 @@ go install devicedb/cmd/devicedb
 The devicedb binary should now be located at my-go-workspace/bin/devicedb
 
 # Running With Docker
-sudo docker run -d --name=devicedb0 --hostname=devicedb0 -p 8080:8080 -p 9090:9090 -v "/home/jrife/Desktop/devicedb0:/devicedb/data" -v "/home/jrife/Desktop/certs:/devicedb/certs" devicedb -relay_host devicedb0 -host devicedb0
+sudo docker network create -d bridge devicedbnet
 
-sudo docker run -d --name=devicedb1 --hostname=devicedb1 -p 8181:8080 -p 9191:9090 -v "/home/jrife/Desktop/devicedb1:/devicedb/data" -v "/home/jrife/Desktop/certs:/devicedb/certs" devicedb -relay_host devicedb1 -host devicedb1 -join devicedb0
+sudo docker build -t devicedb .
+
+sudo docker run --rm -d --net=devicedbnet --name=devicedb0 --hostname=devicedb0 -p 8080:8080 -p 9090:9090 -v "/home/jrife/Desktop/devicedb0:/devicedb/data" -v "/home/jrife/Desktop/certs:/devicedb/certs" devicedb -relay_host devicedb0 -host devicedb0
+
+sudo docker run --rm -d --net=devicedbnet --name=devicedb1 --hostname=devicedb1 -p 8181:8080 -p 9191:9090 -v "/home/jrife/Desktop/devicedb1:/devicedb/data" -v home/jrife/Desktop/certs:/devicedb/certs" devicedb -relay_host devicedb1 -host devicedb1 -join "devicedb0:8080"
