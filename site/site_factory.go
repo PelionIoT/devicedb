@@ -3,7 +3,6 @@ package site
 import (
     . "devicedb/bucket"
     . "devicedb/bucket/builtin"
-    . "devicedb/data"
     . "devicedb/merkle"
     . "devicedb/storage"
 )
