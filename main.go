@@ -245,6 +245,12 @@ Cluster Commands:
     decommission  Migrate data away from a node then remove it from the cluster
     replace       Replace a dead node with a new node
     overview      Show an overview of the nodes in the cluster
+    add_site      Add a site to the cluster
+    remove_site   Remove a site from the cluster
+    get           Get an entry in a site database with a certain key
+    get_matches   Get all entries in a site database whose keys match some prefix
+    put           Put a value in a site database with a certain key
+    delete        Delete an entry in a site database with a certain key
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
 `
@@ -293,6 +299,12 @@ func main() {
     clusterDecommissionCommand := flag.NewFlagSet("decommission", flag.ExitOnError)
     clusterReplaceCommand := flag.NewFlagSet("replace", flag.ExitOnError)
     clusterOverviewCommand := flag.NewFlagSet("overview", flag.ExitOnError)
+    clusterAddSiteCommand := flag.NewFlagSet("add_site", flag.ExitOnError)
+    clusterRemoveSiteCommand := flag.NewFlagSet("remove_site", flag.ExitOnError)
+    clusterGetCommand := flag.NewFlagSet("get", flag.ExitOnError)
+    clusterGetMatchesCommand := flag.NewFlagSet("get_matches", flag.ExitOnError)
+    clusterPutCommand := flag.NewFlagSet("put", flag.ExitOnError)
+    clusterDeleteCommand := flag.NewFlagSet("delete", flag.ExitOnError)
     clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
 
     startConfigFile := startCommand.String("conf", "", "The config file for this server")
@@ -334,6 +346,41 @@ func main() {
     clusterOverviewHost := clusterOverviewCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to query the cluster state.")
     clusterOverviewPort := clusterOverviewCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
 
+    clusterAddSiteHost := clusterAddSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the site.")
+    clusterAddSitePort := clusterAddSiteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterAddSiteSiteID := clusterAddSiteCommand.String("site", "", "The ID of the site to add. (Required)")
+
+    clusterRemoveSiteHost := clusterRemoveSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the site.")
+    clusterRemoveSitePort := clusterRemoveSiteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRemoveSiteSiteID := clusterRemoveSiteCommand.String("site", "", "The ID of the site to remove. (Required)")
+
+    clusterGetHost := clusterGetCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting this key.")
+    clusterGetPort := clusterGetCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterGetSiteID := clusterGetCommand.String("site", "", "The ID of the site. (Required)")
+    clusterGetBucket := clusterGetCommand.String("bucket", "default", "The bucket to query in the site.")
+    clusterGetKey := clusterGetCommand.String("key", "", "The key to get from the bucket. (Required)")
+
+    clusterGetMatchesHost := clusterGetMatchesCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting these keys.")
+    clusterGetMatchesPort := clusterGetMatchesCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterGetMatchesSiteID := clusterGetMatchesCommand.String("site", "", "The ID of the site. (Required)")
+    clusterGetMatchesBucket := clusterGetMatchesCommand.String("bucket", "default", "The bucket to query in the site.")
+    clusterGetMatchesPrefix := clusterGetMatchesCommand.String("prefix", "", "The prefix of keys to get from the bucket. (Required)")
+
+    clusterPutHost := clusterPutCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
+    clusterPutPort := clusterPutCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterPutSiteID := clusterPutCommand.String("site", "", "The ID of the site. (Required)")
+    clusterPutBucket := clusterPutCommand.String("bucket", "default", "The bucket in the site where this key goes.")
+    clusterPutKey := clusterPutCommand.String("key", "", "The key to update in the bucket. (Required)")
+    clusterPutValue := clusterPutCommand.String("value", "", "The value to put at this key. (Required)")
+    clusterPutContext := clusterPutCommand.String("context", "", "The causal context of this put operation")
+
+    clusterDeleteHost := clusterDeleteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
+    clusterDeletePort := clusterDeleteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterDeleteSiteID := clusterDeleteCommand.String("site", "", "The ID of the site. (Required)")
+    clusterDeleteBucket := clusterDeleteCommand.String("bucket", "default", "The bucket in the site where this key goes.")
+    clusterDeleteKey := clusterDeleteCommand.String("key", "", "The key to update in the bucket. (Required)")
+    clusterDeleteContext := clusterDeleteCommand.String("context", "", "The causal context of this put operation")
+
     if len(os.Args) < 2 {
         fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
         fmt.Fprintf(os.Stderr, "%s", usage)
@@ -359,6 +406,18 @@ func main() {
             clusterReplaceCommand.Parse(os.Args[3:])
         case "overview":
             clusterOverviewCommand.Parse(os.Args[3:])
+        case "add_site":
+            clusterAddSiteCommand.Parse(os.Args[3:])
+        case "remove_site":
+            clusterRemoveSiteCommand.Parse(os.Args[3:])
+        case "get":
+            clusterGetCommand.Parse(os.Args[3:])
+        case "get_matches":
+            clusterGetMatchesCommand.Parse(os.Args[3:])
+        case "put":
+            clusterPutCommand.Parse(os.Args[3:])
+        case "delete":
+            clusterDeleteCommand.Parse(os.Args[3:])
         case "help":
             clusterHelpCommand.Parse(os.Args[3:])
         case "-help":
@@ -664,7 +723,7 @@ func main() {
         err := client.ForceRemoveNode(context.TODO(), PeerAddress{ Host: *clusterRemoveHost, Port: int(*clusterRemovePort) }, *clusterRemoveNodeID)
 
         if err != nil {
-            Log.Errorf("Error: Unable to remove node %d from the cluster: %v", *clusterRemoveNodeID, err.Error())
+            fmt.Fprintf(os.Stderr, "Error: Unable to remove node %d from the cluster: %v\n", *clusterRemoveNodeID, err.Error())
 
             os.Exit(1)
         }
@@ -681,7 +740,7 @@ func main() {
         err := client.DecommissionNode(context.TODO(), PeerAddress{ Host: *clusterDecommissionHost, Port: int(*clusterDecommissionPort) }, *clusterDecommissionNodeID)
 
         if err != nil {
-            Log.Errorf("Error: Unable to decommission node %d: %v", *clusterDecommissionNodeID, err.Error())
+            fmt.Fprintf(os.Stderr, "Error: Unable to decommission node %d: %v\n", *clusterDecommissionNodeID, err.Error())
 
             os.Exit(1)
         }
@@ -707,7 +766,7 @@ func main() {
         err := client.ReplaceNode(context.TODO(), PeerAddress{ Host: *clusterReplaceHost, Port: int(*clusterReplacePort) }, *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
 
         if err != nil {
-            Log.Errorf("Error: Unable to replace node: %v", err.Error())
+            fmt.Fprintf(os.Stderr, "Error: Unable to replace node: %v\n", err.Error())
 
             os.Exit(1)
         }
@@ -722,6 +781,180 @@ func main() {
         table.SetHeader([]string{ "Node ID", "Host", "Port" })
         table.Append([]string{ "2323423432", *clusterOverviewHost, fmt.Sprintf("%d", *clusterOverviewPort) })
         table.Render()
+
+        os.Exit(0)
+    }
+
+    if clusterAddSiteCommand.Parsed() {
+        if *clusterAddSiteSiteID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Adding site %s...\n", *clusterAddSiteSiteID)
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterAddSiteHost, *clusterAddSitePort) } })
+        err := apiClient.AddSite(context.TODO(), *clusterAddSiteSiteID)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to add site: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Added site %s\n", *clusterAddSiteSiteID)
+
+        os.Exit(0)
+    }
+
+    if clusterRemoveSiteCommand.Parsed() {
+        if *clusterRemoveSiteSiteID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Removing site %s...\n", *clusterRemoveSiteSiteID)
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterRemoveSiteHost, *clusterRemoveSitePort) } })
+        err := apiClient.RemoveSite(context.TODO(), *clusterRemoveSiteSiteID)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to remove site: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Removed site %s\n", *clusterRemoveSiteSiteID)
+
+        os.Exit(0)
+    }
+
+    if clusterGetCommand.Parsed() {
+        if *clusterGetSiteID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterGetKey == "" {
+            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterGetHost, *clusterGetPort) } })
+        entries, err := apiClient.Get(context.TODO(), *clusterGetSiteID, *clusterGetBucket, []string{ *clusterGetKey })
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to get key: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        if len(entries) == 1 {
+            fmt.Fprintf(os.Stderr, "Values: %v\n", entries[0].Siblings)
+            fmt.Fprintf(os.Stderr, "Context: %v\n", entries[0].Context)
+        } else {
+            fmt.Fprintf(os.Stderr, "No such key\n")
+        }
+
+        os.Exit(0)
+    }
+
+    if clusterGetMatchesCommand.Parsed() {
+        if *clusterGetMatchesSiteID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterGetMatchesPrefix == "" {
+            fmt.Fprintf(os.Stderr, "Error: -prefix must be specified\n")
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterGetMatchesHost, *clusterGetMatchesPort) } })
+        entryIterator, err := apiClient.GetMatches(context.TODO(), *clusterGetMatchesSiteID, *clusterGetMatchesBucket, []string{ *clusterGetMatchesPrefix })
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to get keys: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        var entryCount int
+
+        for entryIterator.Next() {
+            if entryCount != 0 {
+                fmt.Fprintf(os.Stderr, "\n")
+            }
+
+            fmt.Fprintf(os.Stderr, "Key: %s\n", entryIterator.Key())
+            fmt.Fprintf(os.Stderr, "Values: %v\n", entryIterator.Entry().Siblings)
+            fmt.Fprintf(os.Stderr, "Context: %v\n", entryIterator.Entry().Context)
+
+            entryCount++
+        }
+
+        if entryCount == 0 {
+            fmt.Fprintf(os.Stderr, "No keys returned\n")
+        }
+
+        os.Exit(0)
+    }
+
+    if clusterPutCommand.Parsed() {
+        if *clusterPutSiteID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterPutKey == "" {
+            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterPutValue == "" {
+            fmt.Fprintf(os.Stderr, "Error: -value must be specified\n")
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterPutHost, *clusterPutPort) } })
+
+        batch := Batch{ }
+        batch.Put(*clusterPutKey, *clusterPutValue, *clusterPutContext)
+
+        err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, batch)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to put key: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        os.Exit(0)
+    }
+
+    if clusterDeleteCommand.Parsed() {
+        if *clusterDeleteSiteID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+            os.Exit(1)
+        }
+
+        if *clusterDeleteKey == "" {
+            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterDeleteHost, *clusterDeletePort) } })
+
+        batch := Batch{ }
+        batch.Delete(*clusterDeleteKey, *clusterDeleteContext)
+
+        err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, batch)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to delete key: %v\n", err.Error())
+
+            os.Exit(1)
+        }
 
         os.Exit(0)
     }
@@ -743,6 +976,20 @@ func main() {
             flagSet = clusterDecommissionCommand 
         case "replace":
             flagSet = clusterReplaceCommand
+        case "overview":
+            flagSet = clusterOverviewCommand
+        case "add_site":
+            flagSet = clusterAddSiteCommand
+        case "remove_site":
+            flagSet = clusterRemoveSiteCommand
+        case "get":
+            flagSet = clusterGetCommand
+        case "get_matches":
+            flagSet = clusterGetMatchesCommand
+        case "put":
+            flagSet = clusterPutCommand
+        case "delete":
+            flagSet = clusterDeleteCommand
         default:
             fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid cluster command.\n", os.Args[3])
             os.Exit(1)

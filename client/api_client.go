@@ -98,15 +98,15 @@ func (client *APIClient) RemoveRelay(ctx context.Context, relayID string) error 
     return nil
 }
 
-func (client *APIClient) Batch(ctx context.Context, siteID string, batch Batch) error {
+func (client *APIClient) Batch(ctx context.Context, siteID string, bucket string, batch Batch) error {
     return nil
 }
 
-func (client *APIClient) Get(ctx context.Context, siteID string, keys []string) ([]Entry, error) {
+func (client *APIClient) Get(ctx context.Context, siteID string, bucket string, keys []string) ([]Entry, error) {
     return nil, nil
 }
 
-func (client *APIClient) GetMatches(ctx context.Context, siteID string, keys []string) (EntryIterator, error) {
+func (client *APIClient) GetMatches(ctx context.Context, siteID string, bucket string, keys []string) (EntryIterator, error) {
     return EntryIterator{}, nil
 }
 
