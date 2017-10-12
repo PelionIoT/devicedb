@@ -918,10 +918,10 @@ func main() {
 
         apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterPutHost, *clusterPutPort) } })
 
-        batch := Batch{ }
+        batch := NewBatch()
         batch.Put(*clusterPutKey, *clusterPutValue, *clusterPutContext)
 
-        err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, batch)
+        err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, *batch)
 
         if err != nil {
             fmt.Fprintf(os.Stderr, "Error: Unable to put key: %v\n", err.Error())
@@ -945,10 +945,10 @@ func main() {
 
         apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterDeleteHost, *clusterDeletePort) } })
 
-        batch := Batch{ }
+        batch := NewBatch()
         batch.Delete(*clusterDeleteKey, *clusterDeleteContext)
 
-        err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, batch)
+        err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, *batch)
 
         if err != nil {
             fmt.Fprintf(os.Stderr, "Error: Unable to delete key: %v\n", err.Error())

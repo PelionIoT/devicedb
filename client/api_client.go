@@ -99,15 +99,90 @@ func (client *APIClient) RemoveRelay(ctx context.Context, relayID string) error 
 }
 
 func (client *APIClient) Batch(ctx context.Context, siteID string, bucket string, batch Batch) error {
+    transportUpdateBatch := batch.ToTransportUpdateBatch()
+    encodedTransportUpdateBatch, err := json.Marshal(transportUpdateBatch)
+
+    if err != nil {
+        return err
+    }
+
+    _, err = client.sendRequest(ctx, "POST", fmt.Sprintf("/sites/%s/buckets/%s/batches", siteID, bucket), encodedTransportUpdateBatch)
+
+    if err != nil {
+        return err
+    }
+
     return nil
 }
 
 func (client *APIClient) Get(ctx context.Context, siteID string, bucket string, keys []string) ([]Entry, error) {
-    return nil, nil
+    url := fmt.Sprintf("/sites/%s/buckets/%s/keys?", siteID, bucket)
+
+    for i, key := range keys {
+        url += "key=" + key
+
+        if i != len(keys) - 1 {
+            url += "&"
+        }
+    }
+
+    encodedAPIEntries, err := client.sendRequest(ctx, "GET", url, nil)
+
+    var apiEntries []routes.APIEntry
+
+    err = json.Unmarshal(encodedAPIEntries, &apiEntries)
+
+    if err != nil {
+        return nil, err
+    }
+
+    var entries []Entry = make([]Entry, len(apiEntries))
+
+    for i, apiEntry := range apiEntries {
+        entries[i] = Entry{
+            Context: apiEntry.Context,
+            Siblings: apiEntry.Siblings,
+        }
+    }
+
+    return entries, nil
 }
 
 func (client *APIClient) GetMatches(ctx context.Context, siteID string, bucket string, keys []string) (EntryIterator, error) {
-    return EntryIterator{}, nil
+    url := fmt.Sprintf("/sites/%s/buckets/%s/keys?", siteID, bucket)
+
+    for i, key := range keys {
+        url += "prefix=" + key
+
+        if i != len(keys) - 1 {
+            url += "&"
+        }
+    }
+
+    encodedAPIEntries, err := client.sendRequest(ctx, "GET", url, nil)
+
+    var apiEntries []routes.APIEntry
+
+    err = json.Unmarshal(encodedAPIEntries, &apiEntries)
+
+    if err != nil {
+        return EntryIterator{}, err
+    }
+
+    var entryIterator EntryIterator = EntryIterator{ currentEntry: -1, entries: make([]iteratorEntry, len(apiEntries)) }
+
+    for i, apiEntry := range apiEntries {
+        entryIterator.entries[i] = iteratorEntry{
+            key: apiEntry.Key,
+            prefix: apiEntry.Prefix,
+            entry: Entry{
+                Context: apiEntry.Context,
+                Siblings: apiEntry.Siblings,
+            },
+        }
+    }
+
+    return entryIterator, nil
 }
 
 func (client *APIClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) ([]byte, error) {
