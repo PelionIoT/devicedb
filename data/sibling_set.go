@@ -76,7 +76,7 @@ func (siblingSet *SiblingSet) Sync(otherSiblingSet *SiblingSet) *SiblingSet {
 
 func (siblingSet *SiblingSet) Diff(otherSiblingSet *SiblingSet) *SiblingSet {
     diffSiblingSet := NewSiblingSet(map[*Sibling]bool{ })
-    
+
     for theirSibling, _ := range otherSiblingSet.siblings {
         diffSiblingSet.Add(theirSibling)
         

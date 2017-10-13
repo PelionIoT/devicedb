@@ -592,7 +592,39 @@ func (node *ClusterNode) decommission(ctx context.Context) error {
     return EDecommissioned
 }
 
-func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) error {
+func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+    partition := node.partitionPool.Get(partitionNumber)
+
+    if partition == nil {
+        return nil, ENoSuchPartition
+    }
+
+    site := partition.Sites().Acquire(siteID)
+
+    if site == nil {
+        return nil, ENoSuchSite
+    }
+
+    bucket := site.Buckets().Get(bucketName)
+
+    if bucket == nil {
+        return nil, ENoSuchBucket
+    }
+
+    if !node.configController.ClusterController().LocalNodeHoldsPartition(partitionNumber) {
+        return nil, ENoQuorum
+    }
+
+    patch, err := bucket.Batch(updateBatch)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return patch, nil
+}
+
+func (node *ClusterNode) Merge(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, patch map[string]*SiblingSet) error {
     partition := node.partitionPool.Get(partitionNumber)
 
     if partition == nil {
@@ -611,7 +643,7 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
         return ENoSuchBucket
     }
 
-    _, err := bucket.Batch(updateBatch)
+    err := bucket.Merge(patch)
 
     if err != nil {
         return err
@@ -777,8 +809,12 @@ func (clusterFacade *ClusterNodeFacade) LocalGet(partitionNumber uint64, siteID 
     return clusterFacade.node.Get(context.TODO(), partitionNumber, siteID, bucketName, keys)
 }
 
-func (clusterFacade *ClusterNodeFacade) LocalBatch(partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) error {
+func (clusterFacade *ClusterNodeFacade) LocalBatch(partitionNumber uint64, siteID string, bucketName string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
     return clusterFacade.node.Batch(context.TODO(), partitionNumber, siteID, bucketName, updateBatch)
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalMerge(partitionNumber uint64, siteID string, bucketName string, patch map[string]*SiblingSet) error {
+    return clusterFacade.node.Merge(context.TODO(), partitionNumber, siteID, bucketName, patch)
 }
 
 func (clusterFacade *ClusterNodeFacade) AddRelay(ctx context.Context, relayID string) error {

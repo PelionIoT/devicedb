@@ -31,10 +31,6 @@ func NewNodeClient(localNode Node, configController ClusterConfigController) *No
 }
 
 func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
-    return nil
-}
-
-func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
     var nodeAddress PeerAddress = nodeClient.configController.ClusterController().ClusterMemberAddress(nodeID)
 
     if nodeAddress.IsEmpty() {
@@ -42,7 +38,7 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
     }
 
     if nodeID == nodeClient.localNode.ID() {
-        err := nodeClient.localNode.Batch(ctx, partition, siteID, bucket, updateBatch)
+        err := nodeClient.localNode.Merge(ctx, partition, siteID, bucket, patch)
 
         switch err {
         case ENoSuchBucket:
@@ -56,13 +52,13 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
         }
     }
 
-    encodedUpdateBatch, err := updateBatch.ToJSON()
+    encodedPatch, err := json.Marshal(patch)
 
     if err != nil {
         return err
     }
 
-    status, body, err := nodeClient.sendRequest(ctx, "POST", fmt.Sprintf("http://%s:%d/partitions/%d/sites/%s/buckets/%s/batches", nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket), encodedUpdateBatch)
+    status, body, err := nodeClient.sendRequest(ctx, "POST", fmt.Sprintf("http://%s:%d/partitions/%d/sites/%s/buckets/%s/merges", nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket), encodedPatch)
 
     if err != nil {
         return err
@@ -91,6 +87,66 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
         return nil
     default:
         return EStorage
+    }
+}
+
+func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+    var nodeAddress PeerAddress = nodeClient.configController.ClusterController().ClusterMemberAddress(nodeID)
+
+    if nodeAddress.IsEmpty() {
+        return nil, ENoSuchNode
+    }
+
+    if nodeID == nodeClient.localNode.ID() {
+        patch, err := nodeClient.localNode.Batch(ctx, partition, siteID, bucket, updateBatch)
+
+        switch err {
+        case ENoSuchBucket:
+            return nil, EBucketDoesNotExist
+        case ENoSuchSite:
+            return nil, ESiteDoesNotExist
+        case nil:
+            return patch, nil
+        default:
+            return nil, err
+        }
+    }
+
+    encodedUpdateBatch, err := updateBatch.ToJSON()
+
+    if err != nil {
+        return nil, err
+    }
+
+    status, body, err := nodeClient.sendRequest(ctx, "POST", fmt.Sprintf("http://%s:%d/partitions/%d/sites/%s/buckets/%s/batches", nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket), encodedUpdateBatch)
+
+    if err != nil {
+        return nil, err
+    }
+
+    switch status {
+    case 404:
+        dbErr, err := DBErrorFromJSON(body)
+
+        if err != nil {
+            return nil, err
+        }
+
+        return nil, dbErr
+    case 200:
+        var batchResult BatchResult
+
+        if err := json.Unmarshal(body, &batchResult); err != nil {
+            return nil, err
+        }
+
+        if batchResult.NApplied == 0 {
+            return nil, ENoQuorum
+        }
+
+        return nil, nil
+    default:
+        return nil, EStorage
     }
 }
 

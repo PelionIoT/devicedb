@@ -63,12 +63,246 @@ var _ = Describe("ClusterioNodeClient", func() {
     })
 
     Describe("#Merge", func() {
+        Context("When the specified nodeID does not refer to a known node", func() {
+            It("Should return an error", func() {
+                Expect(client.Merge(context.TODO(), unknownNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(BeNil()))
+            })
+        })
+
+        Context("When the specified ndoeID refers to the local node", func() {
+            It("Should invoke Merge() on the local node with the same parameters that were passed to it", func() {
+                var patch map[string]*SiblingSet = map[string]*SiblingSet{ }
+
+                mergeCalled := make(chan int, 1)
+                localNode.mergeCB = func(ctx context.Context, partition uint64, siteID string, bucket string, p map[string]*SiblingSet) {
+                    Expect(partition).Should(Equal(uint64(50)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+                    Expect(patch).Should(Equal(p))
+
+                    mergeCalled <- 1
+                }
+
+                client.Merge(context.TODO(), localNodeID, 50, "site1", "default", patch)
+
+                select {
+                case <-mergeCalled:
+                default:
+                    Fail("Did not invoke Merge() on local node")
+                }
+            })
+
+            Context("And if the call to Merge() on the local node returns ENoQuorum", func() {
+                It("Should return an error", func() {
+                    localNode.defaultMergeError = ENoQuorum
+
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ENoQuorum))
+                })
+            })
+
+            Context("And if the call to Merge() on the local node returns ENoSuchPartition", func() {
+                It("Should return an error", func() {
+                    localNode.defaultMergeError = ENoSuchPartition
+
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(BeNil()))
+                })
+            })
+
+            Context("And if the call to Merge() on the local node returns an ENoSuchBucket error", func() {
+                It("Should return an EBucketDoesNotExist error", func() {
+                    localNode.defaultMergeError = ENoSuchBucket
+
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(EBucketDoesNotExist))
+                })
+            })
+
+            Context("And if the call to Merge() on the local node returns an ENoSuchSite error", func() {
+                It("Should return an ESiteDoesNotExist error", func() {
+                    localNode.defaultMergeError = ENoSuchSite
+
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ESiteDoesNotExist))
+                })
+            })
+
+            Context("And if the call to Batch() on the local node returns any other error", func() {
+                It("Should return an error", func() {
+                    localNode.defaultMergeError = errors.New("Some error")
+
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(BeNil()))
+                })
+            })
+
+            Context("And if the call to Batch() returns nil", func() {
+                It("Should return nil", func() {
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(BeNil())
+                })
+            })
+        })
+
+        Context("When the specified nodeID refers to a known node that is not the local node", func() {
+            It("Should send a POST request to /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges at that node", func() {
+                server.AppendHandlers(ghttp.VerifyRequest("POST", "/partitions/50/sites/site1/buckets/default/merges"))
+                client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })
+                Expect(server.ReceivedRequests()).Should(HaveLen(1))
+            })
+
+            It("Should send a POST request whose body is the encoded patch", func() {
+                var patch map[string]*SiblingSet = map[string]*SiblingSet{ }
+                var encodedPatch []byte
+                encodedPatch, err := json.Marshal(patch)
+
+                Expect(err).Should(BeNil())
+
+                server.AppendHandlers(ghttp.VerifyBody(encodedPatch))
+                client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", patch)
+                Expect(server.ReceivedRequests()).Should(HaveLen(1))
+            })
+
+            Context("And ctx.Done() is closed before the http request responds", func() {
+                It("Should return an error", func() {
+                    var ctx context.Context
+                    var cancel func()
+
+                    ctx, cancel = context.WithCancel(context.Background())
+
+                    server.AppendHandlers(func(w http.ResponseWriter, req *http.Request) {
+                        cancel()
+                        // Wait some time before returning to ensure that the call to Merge cancels due to the cancelled context
+                        // before the server handler responds
+                        <-time.After(time.Millisecond * 100)
+                    })
+
+                    mergeResult := make(chan error)
+
+                    go func() {
+                        mergeResult <- client.Merge(ctx, remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })
+                    }()
+
+                    select {
+                    case err := <-mergeResult:
+                        Expect(err).Should(HaveOccurred())
+                    case <-time.After(time.Second):
+                        Fail("Merge did not return in time")
+                    }
+
+                    Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                })
+            })
+
+            Context("And the http client request call return an error", func() {
+                It("Should return an error", func() {
+                    // close the server to force an http connection error
+                    server.Close()
+                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                    Expect(server.ReceivedRequests()).Should(HaveLen(0))
+                })
+            })
+
+            Context("And the http request responds with a 404 status code", func() {
+                Context("And the body is a JSON-encoded EBucketDoesNotExist error", func() {
+                    It("Should return EBucketDoesNotExist", func() {
+                        server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, EBucketDoesNotExist.JSON()))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(EBucketDoesNotExist))
+                        Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                    })
+                })
+
+                Context("And the body is a JSON-encoded ESiteDoesNotExist error", func() {
+                    It("Should return ESiteDoesNotExist", func() {
+                        server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, ESiteDoesNotExist.JSON()))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ESiteDoesNotExist))
+                        Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                    })
+                })
+
+                Context("And the body is not a JSON-encoded database error", func() {
+                    It("Should return an error", func() {
+                        server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, "asdf"))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                        Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                    })
+                })
+
+                Context("And the body is a JSON-encoded database error but is neither EBucketDoesNotExist nor ESiteDoesNotExist", func() {
+                    It("Should return an error", func() {
+                        server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, EStorage.JSON()))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                        Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                    })
+                })
+            })
+
+            Context("And the http request responds with a 500 status code", func() {
+                It("Should return an error", func() {
+                    server.AppendHandlers(ghttp.RespondWith(http.StatusInternalServerError, ""))
+                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                    Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                })
+            })
+
+            Context("And the http request responds with a 200 status code", func() {
+                Context("And the response body cannot be parsed as a BatchResult as defined in the routes module", func() {
+                    It("Should return an error", func() {
+                        server.AppendHandlers(ghttp.RespondWith(http.StatusOK, "asdf"))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                        Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                    })
+                })
+
+                Context("And the response body can be parsed as a BatchResult", func() {
+                    var batchResult BatchResult
+
+                    Context("And the NApplied field is 0", func() {
+                        BeforeEach(func() {
+                            batchResult.NApplied = 0
+                        })
+
+                        It("Should return ENoQuorum", func() {
+                            encodedBatchResult, err := json.Marshal(batchResult)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
+                            Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ENoQuorum))
+                            Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                        })
+                    })
+
+                    Context("And the NApplied field is not 0", func() {
+                        BeforeEach(func() {
+                            batchResult.NApplied = 1
+                        })
+
+                        It("Should return nil", func() {
+                            encodedBatchResult, err := json.Marshal(batchResult)
+
+                            Expect(err).Should(Not(HaveOccurred()))
+
+                            server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
+                            Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(HaveOccurred()))
+                            Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                        })
+                    })
+                })
+            })
+
+            Context("And the http request responds with a status code other than 200, 404, or 500", func() {
+                It("Should return an error", func() {
+                    server.AppendHandlers(ghttp.RespondWith(http.StatusForbidden, ""))
+                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                    Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                })
+            })
+        })
     })
 
     Describe("#Batch", func() {
         Context("When the specified nodeID does not refer to a known node", func() {
             It("Should return an error", func() {
-                Expect(client.Batch(context.TODO(), unknownNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Not(BeNil()))
+                patch, err := client.Batch(context.TODO(), unknownNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                Expect(patch).Should(BeNil())
+                Expect(err).Should(Not(BeNil()))
             })
         })
 
@@ -99,7 +333,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     localNode.defaultBatchError = ENoQuorum
 
-                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(ENoQuorum))
+                    patch, err := client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(Equal(ENoQuorum))
                 })
             })
 
@@ -107,7 +344,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     localNode.defaultBatchError = ENoSuchPartition
 
-                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Not(BeNil()))
+                    patch, err := client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(Not(BeNil()))
                 })
             })
 
@@ -115,7 +355,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an EBucketDoesNotExist error", func() {
                     localNode.defaultBatchError = ENoSuchBucket
 
-                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(EBucketDoesNotExist))
+                    patch, err := client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(Equal(EBucketDoesNotExist))
                 })
             })
 
@@ -123,7 +366,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an ESiteDoesNotExist error", func() {
                     localNode.defaultBatchError = ENoSuchSite
 
-                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(ESiteDoesNotExist))
+                    patch, err := client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(Equal(ESiteDoesNotExist))
                 })
             })
 
@@ -131,13 +377,21 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     localNode.defaultBatchError = errors.New("Some error")
 
-                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Not(BeNil()))
+                    patch, err := client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(Not(BeNil()))
                 })
             })
 
             Context("And if the call to Batch() returns nil", func() {
                 It("Should return nil", func() {
-                    Expect(client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())).Should(BeNil())
+                    localNode.defaultBatchPatch = map[string]*SiblingSet{ }
+
+                    patch, err := client.Batch(context.TODO(), localNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(Equal(localNode.defaultBatchPatch))
+                    Expect(err).Should(BeNil())
                 })
             })
         })
@@ -178,7 +432,8 @@ var _ = Describe("ClusterioNodeClient", func() {
                     batchResult := make(chan error)
 
                     go func() {
-                        batchResult <- client.Batch(ctx, remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                        _, err := client.Batch(ctx, remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                        batchResult <- err
                     }()
 
                     select {
@@ -196,7 +451,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     // close the server to force an http connection error
                     server.Close()
-                    Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                    patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(HaveOccurred())
                     Expect(server.ReceivedRequests()).Should(HaveLen(0))
                 })
             })
@@ -205,7 +463,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is a JSON-encoded EBucketDoesNotExist error", func() {
                     It("Should return EBucketDoesNotExist", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, EBucketDoesNotExist.JSON()))
-                        Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(EBucketDoesNotExist))
+                        patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                        
+                        Expect(patch).Should(BeNil())
+                        Expect(err).Should(Equal(EBucketDoesNotExist))
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -213,7 +474,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is a JSON-encoded ESiteDoesNotExist error", func() {
                     It("Should return ESiteDoesNotExist", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, ESiteDoesNotExist.JSON()))
-                        Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(ESiteDoesNotExist))
+                        patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                       
+                        Expect(patch).Should(BeNil())
+                        Expect(err).Should(Equal(ESiteDoesNotExist))
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -221,7 +485,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is not a JSON-encoded database error", func() {
                     It("Should return an error", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, "asdf"))
-                        Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                        patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                       
+                        Expect(patch).Should(BeNil())
+                        Expect(err).Should(HaveOccurred())
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -229,7 +496,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is a JSON-encoded database error but is neither EBucketDoesNotExist nor ESiteDoesNotExist", func() {
                     It("Should return an error", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, EStorage.JSON()))
-                        Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                        patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                        
+                        Expect(patch).Should(BeNil())
+                        Expect(err).Should(HaveOccurred())
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -238,7 +508,10 @@ var _ = Describe("ClusterioNodeClient", func() {
             Context("And the http request responds with a 500 status code", func() {
                 It("Should return an error", func() {
                     server.AppendHandlers(ghttp.RespondWith(http.StatusInternalServerError, ""))
-                    Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                    patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                    
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(HaveOccurred())
                     Expect(server.ReceivedRequests()).Should(HaveLen(1))
                 })
             })
@@ -247,7 +520,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the response body cannot be parsed as a BatchResult as defined in the routes module", func() {
                     It("Should return an error", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusOK, "asdf"))
-                        Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                        patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+
+                        Expect(patch).Should(BeNil())
+                        Expect(err).Should(HaveOccurred())
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -266,7 +542,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                             Expect(err).Should(Not(HaveOccurred()))
 
                             server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
-                            Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Equal(ENoQuorum))
+                            patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                           
+                            Expect(patch).Should(BeNil())
+                            Expect(err).Should(Equal(ENoQuorum))
                             Expect(server.ReceivedRequests()).Should(HaveLen(1))
                         })
                     })
@@ -282,7 +561,10 @@ var _ = Describe("ClusterioNodeClient", func() {
                             Expect(err).Should(Not(HaveOccurred()))
 
                             server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
-                            Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(Not(HaveOccurred()))
+                            patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                           
+                            Expect(patch).Should(BeNil())
+                            Expect(err).Should(Not(HaveOccurred()))
                             Expect(server.ReceivedRequests()).Should(HaveLen(1))
                         })
                     })
@@ -292,7 +574,10 @@ var _ = Describe("ClusterioNodeClient", func() {
             Context("And the http request responds with a status code other than 200, 404, or 500", func() {
                 It("Should return an error", func() {
                     server.AppendHandlers(ghttp.RespondWith(http.StatusForbidden, ""))
-                    Expect(client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())).Should(HaveOccurred())
+                    patch, err := client.Batch(context.TODO(), remoteNodeID, 50, "site1", "default", NewUpdateBatch())
+                   
+                    Expect(patch).Should(BeNil())
+                    Expect(err).Should(HaveOccurred())
                     Expect(server.ReceivedRequests()).Should(HaveLen(1))
                 })
             })

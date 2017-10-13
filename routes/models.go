@@ -36,6 +36,7 @@ type BatchResult struct {
     NApplied uint64 `json:"nApplied"`
     // Number of replicas in the replica set for this site
     Replicas uint64 `json:"replicas"`
+    Patch map[string]*SiblingSet `json:"patch"`
 }
 
 type RelaySettingsPatch struct {

@@ -9,6 +9,7 @@ import (
 
     . "devicedb/bucket"
     . "devicedb/cluster"
+    . "devicedb/data"
     . "devicedb/error"
     . "devicedb/logging"
 )
@@ -18,6 +19,84 @@ type PartitionsEndpoint struct {
 }
 
 func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
+    // Merge values into a bucket
+    router.HandleFunc("/partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges", func(w http.ResponseWriter, r *http.Request) {
+        var patch map[string]*SiblingSet
+        var err error
+        var decoder *json.Decoder = json.NewDecoder(r.Body)
+
+        err = decoder.Decode(&patch)
+
+        if err != nil {
+            Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges: Unable to parse request body: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        partitionID, err := strconv.ParseUint(mux.Vars(r)["partitionID"], 10, 64)
+
+        if err != nil {
+            Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges: Unable to parse partition ID as uint64: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusBadRequest)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        var siteID string = mux.Vars(r)["siteID"]
+        var bucket string = mux.Vars(r)["bucketID"]
+
+        err = partitionsEndpoint.ClusterFacade.LocalMerge(partitionID, siteID, bucket, patch)
+
+        if err == ENoSuchPartition || err == ENoSuchSite || err == ENoSuchBucket {
+            var responseBody string
+
+            switch err {
+            case ENoSuchSite:
+                responseBody = string(ESiteDoesNotExist.JSON())
+            case ENoSuchBucket:
+                responseBody = string(EBucketDoesNotExist.JSON())
+            }
+
+            Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, responseBody + "\n")
+            
+            return
+        }
+
+        if err != nil && err != ENoQuorum {
+            Log.Warningf("POST /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges: %v", err)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        var batchResult BatchResult
+        batchResult.NApplied = 1
+        
+        if err == ENoQuorum {
+            batchResult.NApplied = 0
+        }
+
+        encodedBatchResult, _ := json.Marshal(batchResult)
+
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, string(encodedBatchResult) + "\n")
+    }).Methods("POST")
+
     // Submit an update to a bucket
     router.HandleFunc("/partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/batches", func(w http.ResponseWriter, r *http.Request) {
         var updateBatch UpdateBatch
@@ -50,7 +129,7 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
         var siteID string = mux.Vars(r)["siteID"]
         var bucket string = mux.Vars(r)["bucketID"]
 
-        err = partitionsEndpoint.ClusterFacade.LocalBatch(partitionID, siteID, bucket, &updateBatch)
+        patch, err := partitionsEndpoint.ClusterFacade.LocalBatch(partitionID, siteID, bucket, &updateBatch)
 
         if err == ENoSuchPartition || err == ENoSuchSite || err == ENoSuchBucket {
             var responseBody string
@@ -86,6 +165,8 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
         
         if err == ENoQuorum {
             batchResult.NApplied = 0
+        } else {
+            batchResult.Patch = patch
         }
 
         encodedBatchResult, _ := json.Marshal(batchResult)

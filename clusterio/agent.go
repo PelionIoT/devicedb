@@ -67,7 +67,9 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
         appliedNodes[nodeID] = true
 
         go func(nodeID uint64) {
-            if err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch); err != nil {
+            _, err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch)
+
+            if err != nil {
                 Log.Errorf("Unable to replicate batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
                 for _, n := range replicaNodes {

@@ -107,7 +107,10 @@ func (builder *MockClusterConfigControllerBuilder) SetDefaultConfigController(co
 type MockNode struct {
     id uint64
     batchCB func(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
+    mergeCB func(ctx context.Context, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet)
+    defaultBatchPatch map[string]*SiblingSet
     defaultBatchError error
+    defaultMergeError error
     getCB func(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte)
     defaultGetSiblingSetArray []*SiblingSet
     defaultGetError error
@@ -133,12 +136,20 @@ func (node *MockNode) Start(options NodeInitializationOptions) error {
 func (node *MockNode) Stop() {
 }
 
-func (node *MockNode) Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+func (node *MockNode) Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
     if node.batchCB != nil {
         node.batchCB(ctx, partition, siteID, bucket, updateBatch)
     }
 
-    return node.defaultBatchError
+    return node.defaultBatchPatch, node.defaultBatchError
+}
+
+func (node *MockNode) Merge(ctx context.Context, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+    if node.mergeCB != nil {
+        node.mergeCB(ctx, partition, siteID, bucket, patch)
+    }
+
+    return node.defaultMergeError
 }
 
 func (node *MockNode) Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {

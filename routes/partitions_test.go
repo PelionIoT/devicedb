@@ -33,6 +33,270 @@ var _ = Describe("Partitions", func() {
         partitionsEndpoint.Attach(router)
     })
 
+    Describe("/partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges", func() {
+        Describe("POST", func() {
+            Context("When the provided body of the request cannot be parsed as a map[string]*SiblingSet", func() {
+                It("Should respond with status code http.StatusBadRequest", func() {
+                    req, err := http.NewRequest("POST", "/partitions/45/sites/site1/buckets/default/merges", strings.NewReader("asdf"))
+
+                    Expect(err).Should(BeNil())
+
+                    rr := httptest.NewRecorder()
+                    router.ServeHTTP(rr, req)
+
+                    Expect(rr.Code).Should(Equal(http.StatusBadRequest))
+                })
+            })
+
+            Context("When the partition ID cannot be parsed as a base 10 encoded uint64", func() {
+                It("Should respond with status code http.StatusBadRequest", func() {
+                    patch := map[string]*SiblingSet{ }
+                    encodedPatch, err := json.Marshal(patch)
+
+                    Expect(err).Should(BeNil())
+
+                    req, err := http.NewRequest("POST", "/partitions/badpartitionid/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+
+                    Expect(err).Should(BeNil())
+
+                    rr := httptest.NewRecorder()
+                    router.ServeHTTP(rr, req)
+
+                    Expect(rr.Code).Should(Equal(http.StatusBadRequest))
+                })
+            })
+
+            Context("When the body and partition ID are parsed without error", func() {
+                It("Should invoke LocalMerge() using the partition, site, bucket, and patch passed into the request", func() {
+                    patch := map[string]*SiblingSet{ }
+                    encodedPatch, err := json.Marshal(patch)
+
+                    Expect(err).Should(BeNil())
+
+                    req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                    localMergeCalled := make(chan int, 1)
+                    clusterFacade.localMergeCB = func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) {
+                        Expect(partition).Should(Equal(uint64(68)))
+                        Expect(siteID).Should(Equal("site1"))
+                        Expect(bucket).Should(Equal("default"))
+
+                        localMergeCalled <- 1
+                    }
+
+                    Expect(err).Should(BeNil())
+
+                    rr := httptest.NewRecorder()
+                    router.ServeHTTP(rr, req)
+
+                    select {
+                    case <-localMergeCalled:
+                    default:
+                        Fail("Request did not cause LocalMerge() to be invoked")
+                    }
+                })
+
+                Context("And LocalMerge() returns an error", func() {
+                    Context("And the error is ENoSuchPartition", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoSuchPartition
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+                    })
+
+                    Context("And the error is ENoSuchSite", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoSuchSite
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error ESiteDoesNotExist", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoSuchSite
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(ESiteDoesNotExist))
+                        })
+                    })
+
+                    Context("And the error is ENoSuchBucket", func() {
+                        It("Should respond with status code http.StatusNotFound", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
+                        })
+
+                        It("Should respond with body as JSON-encoded error EBucketDoesNotExist", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoSuchBucket
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            dbErr, err := DBErrorFromJSON(rr.Body.Bytes())
+
+                            Expect(err).Should(BeNil())
+                            Expect(dbErr).Should(Equal(EBucketDoesNotExist))
+                        })
+                    })
+
+                    // ENoQuorum should indicate a case where the batch was applied locally but should
+                    // not count toward the write quorum because the local node is currently in the process of
+                    // obtaining a copy of that partition's data
+                    Context("And the error is ENoQuorum", func() {
+                        It("Should respond with status code http.StatusOK", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoQuorum
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusOK))
+                        })
+
+                        It("Should respond with a JSON-encoded BatchResult body where NApplied is set to 0", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = ENoQuorum
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            var batchResult BatchResult
+
+                            Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
+                            Expect(batchResult.NApplied).Should(Equal(uint64(0)))
+                        })
+                    })
+
+                    Context("Otherwise", func() {
+                        It("Should respond with status code http.StatusInternalServerError", func() {
+                            patch := map[string]*SiblingSet{ }
+                            encodedPatch, err := json.Marshal(patch)
+
+                            Expect(err).Should(BeNil())
+
+                            req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                            clusterFacade.defaultLocalMergeResponse = errors.New("Some error")
+
+                            Expect(err).Should(BeNil())
+
+                            rr := httptest.NewRecorder()
+                            router.ServeHTTP(rr, req)
+
+                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+                        })
+                    })
+                })
+
+                Context("And LocalBatch() is successful", func() {
+                    It("Should respond with status code http.StatusOK", func() {
+                        patch := map[string]*SiblingSet{ }
+                        encodedPatch, err := json.Marshal(patch)
+
+                        Expect(err).Should(BeNil())
+
+                        req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                        clusterFacade.defaultLocalMergeResponse = nil
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        Expect(rr.Code).Should(Equal(http.StatusOK))
+                    })
+                    
+                    It("Should respond with a JSON-encoded BatchResult body where NApplied is set to 1", func() {
+                        patch := map[string]*SiblingSet{ }
+                        encodedPatch, err := json.Marshal(patch)
+
+                        Expect(err).Should(BeNil())
+
+                        req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                        clusterFacade.defaultLocalMergeResponse = nil
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        var batchResult BatchResult
+
+                        Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
+                        Expect(batchResult.NApplied).Should(Equal(uint64(1)))
+                    })
+                })
+            })
+        })
+    })
+
     Describe("/partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/batches", func() {
         Describe("POST", func() {
             Context("When the provided body of the request cannot be parsed as an UpdateBatch", func() {
@@ -104,7 +368,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoSuchPartition
+                            clusterFacade.defaultLocalBatchError = ENoSuchPartition
 
                             Expect(err).Should(BeNil())
 
@@ -123,7 +387,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoSuchSite
+                            clusterFacade.defaultLocalBatchError = ENoSuchSite
 
                             Expect(err).Should(BeNil())
 
@@ -140,7 +404,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoSuchSite
+                            clusterFacade.defaultLocalBatchError = ENoSuchSite
 
                             Expect(err).Should(BeNil())
 
@@ -162,7 +426,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoSuchBucket
+                            clusterFacade.defaultLocalBatchError = ENoSuchBucket
 
                             Expect(err).Should(BeNil())
 
@@ -179,7 +443,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoSuchBucket
+                            clusterFacade.defaultLocalBatchError = ENoSuchBucket
 
                             Expect(err).Should(BeNil())
 
@@ -204,7 +468,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoQuorum
+                            clusterFacade.defaultLocalBatchError = ENoQuorum
 
                             Expect(err).Should(BeNil())
 
@@ -221,7 +485,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = ENoQuorum
+                            clusterFacade.defaultLocalBatchError = ENoQuorum
 
                             Expect(err).Should(BeNil())
 
@@ -243,7 +507,7 @@ var _ = Describe("Partitions", func() {
                             Expect(err).Should(BeNil())
 
                             req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                            clusterFacade.defaultLocalBatchResponse = errors.New("Some error")
+                            clusterFacade.defaultLocalBatchError = errors.New("Some error")
 
                             Expect(err).Should(BeNil())
 
@@ -263,7 +527,7 @@ var _ = Describe("Partitions", func() {
                         Expect(err).Should(BeNil())
 
                         req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                        clusterFacade.defaultLocalBatchResponse = nil
+                        clusterFacade.defaultLocalBatchError = nil
 
                         Expect(err).Should(BeNil())
 
@@ -273,14 +537,15 @@ var _ = Describe("Partitions", func() {
                         Expect(rr.Code).Should(Equal(http.StatusOK))
                     })
                     
-                    It("Should respond with a JSON-encoded BatchResult body where NApplied is set to 1", func() {
+                    It("Should respond with a JSON-encoded BatchResult body where NApplied is set to 1 and Patch is the patch returned from LocalBatch()", func() {
                         updateBatch := NewUpdateBatch()
                         encodedUpdateBatch, err := updateBatch.ToJSON()
 
                         Expect(err).Should(BeNil())
 
                         req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/batches", strings.NewReader(string(encodedUpdateBatch)))
-                        clusterFacade.defaultLocalBatchResponse = nil
+                        clusterFacade.defaultLocalBatchPatch = map[string]*SiblingSet{ }
+                        clusterFacade.defaultLocalBatchError = nil
 
                         Expect(err).Should(BeNil())
 
@@ -291,6 +556,7 @@ var _ = Describe("Partitions", func() {
 
                         Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
                         Expect(batchResult.NApplied).Should(Equal(uint64(1)))
+                        Expect(batchResult.Patch).Should(Equal(map[string]*SiblingSet{ }))
                     })
                 })
             })

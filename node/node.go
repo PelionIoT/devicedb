@@ -29,7 +29,8 @@ type Node interface {
     Start(options NodeInitializationOptions) error
     // Shut down the node
     Stop()
-    Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
+    Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error)
+    Merge(ctx context.Context, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error
     Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
 }

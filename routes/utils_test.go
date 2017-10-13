@@ -25,7 +25,9 @@ type MockClusterFacade struct {
     defaultRemoveSiteResponse error
     defaultBatchResponse BatchResult
     defaultBatchError error
-    defaultLocalBatchResponse error
+    defaultLocalBatchPatch map[string]*SiblingSet
+    defaultLocalBatchError error
+    defaultLocalMergeResponse error
     defaultGetResponse []*SiblingSet
     defaultGetResponseError error
     defaultLocalGetResponse []*SiblingSet
@@ -43,6 +45,7 @@ type MockClusterFacade struct {
     getCB func(siteID string, bucket string, keys [][]byte)
     getMatchesCB func(siteID string, bucket string, keys [][]byte)
     localBatchCB func(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
+    localMergeCB func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet)
     localGetCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     localGetMatchesCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     addRelayCB func(ctx context.Context, relayID string)
@@ -148,12 +151,20 @@ func (clusterFacade *MockClusterFacade) Batch(siteID string, bucket string, upda
     return clusterFacade.defaultBatchResponse, clusterFacade.defaultBatchError
 }
 
-func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
     if clusterFacade.localBatchCB != nil {
         clusterFacade.localBatchCB(partition, siteID, bucket, updateBatch)
     }
 
-    return clusterFacade.defaultLocalBatchResponse
+    return clusterFacade.defaultLocalBatchPatch, clusterFacade.defaultLocalBatchError
+}
+
+func (clusterFacade *MockClusterFacade) LocalMerge(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+    if clusterFacade.localMergeCB != nil {
+        clusterFacade.localMergeCB(partition, siteID, bucket, patch)
+    }
+
+    return clusterFacade.defaultLocalMergeResponse
 }
 
 func (clusterFacade *MockClusterFacade) Get(siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
