@@ -397,6 +397,9 @@ func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
         return nil, EEmpty
     }
 
+    // Make a new array since we don't want to modify the input array
+    keysCopy := make([][]byte, len(keys))
+
     for i := 0; i < len(keys); i += 1 {
         if len(keys[i]) == 0 {
             Log.Warningf("Passed empty key in Get(%v)", keys)
@@ -410,11 +413,11 @@ func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
             return nil, ELength
         }
         
-        keys[i] = encodePartitionDataKey(keys[i])
+        keysCopy[i] = encodePartitionDataKey(keys[i])
     }
     
     // use storage driver
-    values, err := store.storageDriver.Get(keys)
+    values, err := store.storageDriver.Get(keysCopy)
     
     if err != nil {
         Log.Errorf("Storage driver error in Get(%v): %s", keys, err.Error())
@@ -459,7 +462,10 @@ func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
         
         return nil, EEmpty
     }
-    
+   
+    // Make a new array since we don't want to modify the input array
+    keysCopy := make([][]byte, len(keys))
+
     for i := 0; i < len(keys); i += 1 {
         if len(keys[i]) == 0 {
             Log.Warningf("Passed empty key in GetMatches(%v)", keys)
@@ -473,10 +479,10 @@ func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
             return nil, ELength
         }
         
-        keys[i] = encodePartitionDataKey(keys[i])
+        keysCopy[i] = encodePartitionDataKey(keys[i])
     }
     
-    iter, err := store.storageDriver.GetMatches(keys)
+    iter, err := store.storageDriver.GetMatches(keysCopy)
     
     if err != nil {
         Log.Errorf("Storage driver error in GetMatches(%v): %s", keys, err.Error())

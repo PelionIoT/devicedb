@@ -36,7 +36,17 @@ func (readRepairer *ReadRepairer) BeginRepair(partition uint64, siteID string, b
 
     for nodeID, _ := range readMerger.Nodes() {
         go func(nodeID uint64) {
-            if err := readRepairer.NodeClient.Merge(ctxDeadline, nodeID, partition, siteID, bucket, readMerger.Patch(nodeID)); err != nil {
+            patch := readMerger.Patch(nodeID)
+
+            if len(patch) == 0 {
+                return
+            }
+
+            for key, _ := range patch {
+                Log.Infof("Repairing key %s in bucket %s at site %s at node %d", key, bucket, siteID, nodeID)
+            }
+
+            if err := readRepairer.NodeClient.Merge(ctxDeadline, nodeID, partition, siteID, bucket, patch); err != nil {
                 Log.Errorf("Unable to perform read repair on bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
             }
         }(nodeID)

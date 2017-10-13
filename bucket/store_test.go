@@ -120,6 +120,15 @@ var _ = Describe("Store", func() {
             Expect(err.(DBerror).Code()).Should(Equal(EStorage.Code()))
             Expect(ss).Should(BeNil())
         })
+
+        It("should not modify the keys array it receives", func() {
+            store := makeStore("nodeA")
+            keys := [][]byte{ []byte("a"), []byte("b") }
+            store.Get(keys)
+
+            Expect(keys[0]).Should(Equal([]byte("a")))
+            Expect(keys[1]).Should(Equal([]byte("b")))
+        })
     })
     
     Describe("#GetMatches", func() {
@@ -204,6 +213,15 @@ var _ = Describe("Store", func() {
             Expect(ss.Next()).Should(BeFalse())
             Expect(ss.Key()).Should(BeNil())
             Expect(ss.Error().(DBerror).Code()).Should(Equal(EStorage.Code()))
+        })
+        
+        It("should not modify the keys array it receives", func() {
+            store := makeStore("nodeA")
+            keys := [][]byte{ []byte("a"), []byte("b") }
+            store.GetMatches(keys)
+
+            Expect(keys[0]).Should(Equal([]byte("a")))
+            Expect(keys[1]).Should(Equal([]byte("b")))
         })
     })
     
@@ -357,7 +375,15 @@ var _ = Describe("Store", func() {
             Expect(values[0]).Should(BeNil())
             Expect(values[1]).Should(BeNil())
             Expect(store.MerkleTree().RootHash()).Should(Equal(Hash{ }))
+        })
 
+        It("should not modify the keys array it receives", func() {
+            store := makeStore("nodeA")
+            keys := [][]byte{ []byte("a"), []byte("b") }
+            store.Forget(keys)
+
+            Expect(keys[0]).Should(Equal([]byte("a")))
+            Expect(keys[1]).Should(Equal([]byte("b")))
         })
     })
     
