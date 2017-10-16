@@ -19,6 +19,7 @@ import (
     . "devicedb/server"
     "devicedb/storage"
     "devicedb/node"
+    . "devicedb/error"
     . "devicedb/version"
     . "devicedb/compatibility"
     . "devicedb/shared"
@@ -921,7 +922,13 @@ func main() {
         batch := NewBatch()
         batch.Put(*clusterPutKey, *clusterPutValue, *clusterPutContext)
 
-        err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, *batch)
+        replicas, nApplied, err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, *batch)
+
+        if err == ENoQuorum {
+            fmt.Fprintf(os.Stderr, "Error: Update was only applied to (%d/%d) replicas. Unable to achieve write quorum\n", nApplied, replicas)
+
+            os.Exit(1)
+        }
 
         if err != nil {
             fmt.Fprintf(os.Stderr, "Error: Unable to put key: %v\n", err.Error())
@@ -948,7 +955,13 @@ func main() {
         batch := NewBatch()
         batch.Delete(*clusterDeleteKey, *clusterDeleteContext)
 
-        err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, *batch)
+        replicas, nApplied, err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, *batch)
+
+        if err == ENoQuorum {
+            fmt.Fprintf(os.Stderr, "Error: Update was only applied to (%d/%d) replicas. Unable to achieve write quorum\n", nApplied, replicas)
+
+            os.Exit(1)
+        }
 
         if err != nil {
             fmt.Fprintf(os.Stderr, "Error: Unable to delete key: %v\n", err.Error())

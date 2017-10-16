@@ -36,6 +36,8 @@ type BatchResult struct {
     NApplied uint64 `json:"nApplied"`
     // Number of replicas in the replica set for this site
     Replicas uint64 `json:"replicas"`
+    // Was write quorum achieved
+    Quorum bool
     Patch map[string]*SiblingSet `json:"patch"`
 }
 

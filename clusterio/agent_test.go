@@ -75,71 +75,31 @@ var _ = Describe("Agent", func() {
         })
 
         Context("When all nodes returned by the call to ReplicaNodes are unique", func() {
-            It("Should call NodeClient.Batch() once for each node returned by its call to ReplicaNodes", func() {
+            It("Should call NodeClient.Batch() sequentially for each node until one of the calls succeeds", func() {
                 partitionResolver := NewMockPartitionResolver()
                 nodeClient := NewMockNodeClient()
                 partitionResolver.defaultPartitionResponse = 500
                 partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
                 nodeClientBatchCalled := make(chan int, 3)
-                var mapMutex sync.Mutex
-                remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true }
-                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+                seenNodes := map[uint64]bool{ }
+                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
                     defer GinkgoRecover()
 
-                    mapMutex.Lock()
-                    defer mapMutex.Unlock()
-                    _, ok := remainingNodes[nodeID]
-                    Expect(ok).Should(BeTrue())
-                    delete(remainingNodes, nodeID)
                     Expect(partition).Should(Equal(uint64(500)))
                     Expect(siteID).Should(Equal("site1"))
                     Expect(bucket).Should(Equal("default"))
 
+                    _, ok := seenNodes[nodeID]
+                    Expect(ok).Should(BeFalse())
+                    seenNodes[nodeID] = true
+
                     nodeClientBatchCalled <- 1
 
-                    return nil
-                }
-
-                agent := NewAgent(nil, nil)
-                agent.PartitionResolver = partitionResolver
-                agent.NodeClient = nodeClient
-
-                agent.Batch(context.TODO(), "site1", "default", nil)
-
-                for i := 0; i < 3; i += 1 {
-                    select {
-                    case <-nodeClientBatchCalled:
-                    case <-time.After(time.Second):
-                        Fail("Should have invoked NodeClient.Batch()")
+                    if len(seenNodes) == 2 {
+                        return map[string]*SiblingSet{ }, nil
                     }
-                }
-            })
-        })
 
-        Context("When some nodes returned by the call to ReplicaNodes are duplicated", func() {
-            It("Should call NodeClient.Batch() once for each unique node returned by its call to ReplicaNodes", func() {
-                partitionResolver := NewMockPartitionResolver()
-                nodeClient := NewMockNodeClient()
-                partitionResolver.defaultPartitionResponse = 500
-                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 4 }
-                nodeClientBatchCalled := make(chan int, 2)
-                var mapMutex sync.Mutex
-                remainingNodes := map[uint64]bool{ 2: true, 4: true }
-                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                    defer GinkgoRecover()
-
-                    mapMutex.Lock()
-                    defer mapMutex.Unlock()
-                    _, ok := remainingNodes[nodeID]
-                    Expect(ok).Should(BeTrue())
-                    delete(remainingNodes, nodeID)
-                    Expect(partition).Should(Equal(uint64(500)))
-                    Expect(siteID).Should(Equal("site1"))
-                    Expect(bucket).Should(Equal("default"))
-
-                    nodeClientBatchCalled <- 1
-
-                    return nil
+                    return nil, errors.New("Some error")
                 }
 
                 agent := NewAgent(nil, nil)
@@ -158,37 +118,95 @@ var _ = Describe("Agent", func() {
             })
         })
 
-        Context("When no quorum is not established", func() {
+        Context("When some nodes returned by the call to ReplicaNodes are duplicated", func() {
+            It("Should call NodeClient.Batch() once for each unique node returned by its call to ReplicaNodes", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 4 }
+                nodeClientBatchCalled := make(chan int, 3)
+                seenNodes := map[uint64]bool{ }
+                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                    defer GinkgoRecover()
+
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+
+                    _, ok := seenNodes[nodeID]
+                    Expect(ok).Should(BeFalse())
+                    seenNodes[nodeID] = true
+
+                    nodeClientBatchCalled <- 1
+
+                    if len(seenNodes) == 2 {
+                        return map[string]*SiblingSet{ }, nil
+                    }
+
+                    return nil, errors.New("Some error")
+                }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+
+                _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
+
+                Expect(err).Should(Equal(ENoQuorum))
+
+                for i := 0; i < 2; i += 1 {
+                    select {
+                    case <-nodeClientBatchCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Batch()")
+                    }
+                }
+            })
+        })
+
+        Context("And if a quorum of calls to NodeClient.Batch() fail", func() {
             Context("And one of the calls to NodeClient.Batch() returns EBucketDoesNotExist", func() {
                 It("Should return EBucketDoesNotExist", func() {
                     partitionResolver := NewMockPartitionResolver()
                     nodeClient := NewMockNodeClient()
                     partitionResolver.defaultPartitionResponse = 500
                     partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                        return EBucketDoesNotExist
+                    nodeClientBatchCalled := make(chan int, 3)
+                    batchCallCount := 0
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        batchCallCount++
+                        nodeClientBatchCalled <- 1
+
+                        switch batchCallCount {
+                        case 1:
+                            return nil, EBucketDoesNotExist
+                        case 2:
+                            return nil, errors.New("Some error")
+                        case 3:
+                            return map[string]*SiblingSet{ }, nil
+                        default:
+                            Fail("Too many calls to Batch()")
+                        }
+
+                        return nil, nil
                     }
 
                     agent := NewAgent(nil, nil)
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
 
-                    batchReturned := make(chan int)
+                    _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
 
-                    go func() {
-                        defer GinkgoRecover()
+                    Expect(err).Should(Equal(EBucketDoesNotExist))
 
-                        _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
-
-                        Expect(err).Should(Equal(EBucketDoesNotExist))
-
-                        batchReturned <- 1
-                    }()
-
-                    select {
-                    case <-batchReturned:
-                    case <-time.After(time.Second):
-                        Fail("Batch didn't return in time")
+                    for i := 0; i < 3; i += 1 {
+                        select {
+                        case <-nodeClientBatchCalled:
+                        case <-time.After(time.Second):
+                            Fail("Should have invoked NodeClient.Batch()")
+                        }
                     }
                 })
             })
@@ -199,7 +217,311 @@ var _ = Describe("Agent", func() {
                     nodeClient := NewMockNodeClient()
                     partitionResolver.defaultPartitionResponse = 500
                     partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+                    nodeClientBatchCalled := make(chan int, 3)
+                    batchCallCount := 0
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        batchCallCount++
+                        nodeClientBatchCalled <- 1
+
+                        switch batchCallCount {
+                        case 1:
+                            return nil, ESiteDoesNotExist
+                        case 2:
+                            return nil, errors.New("Some error")
+                        case 3:
+                            return nil, errors.New("Some error")
+                        default:
+                            Fail("Too many calls to Batch()")
+                        }
+
+                        return nil, nil
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
+
+                    Expect(err).Should(Equal(ESiteDoesNotExist))
+
+                    for i := 0; i < 3; i += 1 {
+                        select {
+                        case <-nodeClientBatchCalled:
+                        case <-time.After(time.Second):
+                            Fail("Should have invoked NodeClient.Batch()")
+                        }
+                    }
+                })
+            })
+
+            Context("Otherwise", func() {
+                It("Should return ENoQuorum", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                    nodeClientBatchCalled := make(chan int, 3)
+                    batchCallCount := 0
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        batchCallCount++
+                        nodeClientBatchCalled <- 1
+
+                        switch batchCallCount {
+                        case 1:
+                            return nil, errors.New("Some error")
+                        case 2:
+                            return nil, errors.New("Some error")
+                        case 3:
+                            return nil, errors.New("Some error")
+                        default:
+                            Fail("Too many calls to Batch()")
+                        }
+
+                        return nil, nil
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
+
+                    Expect(err).Should(Equal(ENoQuorum))
+
+                    for i := 0; i < 3; i += 1 {
+                        select {
+                        case <-nodeClientBatchCalled:
+                        case <-time.After(time.Second):
+                            Fail("Should have invoked NodeClient.Batch()")
+                        }
+                    }
+                })
+            })
+        })
+
+        Context("When the deadline specified by Timeout is reached before a call to NodeClient.Batch() has succeeded and before a quorum of calls have failed", func() {
+            It("Should return as soon as the deadline is reached", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
+                nodeClientBatchCalled := make(chan int, 3)
+                nodeClient.defaultBatchPatch = map[string]*SiblingSet{ }
+                nodeClient.defaultBatchError = nil
+                batchCalls := 0
+                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                    defer GinkgoRecover()
+                    
+                    batchCalls++
+
+                    switch batchCalls {
+                    case 1:
+                        nodeClientBatchCalled <- 1
+                        return nil, errors.New("Some error")
+                    case 2:
+                        <-ctx.Done()
+                        nodeClientBatchCalled <- 1
+                        return nil, errors.New("Some error")
+                    case 3:
+                        <-ctx.Done()
+                        nodeClientBatchCalled <- 1
+                        return nil, errors.New("Some error")
+                    }
+
+                    return nil, nil
+                }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+                agent.Timeout = time.Second // deadline is one second
+
+                batchReturned := make(chan int)
+                var batchCallTime time.Time
+
+                go func() {
+                    defer GinkgoRecover()
+
+                    batchCallTime = time.Now()
+                    nReplicas, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
+
+                    Expect(nReplicas).Should(Equal(3))
+                    Expect(nApplied).Should(Equal(0))
+                    Expect(err).Should(Equal(ENoQuorum))
+
+                    batchReturned <- 1
+                }()
+
+                select {
+                case <-nodeClientBatchCalled:
+                case <-time.After(time.Millisecond * 100):
+                    Fail("Should have finished calling batch for the first node")
+                }
+
+                select {
+                case <-batchReturned:
+                    // ensure that the time since calling batch has been at least one second (the deadline)
+                    // with an upper limit to the variance
+                    Expect(time.Since(batchCallTime) > time.Second).Should(BeTrue())
+                    Expect(time.Since(batchCallTime) < time.Second + time.Millisecond * 100).Should(BeTrue())
+                case <-time.After(agent.Timeout * 2):
+                    Fail("Batch didn't return in time")
+                }
+
+                for i := 0; i < 2; i++ {
+                    select {
+                    case <-nodeClientBatchCalled:
+                    case <-time.After(time.Millisecond * 100):
+                        Fail("Batch did not return in time")
+                    }
+                }
+            })
+        })
+
+        Context("Once one of the calls to Batch() is successful", func() {
+            It("Should call NodeClient.Merge() once for each unique node that has not yet been attempted by NodeClient.Batch() using the patch returned by NodeClient.Batch() as the patch passed to merge", func() {
+                partitionResolver := NewMockPartitionResolver()
+                nodeClient := NewMockNodeClient()
+                partitionResolver.defaultPartitionResponse = 500
+                partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                nodeClientBatchCalled := make(chan int, 3)
+                nodeClientMergeCalled := make(chan int, 2)
+                remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                    defer GinkgoRecover()
+
+                    delete(remainingNodes, nodeID)
+
+                    nodeClientBatchCalled <- 1
+
+                    if len(remainingNodes) == 2 {
+                        return map[string]*SiblingSet{ "a": nil }, nil
+                    }
+
+                    return nil, errors.New("Some error")
+                }
+
+                var mergeMu sync.Mutex
+                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    mergeMu.Lock()
+                    defer mergeMu.Unlock()
+                    defer GinkgoRecover()
+
+                    Expect(remainingNodes).Should(Or(HaveLen(1), HaveLen(2)))
+                    Expect(remainingNodes[nodeID]).Should(BeTrue())
+                    delete(remainingNodes, nodeID)
+                    Expect(partition).Should(Equal(uint64(500)))
+                    Expect(siteID).Should(Equal("site1"))
+                    Expect(bucket).Should(Equal("default"))
+                    Expect(patch).Should(Equal(map[string]*SiblingSet{ "a": nil }))
+
+                    nodeClientMergeCalled <- 1
+
+                    return nil
+                }
+
+                agent := NewAgent(nil, nil)
+                agent.PartitionResolver = partitionResolver
+                agent.NodeClient = nodeClient
+
+                agent.Batch(context.TODO(), "site1", "default", nil)
+
+                for i := 0; i < 3; i += 1 {
+                    select {
+                    case <-nodeClientBatchCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Batch()")
+                    }
+                }
+
+                for i := 0; i < 2; i += 1 {
+                    select {
+                    case <-nodeClientMergeCalled:
+                    case <-time.After(time.Second):
+                        Fail("Should have invoked NodeClient.Merge()")
+                    }
+                }
+            })
+        })
+
+        Context("When no quorum is not established", func() {
+            Context("And one of the calls to NodeClient.Merge() returns EBucketDoesNotExist", func() {
+                It("Should return EBucketDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                    remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        if len(remainingNodes) == 2 {
+                            return map[string]*SiblingSet{ "a": nil }, nil
+                        }
+
+                        return nil, errors.New("Some error")
+                    }
+
+                    var mergeMu sync.Mutex
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                        mergeMu.Lock()
+                        defer mergeMu.Unlock()
+                        defer GinkgoRecover()
+
+                        Expect(remainingNodes).Should(Or(HaveLen(1), HaveLen(2)))
+                        Expect(remainingNodes[nodeID]).Should(BeTrue())
+                        delete(remainingNodes, nodeID)
+
+                        return EBucketDoesNotExist
+                    }
+
+                    agent := NewAgent(nil, nil)
+                    agent.PartitionResolver = partitionResolver
+                    agent.NodeClient = nodeClient
+
+                    nTotal, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
+                    Expect(nTotal).Should(Equal(5))
+                    Expect(nApplied).Should(Equal(1))
+                    Expect(err).Should(Equal(EBucketDoesNotExist))
+                })
+            })
+
+            Context("And one of the calls to NodeClient.Merge() returns ESiteDoesNotExist", func() {
+                It("Should return ESiteDoesNotExist", func() {
+                    partitionResolver := NewMockPartitionResolver()
+                    nodeClient := NewMockNodeClient()
+                    partitionResolver.defaultPartitionResponse = 500
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                    remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        if len(remainingNodes) == 2 {
+                            return map[string]*SiblingSet{ "a": nil }, nil
+                        }
+
+                        return nil, errors.New("Some error")
+                    }
+
+                    var mergeMu sync.Mutex
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                        mergeMu.Lock()
+                        defer mergeMu.Unlock()
+                        defer GinkgoRecover()
+
+                        Expect(remainingNodes).Should(Or(HaveLen(1), HaveLen(2)))
+                        Expect(remainingNodes[nodeID]).Should(BeTrue())
+                        delete(remainingNodes, nodeID)
+
                         return ESiteDoesNotExist
                     }
 
@@ -207,28 +529,15 @@ var _ = Describe("Agent", func() {
                     agent.PartitionResolver = partitionResolver
                     agent.NodeClient = nodeClient
 
-                    batchReturned := make(chan int)
-
-                    go func() {
-                        defer GinkgoRecover()
-
-                        _, _, err := agent.Batch(context.TODO(), "site1", "default", nil)
-
-                        Expect(err).Should(Equal(ESiteDoesNotExist))
-
-                        batchReturned <- 1
-                    }()
-
-                    select {
-                    case <-batchReturned:
-                    case <-time.After(time.Second):
-                        Fail("Batch didn't return in time")
-                    }
+                    nTotal, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
+                    Expect(nTotal).Should(Equal(5))
+                    Expect(nApplied).Should(Equal(1))
+                    Expect(err).Should(Equal(ESiteDoesNotExist))
                 })
             })
         })
 
-        Context("When the deadline specified by Timeout is reached before all calls to NodeClient.Batch() have returned", func() {
+        Context("When the deadline specified by Timeout is reached before all calls to NodeClient.Merge() have returned", func() {
             Context("And a write quorum has not yet been established", func() {
                 // Before the deadline quorum has not been reached and there are nodes that have not yet responded
                 // After the deadline all outstanding calls to NodeClient.Batch() should be cancelled causing Batch()
@@ -237,20 +546,37 @@ var _ = Describe("Agent", func() {
                     partitionResolver := NewMockPartitionResolver()
                     nodeClient := NewMockNodeClient()
                     partitionResolver.defaultPartitionResponse = 500
-                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-                    nodeClientBatchCalled := make(chan int, 3)
-                    nodeClient.defaultBatchResponse = nil
-                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                        if nodeID == 2 {
-                            nodeClientBatchCalled <- 1
-                            return nil
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                    remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        if len(remainingNodes) == 2 {
+                            return map[string]*SiblingSet{ "a": nil }, nil
                         }
 
-                        // all calls to batch except the one for node 2 should wait until past the deadline to return
-                        <-ctx.Done()
-                        nodeClientBatchCalled <- 1
+                        return nil, errors.New("Some error")
+                    }
 
-                        return errors.New("Some error")
+                    var mergeMu sync.Mutex
+                    nodeClientMergeCalled := make(chan int, 2)
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                        mergeMu.Lock()
+                        defer mergeMu.Unlock()
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        if len(remainingNodes) == 0 {
+                            <-ctx.Done()
+                            nodeClientMergeCalled <- 1
+                            return errors.New("Some error")
+                        }
+
+                        nodeClientMergeCalled <- 1
+                        return nil
                     }
 
                     agent := NewAgent(nil, nil)
@@ -267,17 +593,17 @@ var _ = Describe("Agent", func() {
                         batchCallTime = time.Now()
                         nReplicas, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
 
-                        Expect(nReplicas).Should(Equal(3))
-                        Expect(nApplied).Should(Equal(1))
+                        Expect(nReplicas).Should(Equal(5))
+                        Expect(nApplied).Should(Equal(2))
                         Expect(err).Should(Equal(ENoQuorum))
 
                         batchReturned <- 1
                     }()
 
                     select {
-                    case <-nodeClientBatchCalled:
+                    case <-nodeClientMergeCalled:
                     case <-time.After(time.Millisecond * 100):
-                        Fail("Should have finished calling batch for node 2")
+                        Fail("Should have finished calling merge for the first node")
                     }
 
                     select {
@@ -290,9 +616,9 @@ var _ = Describe("Agent", func() {
                         Fail("Batch didn't return in time")
                     }
 
-                    for i := 0; i < 2; i += 1 {
+                    for i := 0; i < 1; i += 1 {
                         select {
-                        case <-nodeClientBatchCalled:
+                        case <-nodeClientMergeCalled:
                         case <-time.After(time.Millisecond * 100):
                             Fail("Batch did not return in time")
                         }
@@ -305,18 +631,34 @@ var _ = Describe("Agent", func() {
                     partitionResolver := NewMockPartitionResolver()
                     nodeClient := NewMockNodeClient()
                     partitionResolver.defaultPartitionResponse = 500
-                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-                    nodeClientBatchCalled := make(chan int, 3)
-                    nodeClient.defaultBatchResponse = nil
-                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                        if nodeID == 2 || nodeID == 4 {
-                            nodeClientBatchCalled <- 1
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                    remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        return map[string]*SiblingSet{ "a": nil }, nil
+                    }
+
+                    var mergeMu sync.Mutex
+                    nodeClientMergeCalled := make(chan int, 2)
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                        mergeMu.Lock()
+                        defer mergeMu.Unlock()
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        // need two nodes to be successful to achieve quorum
+                        if len(remainingNodes) >= 2 {
+                            nodeClientMergeCalled <- 1
                             return nil
                         }
 
-                        // all calls to batch except the one for node 2 should wait until past the deadline to return
+                        // The last two have to wait until the deadline
                         <-ctx.Done()
-                        nodeClientBatchCalled <- 1
+                        nodeClientMergeCalled <- 1
                         return errors.New("Some error")
                     }
 
@@ -334,8 +676,8 @@ var _ = Describe("Agent", func() {
                         batchCallTime = time.Now()
                         nReplicas, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
 
-                        Expect(nReplicas).Should(Equal(3))
-                        Expect(nApplied).Should(Equal(2))
+                        Expect(nReplicas).Should(Equal(5))
+                        Expect(nApplied).Should(Equal(3))
                         Expect(err).Should(BeNil())
 
                         batchReturned <- 1
@@ -343,7 +685,7 @@ var _ = Describe("Agent", func() {
 
                     for i := 0; i < 2; i += 1 {
                         select {
-                        case <-nodeClientBatchCalled:
+                        case <-nodeClientMergeCalled:
                         case <-time.After(time.Millisecond * 100):
                             Fail("Batch did not return in time")
                         }
@@ -360,23 +702,38 @@ var _ = Describe("Agent", func() {
             })
         })
 
-        Context("When all calls to NodeClient.Batch() return before the deadline", func() {
+        Context("When all calls to NodeClient.Merge() return before the deadline", func() {
             Context("And a write quorum was established", func() {
                 It("Should return as soon as quorum has been established", func() {
                     partitionResolver := NewMockPartitionResolver()
                     nodeClient := NewMockNodeClient()
                     partitionResolver.defaultPartitionResponse = 500
-                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-                    nodeClientBatchCalled := make(chan int, 3)
-                    nodeClient.defaultBatchResponse = nil
-                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                        if nodeID == 2 || nodeID == 4 {
-                            nodeClientBatchCalled <- 1
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                    remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        return map[string]*SiblingSet{ "a": nil }, nil
+                    }
+
+                    var mergeMu sync.Mutex
+                    nodeClientMergeCalled := make(chan int, 2)
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                        mergeMu.Lock()
+                        defer mergeMu.Unlock()
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        // need two nodes to be successful to achieve quorum
+                        if len(remainingNodes) >= 2 {
+                            nodeClientMergeCalled <- 1
                             return nil
                         }
 
-                        // all calls to batch except the one for node 2 should wait until past the deadline to return
-                        nodeClientBatchCalled <- 1
+                        nodeClientMergeCalled <- 1
                         return errors.New("Some error")
                     }
 
@@ -394,16 +751,16 @@ var _ = Describe("Agent", func() {
                         batchCallTime = time.Now()
                         nReplicas, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
 
+                        Expect(nReplicas).Should(Equal(5))
+                        Expect(nApplied).Should(Equal(3))
                         Expect(err).Should(BeNil())
-                        Expect(nReplicas).Should(Equal(3))
-                        Expect(nApplied).Should(Equal(2))
 
                         batchReturned <- 1
                     }()
 
-                    for i := 0; i < 2; i += 1 {
+                    for i := 0; i < 4; i += 1 {
                         select {
-                        case <-nodeClientBatchCalled:
+                        case <-nodeClientMergeCalled:
                         case <-time.After(time.Millisecond * 100):
                             Fail("Batch did not return in time")
                         }
@@ -420,21 +777,30 @@ var _ = Describe("Agent", func() {
             })
 
             Context("And a write quorum was not established", func() {
-                It("Should return as soon as all calls to NodeClient.Batch() have returned", func() {
+                It("Should return as soon as all calls to NodeClient.Merge() have returned", func() {
                     partitionResolver := NewMockPartitionResolver()
                     nodeClient := NewMockNodeClient()
                     partitionResolver.defaultPartitionResponse = 500
-                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6 }
-                    nodeClientBatchCalled := make(chan int, 3)
-                    nodeClient.defaultBatchResponse = nil
-                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
-                        if nodeID == 2 {
-                            nodeClientBatchCalled <- 1
-                            return nil
-                        }
+                    partitionResolver.defaultReplicaNodesResponse = []uint64{ 2, 4, 6, 8, 10 }
+                    remainingNodes := map[uint64]bool{ 2: true, 4: true, 6: true, 8: true, 10: true }
+                    nodeClient.batchCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
+                        defer GinkgoRecover()
 
-                        // all calls to batch except the one for node 2 should wait until past the deadline to return
-                        nodeClientBatchCalled <- 1
+                        delete(remainingNodes, nodeID)
+
+                        return map[string]*SiblingSet{ "a": nil }, nil
+                    }
+
+                    var mergeMu sync.Mutex
+                    nodeClientMergeCalled := make(chan int, 2)
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                        mergeMu.Lock()
+                        defer mergeMu.Unlock()
+                        defer GinkgoRecover()
+
+                        delete(remainingNodes, nodeID)
+
+                        nodeClientMergeCalled <- 1
                         return errors.New("Some error")
                     }
 
@@ -452,16 +818,16 @@ var _ = Describe("Agent", func() {
                         batchCallTime = time.Now()
                         nReplicas, nApplied, err := agent.Batch(context.TODO(), "site1", "default", nil)
 
-                        Expect(nReplicas).Should(Equal(3))
+                        Expect(nReplicas).Should(Equal(5))
                         Expect(nApplied).Should(Equal(1))
                         Expect(err).Should(Equal(ENoQuorum))
 
                         batchReturned <- 1
                     }()
 
-                    for i := 0; i < 2; i += 1 {
+                    for i := 0; i < 4; i += 1 {
                         select {
-                        case <-nodeClientBatchCalled:
+                        case <-nodeClientMergeCalled:
                         case <-time.After(time.Millisecond * 100):
                             Fail("Batch did not return in time")
                         }

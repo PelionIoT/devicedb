@@ -9,6 +9,7 @@ import (
     "net/http"
 
     "devicedb/routes"
+    . "devicedb/error"
 )
 
 type APIClientConfig struct {
@@ -98,21 +99,33 @@ func (client *APIClient) RemoveRelay(ctx context.Context, relayID string) error 
     return nil
 }
 
-func (client *APIClient) Batch(ctx context.Context, siteID string, bucket string, batch Batch) error {
+func (client *APIClient) Batch(ctx context.Context, siteID string, bucket string, batch Batch) (int, int, error) {
     transportUpdateBatch := batch.ToTransportUpdateBatch()
     encodedTransportUpdateBatch, err := json.Marshal(transportUpdateBatch)
 
     if err != nil {
-        return err
+        return 0, 0, err
     }
 
-    _, err = client.sendRequest(ctx, "POST", fmt.Sprintf("/sites/%s/buckets/%s/batches", siteID, bucket), encodedTransportUpdateBatch)
+    response, err := client.sendRequest(ctx, "POST", fmt.Sprintf("/sites/%s/buckets/%s/batches", siteID, bucket), encodedTransportUpdateBatch)
 
     if err != nil {
-        return err
+        return 0, 0, err
     }
 
-    return nil
+    var batchResult routes.BatchResult
+
+    err = json.Unmarshal(response, &batchResult)
+
+    if err != nil {
+        return 0, 0, err
+    }
+
+    if batchResult.Quorum {
+        return int(batchResult.Replicas), int(batchResult.NApplied), nil
+    }
+
+    return int(batchResult.Replicas), int(batchResult.NApplied), ENoQuorum
 }
 
 func (client *APIClient) Get(ctx context.Context, siteID string, bucket string, keys []string) ([]Entry, error) {

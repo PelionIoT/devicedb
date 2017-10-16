@@ -144,7 +144,7 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
             return nil, ENoQuorum
         }
 
-        return nil, nil
+        return batchResult.Patch, nil
     default:
         return nil, EStorage
     }

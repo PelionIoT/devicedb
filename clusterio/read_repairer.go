@@ -42,7 +42,14 @@ func (readRepairer *ReadRepairer) BeginRepair(partition uint64, siteID string, b
                 return
             }
 
-            for key, _ := range patch {
+            for key, siblingSet := range patch {
+                if siblingSet.Size() == 0 {
+                    // Filter out keys that don't need patch
+                    delete(patch, key)
+
+                    continue
+                }
+                
                 Log.Infof("Repairing key %s in bucket %s at site %s at node %d", key, bucket, siteID, nodeID)
             }
 

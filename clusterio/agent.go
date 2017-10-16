@@ -49,43 +49,71 @@ func NewAgent(nodeClient NodeClient, partitionResolver PartitionResolver) *Agent
 func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, updateBatch *UpdateBatch) (int, int, error) {
     var partitionNumber uint64 = agent.PartitionResolver.Partition(siteID)
     var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)
-    var nApplied int = 0
-    var nFailed int = 0
-    var applied chan int = make(chan int, len(replicaNodes))
-    var failed chan error = make(chan error, len(replicaNodes))
     var resultError error = ENoQuorum
+    var nFailed int
 
     opID, ctxDeadline := agent.newOperation(ctx)
 
-    var appliedNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
-
+    var remainingNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
+    
     for _, nodeID := range replicaNodes {
-        if appliedNodes[nodeID] {
+        remainingNodes[nodeID] = true
+    }
+
+    var nTotal int = len(remainingNodes)
+
+    for nodeID, _ := range remainingNodes {
+        patch, err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch)
+
+        delete(remainingNodes, nodeID)
+
+        if err != nil {
+            Log.Errorf("Unable to execute batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
+
+            if err == EBucketDoesNotExist || err == ESiteDoesNotExist {
+                resultError = err
+            }
+
+            nFailed++
+
             continue
         }
 
-        appliedNodes[nodeID] = true
+        // passing in NQuorum() - 1 since one node was already successful in applying the update so
+        // we require one less node to achieve write quorum
+        nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal) - 1, partitionNumber, siteID, bucket, patch)
 
+        if err == ENoQuorum {
+            // If a specific error occurred before this overrides ENoQuorum
+            err = resultError
+        }
+
+        return nTotal, nMerged + 1, err
+    }
+
+    return nTotal, 0, resultError
+}
+
+func (agent *Agent) merge(ctx context.Context, opID uint64, nodes map[uint64]bool, nQuorum int, partitionNumber uint64, siteID string, bucket string, patch map[string]*SiblingSet) (int, error) {
+    var nApplied int = 0
+    var nFailed int = 0
+    var applied chan int = make(chan int, len(nodes))
+    var failed chan error = make(chan error, len(nodes))
+    var resultError error = ENoQuorum
+
+    for nodeID, _ := range nodes {
         go func(nodeID uint64) {
-            _, err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch)
+            err := agent.NodeClient.Merge(ctx, nodeID, partitionNumber, siteID, bucket, patch)
 
             if err != nil {
-                Log.Errorf("Unable to replicate batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
+                Log.Errorf("Unable to merge patch into bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
-                for _, n := range replicaNodes {
-                    if nodeID == n {
-                        failed <- err
-                    }
-                }
+                failed <- err
 
                 return
             }
 
-            for _, n := range replicaNodes {
-                if nodeID == n {
-                    applied <- 1
-                }
-            }
+            applied <- 1
         }(nodeID)
     }
 
@@ -93,43 +121,51 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
     var allAttemptsMade chan int = make(chan int, 1)
 
     go func() {
-        // All calls to NodeClient.Batch() will succeed, receive a failure reponse from the specified peer, or time out eventually
-        for nApplied + nFailed < len(replicaNodes) {
+        // All calls to NodeClient.Merge() will succeed, receive a failure reponse from the specified peer, or time out eventually
+        for nApplied + nFailed < len(nodes) {
             select {
             case err := <-failed:
-                // indicates that a call to NodeClient.Batch() either received an error response from the specified node or timed out
+                // indicates that a call to NodeClient.Merge() either received an error response from the specified node or timed out
                 nFailed++
 
                 if err == EBucketDoesNotExist || err == ESiteDoesNotExist {
                     resultError = err
                 }
             case <-applied:
-                // indicates that a call to NodeClient.Batch() received a success response from the specified node
+                // indicates that a call to NodeClient.Merge() received a success response from the specified node
                 nApplied++
 
-                if nApplied == agent.NQuorum(len(replicaNodes)) {
-                    // if a quorum of nodes have successfully been written to then the Batch() function should return successfully
+                if nApplied == nQuorum {
+                    // if a quorum of nodes have successfully been written to then the Merge() function should return successfully
                     // without waiting for the rest of the responses to come in. However, this function should continue to run
                     // until the deadline is reached or a response (whether it be failure or success) is received for each call
-                    // to Batch() to allow this update to propogate to all replicas
+                    // to Merge() to allow this update to propogate to all replicas
                     quorumReached <- nApplied
                 }
             }
         }
 
-        // Once the deadline is reached or all calls to Batch() have received a response this channel should be written
-        // to so that if Batch() is still waiting to return (since quorum was never reached) it will return an error response
+        // Once the deadline is reached or all calls to Merge() have received a response this channel should be written
+        // to so that if Merge() is still waiting to return (since quorum was never reached) it will return an error response
         // indicating that quorum was not establish and the update was not successfully applied
         allAttemptsMade <- nApplied
         // Do this to remove the canceller from the map even though the operation is already done
         agent.cancelOperation(opID)
     }()
 
+    if len(nodes) == 0 {
+        if nQuorum == 0 {
+            return 0, nil
+        }
+
+        return 0, ENoQuorum
+    }
+
     select {
     case n := <-allAttemptsMade:
-        return len(replicaNodes), n, resultError
+        return n, resultError
     case n := <-quorumReached:
-        return len(replicaNodes), n, nil
+        return n, nil
     }
 }
 

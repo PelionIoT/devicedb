@@ -119,10 +119,11 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
             return
         }
 
-        encodedBatchResult, _ := json.Marshal(batchResult)
-
+        batchResult.Quorum = true
+        
         if err == ENoQuorum {
             Log.Warningf("POST /sites/{siteID}/buckets/{bucket}/batches: Write failed at some replicas")
+            batchResult.Quorum = false
         } else if err != nil {
             Log.Warningf("POST /sites/{siteID}/buckets/{bucket}/batches: Site does not exist")
             
@@ -132,6 +133,8 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
             
             return
         }
+
+        encodedBatchResult, _ := json.Marshal(batchResult)
 
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)

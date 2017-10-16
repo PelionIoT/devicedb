@@ -36,13 +36,14 @@ func (partitionResolver *MockPartitionResolver) ReplicaNodes(partition uint64) [
 }
 
 type MockNodeClient struct {
-    defaultBatchResponse error
+    defaultBatchPatch map[string]*SiblingSet
+    defaultBatchError error
     defaultGetResponse []*SiblingSet
     defaultGetResponseError error
     defaultGetMatchesResponse SiblingSetIterator
     defaultGetMatchesResponseError error
     mergeCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error
-    batchCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error
+    batchCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error)
     getCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     getMatchesCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
 }
@@ -59,12 +60,12 @@ func (nodeClient *MockNodeClient) Merge(ctx context.Context, nodeID uint64, part
     return nil
 }
 
-func (nodeClient *MockNodeClient) Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) error {
+func (nodeClient *MockNodeClient) Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error) {
     if nodeClient.batchCB != nil {
         return nodeClient.batchCB(ctx, nodeID, partition, siteID, bucket, updateBatch)
     }
 
-    return nodeClient.defaultBatchResponse
+    return nodeClient.defaultBatchPatch, nodeClient.defaultBatchError
 }
 
 func (nodeClient *MockNodeClient) Get(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
