@@ -44,6 +44,22 @@ func (dummySitePool *DummySitePool) Add(siteID string) {
 func (dummySitePool *DummySitePool) Remove(siteID string) {
 }
 
+func (dummySitePool *DummySitePool) Iterator() SitePoolIterator {
+    return nil
+}
+
+func (dummySitePool *DummySitePool) LockWrites() {
+}
+
+func (dummySitePool *DummySitePool) UnlockWrites() {
+}
+
+func (dummySitePool *DummySitePool) LockReads() {
+}
+
+func (dummySitePool *DummySitePool) UnlockReads() {
+}
+
 type DummySite struct {
     bucketList *BucketList
 }
@@ -54,6 +70,26 @@ func (dummySite *DummySite) Buckets() *BucketList {
     }
 
     return dummySite.bucketList
+}
+
+func (dummySite *DummySite) Iterator() SiteIterator {
+    return nil
+}
+
+func (dummySite *DummySite) ID() string {
+    return ""
+}
+
+func (dummySite *DummySite) LockWrites() {
+}
+
+func (dummySite *DummySite) UnlockWrites() {
+}
+
+func (dummySite *DummySite) LockReads() {
+}
+
+func (dummySite *DummySite) UnlockReads() {
 }
 
 type DummyBucket struct {
@@ -110,6 +146,22 @@ func (dummyBucket *DummyBucket) GetMatches(keys [][]byte) (SiblingSetIterator, e
 
 func (dummyBucket *DummyBucket) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
     return dummyBucket.syncChildren[nodeID], nil
+}
+
+func (dummyBucket *DummyBucket) GetAll() (SiblingSetIterator, error) {
+    return nil, nil
+}
+
+func (dummyBucket *DummyBucket) LockReads() {
+}
+
+func (dummyBucket *DummyBucket) LockWrites() {
+}
+
+func (dummyBucket *DummyBucket) UnlockReads() {
+}
+
+func (dummyBucket *DummyBucket) UnlockWrites() {
 }
 
 func (dummyBucket *DummyBucket) Forget(keys [][]byte) error {
