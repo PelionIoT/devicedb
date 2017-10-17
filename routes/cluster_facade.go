@@ -2,6 +2,7 @@ package routes
 
 import (
     "context"
+    "github.com/gorilla/websocket"
 
     . "devicedb/bucket"
     . "devicedb/data"
@@ -29,4 +30,5 @@ type ClusterFacade interface {
     LocalGet(partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
     LocalGetMatches(partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
+    AcceptRelayConnection(conn *websocket.Conn)
 }

@@ -836,3 +836,6 @@ func (clusterFacade *ClusterNodeFacade) AddSite(ctx context.Context, siteID stri
 func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID string) error {
     return clusterFacade.node.configController.ClusterCommand(ctx, ClusterRemoveSiteBody{ SiteID: siteID })
 }
+
+func (clusterFacade *ClusterNodeFacade) AcceptRelayConnection(conn *websocket.Conn) {
+}

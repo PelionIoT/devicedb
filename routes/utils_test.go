@@ -2,6 +2,7 @@ package routes_test
 
 import (
     "context"
+    "github.com/gorilla/websocket"
 
     . "devicedb/bucket"
     . "devicedb/cluster"
@@ -53,6 +54,7 @@ type MockClusterFacade struct {
     moveRelayCB func(ctx context.Context, relayID string, siteID string)
     addSiteCB func(ctx context.Context, siteID string)
     removeSiteCB func(ctx context.Context, siteID string)
+    acceptRelayConnectionCB func(conn *websocket.Conn)
 }
 
 func (clusterFacade *MockClusterFacade) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
@@ -197,6 +199,12 @@ func (clusterFacade *MockClusterFacade) LocalGetMatches(partition uint64, siteID
     }
 
     return clusterFacade.defaultLocalGetMatchesResponse, clusterFacade.defaultLocalGetMatchesResponseError
+}
+
+func (clusterFacade *MockClusterFacade) AcceptRelayConnection(conn *websocket.Conn) {
+    if clusterFacade.acceptRelayConnectionCB != nil {
+        clusterFacade.acceptRelayConnectionCB(conn)
+    }
 }
 
 type siblingSetIteratorEntry struct {
