@@ -3,6 +3,7 @@ package sync
 import (
     "context"
     "errors"
+    "math/rand"
 
     . "devicedb/bucket"
     . "devicedb/client"
@@ -17,7 +18,15 @@ import (
 var ENoLocalBucket = errors.New("No such bucket exists locally")
 
 type BucketProxyFactory interface {
-    CreateBucketProxy(nodeID uint64, siteID string, bucket string) (BucketProxy, error)
+    // Return a set of buckets for which updates can be
+    // pushed from the given node to this node/cluster
+    IncomingBuckets(peerID string) map[string]bool
+    // Return a set of buckets for which updates can be
+    // pushed from this node/cluster to the given node
+    OutgoingBuckets(peerID string) map[string]bool
+    // Create a bucket proxy to the bucket specified in the site
+    // that the peer belongs to
+    CreateBucketProxy(peerID string, bucket string) (BucketProxy, error)
 }
 
 type RelayBucketProxyFactory struct {
@@ -25,8 +34,8 @@ type RelayBucketProxyFactory struct {
     SitePool SitePool
 }
 
-func (relayBucketProxyFactory *RelayBucketProxyFactory) CreateBucketProxy(nodeID uint64, siteID string, bucketName string) (BucketProxy, error) {
-    site := relayBucketProxyFactory.SitePool.Acquire(siteID)
+func (relayBucketProxyFactory *RelayBucketProxyFactory) CreateBucketProxy(peerID string, bucketName string) (BucketProxy, error) {
+    site := relayBucketProxyFactory.SitePool.Acquire("")
 
     if site.Buckets().Get(bucketName) == nil {
         return nil, ENoLocalBucket
@@ -35,8 +44,32 @@ func (relayBucketProxyFactory *RelayBucketProxyFactory) CreateBucketProxy(nodeID
     return &RelayBucketProxy{
         Bucket: site.Buckets().Get(bucketName),
         SitePool: relayBucketProxyFactory.SitePool,
-        SiteID: siteID,
+        SiteID: "",
     }, nil
+}
+
+func (relayBucketProxyFactory *RelayBucketProxyFactory) IncomingBuckets(peerID string) map[string]bool {
+    var buckets map[string]bool = make(map[string]bool)
+
+    site := relayBucketProxyFactory.SitePool.Acquire("")
+
+    for _, bucket := range site.Buckets().Incoming(peerID) {
+        buckets[bucket.Name()] = true
+    }
+
+    return buckets
+}
+
+func (relayBucketProxyFactory *RelayBucketProxyFactory) OutgoingBuckets(peerID string) map[string]bool {
+    var buckets map[string]bool = make(map[string]bool)
+
+    site := relayBucketProxyFactory.SitePool.Acquire("")
+
+    for _, bucket := range site.Buckets().Outgoing(peerID) {
+        buckets[bucket.Name()] = true
+    }
+
+    return buckets
 }
 
 type CloudBucketProxyFactory struct {
@@ -48,7 +81,18 @@ type CloudBucketProxyFactory struct {
     SitePool SitePool
 }
 
-func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(nodeID uint64, siteID string, bucketName string) (BucketProxy, error) {
+func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID string, bucketName string) (BucketProxy, error) {
+    siteID := cloudBucketProxyFactory.ClusterController.RelaySite(peerID)
+    partitionNumber := cloudBucketProxyFactory.ClusterController.Partition(siteID)
+    nodeIDs := cloudBucketProxyFactory.ClusterController.PartitionOwners(partitionNumber)
+
+    if len(nodeIDs) == 0 {
+        return nil, errors.New("No node owns this partition")
+    }
+
+    // Choose a node at random from the nodes that own this site database
+    nodeID := nodeIDs[int(rand.Uint32() % uint32(len(nodeIDs)))]
+
     if cloudBucketProxyFactory.ClusterController.LocalNodeID == nodeID {
         site := cloudBucketProxyFactory.SitePool.Acquire(siteID)
 
@@ -71,6 +115,14 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(nodeID
         SiteID: siteID,
         BucketName: bucketName,
     }, nil
+}
+
+func (cloudBucketProxyFactory *CloudBucketProxyFactory) IncomingBuckets(peerID string) map[string]bool {
+    return map[string]bool{ "default": true, "lww": true }
+}
+
+func (cloudBucketProxyFactory *CloudBucketProxyFactory) OutgoingBuckets(peerID string) map[string]bool {
+    return map[string]bool{ "default": true, "lww": true, "cloud": true }
 }
 
 type BucketProxy interface {

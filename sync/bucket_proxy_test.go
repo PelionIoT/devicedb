@@ -240,14 +240,14 @@ var _ = Describe("BucketProxy", func() {
                 relayBucketProxyFactory := &RelayBucketProxyFactory{
                     SitePool: &DummySitePool{
                         sites: map[string]Site{
-                            "site1": &DummySite{ 
+                            "": &DummySite{ 
                                 bucketList: NewBucketList(),
                             },
                         },
                     },
                 }
 
-                bucketProxy, err := relayBucketProxyFactory.CreateBucketProxy(1, "site1", "bucketName")
+                bucketProxy, err := relayBucketProxyFactory.CreateBucketProxy("cloud", "bucketName")
 
                 Expect(bucketProxy).Should(BeNil())
                 Expect(err).Should(Equal(ENoLocalBucket))
@@ -264,96 +264,19 @@ var _ = Describe("BucketProxy", func() {
                 relayBucketProxyFactory := &RelayBucketProxyFactory{
                     SitePool: &DummySitePool{
                         sites: map[string]Site{
-                            "site1": &DummySite{ 
+                            "": &DummySite{ 
                                 bucketList: bucketList,
                             },
                         },
                     },
                 }
 
-                bucketProxy, err := relayBucketProxyFactory.CreateBucketProxy(1, "site1", "dummy")
+                bucketProxy, err := relayBucketProxyFactory.CreateBucketProxy("WWRL000001", "dummy")
                 _, ok := bucketProxy.(*RelayBucketProxy)
 
                 Expect(ok).Should(BeTrue())
                 Expect(bucketProxy).Should(Not(BeNil()))
                 Expect(err).Should(BeNil())
-            })
-        })
-    })
-
-    Describe("CloudBucketProxyFactory", func() {
-        Describe("#CreateBucketProxy", func() {
-            Context("when nodeID == the local node's ID", func() {
-                Context("and the site has not been added to the pool", func() {
-                    It("should return ENoLocalBucket", func() {
-                        cloudBucketProxyFactory := &CloudBucketProxyFactory{
-                            SitePool: &DummySitePool{
-                                sites: map[string]Site{ },
-                            },
-                            ClusterController: &ClusterController{
-                                LocalNodeID: 1,
-                            },
-                        }
-
-                        bucketProxy, err := cloudBucketProxyFactory.CreateBucketProxy(1, "site1", "default")
-
-                        Expect(bucketProxy).Should(BeNil())
-                        Expect(err).Should(Equal(ENoLocalBucket))
-                    })
-                })
-
-                Context("and the site has been added to the pool but the site does not contain the specified bucket", func() {
-                    It("should return ENoLocalBucket", func() {
-                        cloudBucketProxyFactory := &CloudBucketProxyFactory{
-                            SitePool: &DummySitePool{
-                                sites: map[string]Site{ 
-                                    "site1": &DummySite{
-                                        bucketList: NewBucketList(),
-                                    },
-                                },
-                            },
-                            ClusterController: &ClusterController{
-                                LocalNodeID: 1,
-                            },
-                        }
-
-                        bucketProxy, err := cloudBucketProxyFactory.CreateBucketProxy(1, "site1", "default")
-
-                        Expect(bucketProxy).Should(BeNil())
-                        Expect(err).Should(Equal(ENoLocalBucket))
-                    })
-                })
-
-                Context("and the site has been added to the pool and it contains the specified bucket", func() {
-                    It("should return a local bucket proxy for that bucket", func() {
-                        bucket := &DummyBucket{
-                            name: "default",
-                        }
-
-                        bucketList := NewBucketList()
-                        bucketList.AddBucket(bucket)
-
-                        cloudBucketProxyFactory := &CloudBucketProxyFactory{
-                            SitePool: &DummySitePool{
-                                sites: map[string]Site{ 
-                                    "site1": &DummySite{
-                                        bucketList: bucketList,
-                                    },
-                                },
-                            },
-                            ClusterController: &ClusterController{
-                                LocalNodeID: 1,
-                            },
-                        }
-
-                        bucketProxy, err := cloudBucketProxyFactory.CreateBucketProxy(1, "site1", "default")
-                        _, ok := bucketProxy.(*RelayBucketProxy)
-
-                        Expect(ok).Should(BeTrue())
-                        Expect(bucketProxy).Should(Not(BeNil()))
-                        Expect(err).Should(BeNil())
-                    })
-                })
             })
         })
     })

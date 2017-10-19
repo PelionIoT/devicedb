@@ -168,6 +168,7 @@ type MultiSyncScheduler struct {
     peers map[string]*Peer
     heap *PeerHeap
     mu sync.Mutex
+    lastPeer *Peer
 }
 
 func NewMultiSyncScheduler(syncPeriod time.Duration) *MultiSyncScheduler {
@@ -206,6 +207,7 @@ func (syncScheduler *MultiSyncScheduler) RemovePeer(peerID string) {
     }
 
     delete(syncScheduler.peers, peerID)
+    syncScheduler.lastPeer = nil
 }
 
 func (syncScheduler *MultiSyncScheduler) Next() (string, string) {
@@ -225,6 +227,17 @@ func (syncScheduler *MultiSyncScheduler) Next() (string, string) {
     peer := h[0]
     now := time.Now()
     syncTime := peer.nextSyncTime
+
+    // Was Next() called again before calling Advance()?
+    if syncScheduler.lastPeer == peer {
+        syncScheduler.mu.Unlock()
+
+        <-time.After(syncScheduler.syncPeriod)
+
+        return peer.id, peer.NextBucket()
+    }
+
+    syncScheduler.lastPeer = peer
 
     // unlock the mutex. It is needed only
     // to synchronize access to the heap
@@ -251,6 +264,7 @@ func (syncScheduler *MultiSyncScheduler) Advance() {
     h := *syncScheduler.heap
     h[0].Advance()
     heap.Pop(syncScheduler.heap)
+    syncScheduler.lastPeer = nil
 }
 
 func (syncScheduler *MultiSyncScheduler) Schedule(peerID string) {

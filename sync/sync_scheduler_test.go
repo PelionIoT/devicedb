@@ -277,14 +277,17 @@ var _ = Describe("SyncScheduler", func() {
                 })
 
                 Context("And when called multiple times in succession without Advance() being called in between", func() {
-                    It("Should wait the sync period for the first call but the next calls should return right away", func() {
+                    It("Should wait the sync period for each call", func() {
+                        // If Advance() is not called in between we don't want the loop that is reading from Next()
+                        // to keep trying to sumit a new initiator session if one is not available. So if next is called
+                        // more than once without Advance() being called in between we need to wait the timeout period each time
                         startTime := time.Now()
                         syncScheduler.Next()
                         Expect(time.Now()).Should(BeTemporally("~", startTime.Add(syncPeriod)))
 
                         startTime = time.Now()
                         syncScheduler.Next()
-                        Expect(time.Now()).Should(BeTemporally("~", startTime))
+                        Expect(time.Now()).Should(BeTemporally("~", startTime.Add(syncPeriod)))
                     })
 
                     It("Should return the same peer and bucket each time", func() {

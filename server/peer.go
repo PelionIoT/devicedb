@@ -1043,7 +1043,6 @@ type SyncController struct {
     responderSessionsMap map[string]map[uint]*SyncSession
     initiatorSessions chan *SyncSession
     responderSessions chan *SyncSession
-    syncBucketQueue [][]string
     maxSyncSessions uint
     nextSessionID uint
     mapMutex sync.RWMutex
@@ -1061,7 +1060,6 @@ func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSchedul
         responderSessionsMap: make(map[string]map[uint]*SyncSession),
         initiatorSessions: make(chan *SyncSession),
         responderSessions: make(chan *SyncSession),
-        syncBucketQueue: make([][]string, 0),
         maxSyncSessions: maxSyncSessions,
         nextSessionID: 1,
         syncScheduler: syncScheduler,
@@ -1078,30 +1076,6 @@ func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSchedul
     return syncController
 }
 
-func (s *SyncController) pushSyncBucketQueue(peerID, bucket string) {
-    s.syncBucketQueue = append(s.syncBucketQueue, []string{ peerID, bucket })
-}
-
-func (s *SyncController) peekSyncBucketQueue() []string {
-    if len(s.syncBucketQueue) == 0 {
-        return nil
-    }
-
-    return s.syncBucketQueue[0]
-}
-
-func (s *SyncController) popSyncBucketQueue() []string {
-    if len(s.syncBucketQueue) == 0 {
-        return nil
-    }
-
-    head := s.syncBucketQueue[0]
-
-    s.syncBucketQueue = s.syncBucketQueue[1:]
-
-    return head
-}
-
 func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) error {
     s.mapMutex.Lock()
     defer s.mapMutex.Unlock()
@@ -1115,9 +1089,14 @@ func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) erro
     s.initiatorSessionsMap[peerID] = make(map[uint]*SyncSession)
     s.responderSessionsMap[peerID] = make(map[uint]*SyncSession)
 
+    var buckets []string = make([]string, 0, len(s.buckets.Incoming(peerID)))
+
     for _, bucket := range s.buckets.Incoming(peerID) {
-        s.pushSyncBucketQueue(peerID, bucket.Name())
+        buckets = append(buckets, bucket.Name())
     }
+
+    s.syncScheduler.AddPeer(peerID, buckets)
+    s.syncScheduler.Schedule(peerID)
     
     return nil
 }
@@ -1140,17 +1119,7 @@ func (s *SyncController) removePeer(peerID string) {
     delete(s.initiatorSessionsMap, peerID)
     delete(s.responderSessionsMap, peerID)
 
-    remaining := len(s.syncBucketQueue)
-
-    for remaining != 0 {
-        next := s.popSyncBucketQueue()
-
-        if next[0] != peerID {
-            s.pushSyncBucketQueue(next[0], next[1])
-        }
-
-        remaining--
-    }
+    s.syncScheduler.RemovePeer(peerID)
 
     s.mapMutex.Unlock()
     s.waitGroups[peerID].Wait()
@@ -1259,7 +1228,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     case s.initiatorSessions <- newInitiatorSession:
         Log.Infof("Added initiator session %d for peer %s and bucket %s", sessionID, peerID, bucketName)
         
-        s.popSyncBucketQueue()
+        s.syncScheduler.Advance()
         s.initiatorSessionsMap[peerID][sessionID].receiver <- nil
         
         return true
@@ -1289,7 +1258,7 @@ func (s *SyncController) removeInitiatorSession(initiatorSession *SyncSession) {
     s.mapMutex.Lock()
     
     if _, ok := s.initiatorSessionsMap[initiatorSession.peerID]; ok {
-        s.pushSyncBucketQueue(initiatorSession.peerID, initiatorSession.sessionState.(*InitiatorSyncSession).bucket.Name())
+        s.syncScheduler.Schedule(initiatorSession.peerID)
         delete(s.initiatorSessionsMap[initiatorSession.peerID], initiatorSession.sessionID)
     }
     
@@ -1473,20 +1442,17 @@ func (s *SyncController) StartInitiatorSessions() {
     
     go func() {
         for {
-            time.Sleep(time.Millisecond * 1000)
+            peerID, bucketName := s.syncScheduler.Next()
             
             s.mapMutex.RLock()
 
-            nextSyncBucket := s.peekSyncBucketQueue()
-
-            if nextSyncBucket == nil {
+            if peerID == "" {
                 s.mapMutex.RUnlock()
 
                 continue
             }
 
-            peerID := nextSyncBucket[0]
-            bucket := s.buckets.Get(nextSyncBucket[1])
+            bucket := s.buckets.Get(bucketName)
     
             s.mapMutex.RUnlock()
             
