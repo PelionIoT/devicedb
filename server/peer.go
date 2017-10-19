@@ -16,6 +16,7 @@ import (
     "bytes"
 
     . "devicedb/bucket"
+    . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/historian"
     . "devicedb/logging"
@@ -440,6 +441,129 @@ func closeWSConnection(conn *websocket.Conn) {
     }
     
     conn.Close()
+}
+
+type CloudHub struct {
+    peerMapLock sync.Mutex
+    relaySiteLock sync.Mutex
+    peerMap map[string]*Peer
+    configController ClusterConfigController
+}
+
+func NewCloudHub(configController ClusterConfigController) *CloudHub {
+    hub := &CloudHub{
+        peerMap: make(map[string]*Peer),
+        configController: configController,
+    }
+    
+    return hub
+}
+
+func (hub *CloudHub) Accept(connection *websocket.Conn) error {
+    conn := connection.UnderlyingConn()
+    
+    if _, ok := conn.(*tls.Conn); ok {
+        peerID, err := hub.extractPeerID(conn.(*tls.Conn))
+        
+        if err != nil {
+            Log.Warningf("Unable to accept peer connection: %v", err)
+            
+            closeWSConnection(connection)
+            
+            return err
+        }
+
+        hub.relaySiteLock.Lock()
+        siteID := hub.configController.ClusterController().RelaySite(peerID)
+
+        go func() {
+            peer := NewPeer(peerID, INCOMING)
+
+            if !hub.register(peer) {
+                Log.Warningf("Rejected peer connection from %s because that peer is already connected", peerID)
+                
+                closeWSConnection(connection)
+                
+                return
+            }
+            
+            incoming, _, err := peer.accept(connection)
+            
+            if err != nil {
+                closeWSConnection(connection)
+                
+                return
+            }
+            
+            Log.Infof("Accepted peer connection from %s", peerID)
+            
+            //hub.syncController.addPeer(peer.id, outgoing)
+                
+            for _ = range incoming {
+            //    hub.syncController.incoming <- msg
+            }
+            
+            //hub.syncController.removePeer(peer.id)
+            hub.unregister(peer)
+            
+            Log.Infof("Disconnected from peer %s", peerID)
+        }()
+    } else {
+        closeWSConnection(connection)
+
+        return errors.New("Cannot accept non-secure connections")
+    }
+        
+    return nil
+}
+
+func (hub *CloudHub) Disconnect(peerID string) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+    
+    peer, ok := hub.peerMap[peerID]
+    
+    if ok {
+        peer.close()
+    }
+}
+
+func (hub *CloudHub) register(peer *Peer) bool {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+    
+    if _, ok := hub.peerMap[peer.id]; ok {
+        return false
+    }
+    
+    Log.Debugf("Register peer %s", peer.id)
+    hub.peerMap[peer.id] = peer
+    
+    return true
+}
+
+func (hub *CloudHub) unregister(peer *Peer) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+
+    if _, ok := hub.peerMap[peer.id]; ok {
+        Log.Debugf("Unregister peer %s", peer.id)
+    }
+    
+    delete(hub.peerMap, peer.id)
+}
+
+func (hub *CloudHub) extractPeerID(conn *tls.Conn) (string, error) {
+    // VerifyClientCertIfGiven
+    verifiedChains := conn.ConnectionState().VerifiedChains
+    
+    if len(verifiedChains) != 1 {
+        return "", errors.New("Invalid client certificate")
+    }
+    
+    peerID := verifiedChains[0][0].Subject.CommonName
+    
+    return peerID, nil
 }
 
 type Hub struct {

@@ -411,6 +411,13 @@ func (clusterController *ClusterController) MoveRelay(clusterCommand ClusterMove
     return nil
 }
 
+func (clusterController *ClusterController) RelaySite(relayID string) string {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    return clusterController.State.Relays[relayID]
+}
+
 func (clusterController *ClusterController) ClusterIsInitialized() bool {
     clusterController.stateUpdateLock.Lock()
     defer clusterController.stateUpdateLock.Unlock()

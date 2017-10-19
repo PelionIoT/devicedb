@@ -24,6 +24,8 @@ import (
     . "devicedb/storage"
     . "devicedb/transfer"
     . "devicedb/util"
+
+    "github.com/gorilla/websocket"
 )
 
 const (
@@ -64,6 +66,7 @@ type ClusterNode struct {
     shutdownDecommissioner func()
     lock sync.Mutex
     emptyMu sync.Mutex
+    hub *CloudHub
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -82,6 +85,7 @@ func New(config ClusterNodeConfig) *ClusterNode {
         capacity: config.Capacity,
         partitionFactory: NewDefaultPartitionFactory(),
         partitionPool: NewDefaultPartitionPool(),
+        hub: NewCloudHub(),
     }
 
     return clusterNode
@@ -285,6 +289,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     partitionsEndpoint := &PartitionsEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     relaysEndpoint := &RelaysEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
+    syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
 
     node.raftTransport.Attach(router)
     node.transferAgent.(*HTTPTransferAgent).Attach(router)
@@ -292,6 +297,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     partitionsEndpoint.Attach(router)
     relaysEndpoint.Attach(router)
     sitesEndpoint.Attach(router)
+    syncEndpoint.Attach(router)
 
     startResult := make(chan error)
 
@@ -838,4 +844,5 @@ func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID s
 }
 
 func (clusterFacade *ClusterNodeFacade) AcceptRelayConnection(conn *websocket.Conn) {
+    clusterFacade.node.hub.Accept(conn)
 }
