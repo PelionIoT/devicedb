@@ -25,6 +25,7 @@ import (
     . "devicedb/historian"
     . "devicedb/error"
     . "devicedb/logging"
+    ddbSync "devicedb/sync"
     . "devicedb/transport"
 )
 
@@ -142,7 +143,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     }
     
     sc.NodeID = clientCN
-    sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ysc.SyncSessionPeriod, sc.SyncExplorationPathLimit), clientTLSConfig)
+    sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ddbSync.NewPeriodicSyncScheduler(time.Duration(ysc.SyncSessionPeriod)), sc.SyncExplorationPathLimit), clientTLSConfig)
     
     return nil
 }

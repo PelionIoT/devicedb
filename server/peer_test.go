@@ -12,6 +12,7 @@ import (
     . "devicedb/util"
     . "devicedb/bucket"
     . "devicedb/data"
+    ddbSync "devicedb/sync"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -85,7 +86,7 @@ var _ = Describe("Hub", func() {
     stop := make(chan int)
     
     BeforeEach(func() {
-        responderSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS, 1000)
+        responderSyncController = NewSyncController(2, nil, ddbSync.NewPeriodicSyncScheduler(SYNC_PERIOD_MS), 1000)
         responderHub = NewHub("", responderSyncController, responderClientTLS)
         responderServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + RandomString(),
@@ -94,7 +95,7 @@ var _ = Describe("Hub", func() {
             Hub: responderHub,
         })
         
-        initiatorSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS, 1000)
+        initiatorSyncController = NewSyncController(2, nil, ddbSync.NewPeriodicSyncScheduler(SYNC_PERIOD_MS), 1000)
         initiatorHub = NewHub("", initiatorSyncController, initiatorClientTLS)
         initiatorServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + RandomString(),
@@ -103,7 +104,7 @@ var _ = Describe("Hub", func() {
             Hub: initiatorHub,
         })
         
-        neutralSyncController = NewSyncController(2, nil, SYNC_PERIOD_MS, 1000)
+        neutralSyncController = NewSyncController(2, nil, ddbSync.NewPeriodicSyncScheduler(SYNC_PERIOD_MS), 1000)
         neutralHub = NewHub("", neutralSyncController, initiatorClientTLS) // WWRL000001
         neutralServer, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + RandomString(),

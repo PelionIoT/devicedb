@@ -20,6 +20,7 @@ import (
     . "devicedb/data"
     . "devicedb/historian"
     . "devicedb/logging"
+    ddbSync "devicedb/sync"
 )
 
 const (
@@ -472,9 +473,6 @@ func (hub *CloudHub) Accept(connection *websocket.Conn) error {
             
             return err
         }
-
-        hub.relaySiteLock.Lock()
-        siteID := hub.configController.ClusterController().RelaySite(peerID)
 
         go func() {
             peer := NewPeer(peerID, INCOMING)
@@ -1049,11 +1047,11 @@ type SyncController struct {
     maxSyncSessions uint
     nextSessionID uint
     mapMutex sync.RWMutex
-    syncSessionPeriod uint64
+    syncScheduler ddbSync.SyncScheduler
     explorationPathLimit uint32
 }
 
-func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSessionPeriod uint64, explorationPathLimit uint32) *SyncController {
+func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncScheduler ddbSync.SyncScheduler, explorationPathLimit uint32) *SyncController {
     syncController := &SyncController{
         buckets: bucketList,
         incoming: make(chan *SyncMessageWrapper),
@@ -1066,7 +1064,7 @@ func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncSession
         syncBucketQueue: make([][]string, 0),
         maxSyncSessions: maxSyncSessions,
         nextSessionID: 1,
-        syncSessionPeriod: syncSessionPeriod,
+        syncScheduler: syncScheduler,
         explorationPathLimit: explorationPathLimit,
     }
     
@@ -1475,7 +1473,7 @@ func (s *SyncController) StartInitiatorSessions() {
     
     go func() {
         for {
-            time.Sleep(time.Millisecond * time.Duration(s.syncSessionPeriod))
+            time.Sleep(time.Millisecond * 1000)
             
             s.mapMutex.RLock()
 
