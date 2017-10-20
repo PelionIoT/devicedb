@@ -21,7 +21,7 @@ var _ = Describe("ReadRepairer", func() {
                 var nodeSetMutex sync.Mutex
                 nodeSet := map[uint64]bool{ 2: true, 4: true, 6: true }
                 mergeCalled := make(chan int, 3)
-                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                     defer GinkgoRecover()
 
                     nodeSetMutex.Lock()
@@ -31,6 +31,7 @@ var _ = Describe("ReadRepairer", func() {
                     Expect(partition).Should(Equal(uint64(50)))
                     Expect(siteID).Should(Equal("site1"))
                     Expect(bucket).Should(Equal("default"))
+                    Expect(broadcastToRelays).Should(BeTrue())
                     delete(nodeSet, nodeID)
 
                     mergeCalled <- 1
@@ -61,7 +62,7 @@ var _ = Describe("ReadRepairer", func() {
                 readRepairer := NewReadRepairer(nodeClient)
                 readRepairer.Timeout = timeout
                 mergeCalled := make(chan int, 3)
-                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                     defer GinkgoRecover()
 
                     select {
@@ -98,7 +99,7 @@ var _ = Describe("ReadRepairer", func() {
                 readRepairer := NewReadRepairer(nodeClient)
                 readRepairer.Timeout = time.Second
                 mergeCalled := make(chan int, 3)
-                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                     mergeCalled <- 1
 
                     return nil
@@ -129,7 +130,7 @@ var _ = Describe("ReadRepairer", func() {
             readRepairer := NewReadRepairer(nodeClient)
             readRepairer.Timeout = timeout
             mergeCalled := make(chan int, 3)
-            nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+            nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                 defer GinkgoRecover()
 
                 select {

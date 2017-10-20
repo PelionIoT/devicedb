@@ -60,7 +60,7 @@ func (agent *Agent) Merge(ctx context.Context, siteID string, bucket string, pat
     }
 
     nTotal := len(remainingNodes)
-    nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal), partitionNumber, siteID, bucket, patch)
+    nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal), partitionNumber, siteID, bucket, patch, false)
 
     if err == ENoQuorum {
         // If a specific error occurred before this overrides ENoQuorum
@@ -105,7 +105,7 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
 
         // passing in NQuorum() - 1 since one node was already successful in applying the update so
         // we require one less node to achieve write quorum
-        nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal) - 1, partitionNumber, siteID, bucket, patch)
+        nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal) - 1, partitionNumber, siteID, bucket, patch, true)
 
         if err == ENoQuorum {
             // If a specific error occurred before this overrides ENoQuorum
@@ -118,7 +118,7 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
     return nTotal, 0, resultError
 }
 
-func (agent *Agent) merge(ctx context.Context, opID uint64, nodes map[uint64]bool, nQuorum int, partitionNumber uint64, siteID string, bucket string, patch map[string]*SiblingSet) (int, error) {
+func (agent *Agent) merge(ctx context.Context, opID uint64, nodes map[uint64]bool, nQuorum int, partitionNumber uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) (int, error) {
     var nApplied int = 0
     var nFailed int = 0
     var applied chan int = make(chan int, len(nodes))
@@ -127,7 +127,7 @@ func (agent *Agent) merge(ctx context.Context, opID uint64, nodes map[uint64]boo
 
     for nodeID, _ := range nodes {
         go func(nodeID uint64) {
-            err := agent.NodeClient.Merge(ctx, nodeID, partitionNumber, siteID, bucket, patch)
+            err := agent.NodeClient.Merge(ctx, nodeID, partitionNumber, siteID, bucket, patch, broadcastToRelays)
 
             if err != nil {
                 Log.Errorf("Unable to merge patch into bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())

@@ -65,7 +65,7 @@ var _ = Describe("ClusterioNodeClient", func() {
     Describe("#Merge", func() {
         Context("When the specified nodeID does not refer to a known node", func() {
             It("Should return an error", func() {
-                Expect(client.Merge(context.TODO(), unknownNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(BeNil()))
+                Expect(client.Merge(context.TODO(), unknownNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Not(BeNil()))
             })
         })
 
@@ -74,16 +74,17 @@ var _ = Describe("ClusterioNodeClient", func() {
                 var patch map[string]*SiblingSet = map[string]*SiblingSet{ }
 
                 mergeCalled := make(chan int, 1)
-                localNode.mergeCB = func(ctx context.Context, partition uint64, siteID string, bucket string, p map[string]*SiblingSet) {
+                localNode.mergeCB = func(ctx context.Context, partition uint64, siteID string, bucket string, p map[string]*SiblingSet, broadcastToRelays bool) {
                     Expect(partition).Should(Equal(uint64(50)))
                     Expect(siteID).Should(Equal("site1"))
                     Expect(bucket).Should(Equal("default"))
                     Expect(patch).Should(Equal(p))
+                    Expect(broadcastToRelays).Should(BeTrue())
 
                     mergeCalled <- 1
                 }
 
-                client.Merge(context.TODO(), localNodeID, 50, "site1", "default", patch)
+                client.Merge(context.TODO(), localNodeID, 50, "site1", "default", patch, true)
 
                 select {
                 case <-mergeCalled:
@@ -96,7 +97,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     localNode.defaultMergeError = ENoQuorum
 
-                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ENoQuorum))
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Equal(ENoQuorum))
                 })
             })
 
@@ -104,7 +105,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     localNode.defaultMergeError = ENoSuchPartition
 
-                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(BeNil()))
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Not(BeNil()))
                 })
             })
 
@@ -112,7 +113,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an EBucketDoesNotExist error", func() {
                     localNode.defaultMergeError = ENoSuchBucket
 
-                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(EBucketDoesNotExist))
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Equal(EBucketDoesNotExist))
                 })
             })
 
@@ -120,7 +121,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an ESiteDoesNotExist error", func() {
                     localNode.defaultMergeError = ENoSuchSite
 
-                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ESiteDoesNotExist))
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Equal(ESiteDoesNotExist))
                 })
             })
 
@@ -128,13 +129,13 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     localNode.defaultMergeError = errors.New("Some error")
 
-                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(BeNil()))
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Not(BeNil()))
                 })
             })
 
             Context("And if the call to Batch() returns nil", func() {
                 It("Should return nil", func() {
-                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(BeNil())
+                    Expect(client.Merge(context.TODO(), localNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(BeNil())
                 })
             })
         })
@@ -142,7 +143,7 @@ var _ = Describe("ClusterioNodeClient", func() {
         Context("When the specified nodeID refers to a known node that is not the local node", func() {
             It("Should send a POST request to /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges at that node", func() {
                 server.AppendHandlers(ghttp.VerifyRequest("POST", "/partitions/50/sites/site1/buckets/default/merges"))
-                client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })
+                client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)
                 Expect(server.ReceivedRequests()).Should(HaveLen(1))
             })
 
@@ -154,7 +155,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Expect(err).Should(BeNil())
 
                 server.AppendHandlers(ghttp.VerifyBody(encodedPatch))
-                client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", patch)
+                client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", patch, true)
                 Expect(server.ReceivedRequests()).Should(HaveLen(1))
             })
 
@@ -175,7 +176,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                     mergeResult := make(chan error)
 
                     go func() {
-                        mergeResult <- client.Merge(ctx, remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })
+                        mergeResult <- client.Merge(ctx, remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)
                     }()
 
                     select {
@@ -193,7 +194,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 It("Should return an error", func() {
                     // close the server to force an http connection error
                     server.Close()
-                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(HaveOccurred())
                     Expect(server.ReceivedRequests()).Should(HaveLen(0))
                 })
             })
@@ -202,7 +203,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is a JSON-encoded EBucketDoesNotExist error", func() {
                     It("Should return EBucketDoesNotExist", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, EBucketDoesNotExist.JSON()))
-                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(EBucketDoesNotExist))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Equal(EBucketDoesNotExist))
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -210,7 +211,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is a JSON-encoded ESiteDoesNotExist error", func() {
                     It("Should return ESiteDoesNotExist", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, ESiteDoesNotExist.JSON()))
-                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ESiteDoesNotExist))
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Equal(ESiteDoesNotExist))
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -218,7 +219,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is not a JSON-encoded database error", func() {
                     It("Should return an error", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, "asdf"))
-                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(HaveOccurred())
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -226,7 +227,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the body is a JSON-encoded database error but is neither EBucketDoesNotExist nor ESiteDoesNotExist", func() {
                     It("Should return an error", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusNotFound, EStorage.JSON()))
-                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(HaveOccurred())
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -235,7 +236,7 @@ var _ = Describe("ClusterioNodeClient", func() {
             Context("And the http request responds with a 500 status code", func() {
                 It("Should return an error", func() {
                     server.AppendHandlers(ghttp.RespondWith(http.StatusInternalServerError, ""))
-                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(HaveOccurred())
                     Expect(server.ReceivedRequests()).Should(HaveLen(1))
                 })
             })
@@ -244,7 +245,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Context("And the response body cannot be parsed as a BatchResult as defined in the routes module", func() {
                     It("Should return an error", func() {
                         server.AppendHandlers(ghttp.RespondWith(http.StatusOK, "asdf"))
-                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                        Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(HaveOccurred())
                         Expect(server.ReceivedRequests()).Should(HaveLen(1))
                     })
                 })
@@ -263,7 +264,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                             Expect(err).Should(Not(HaveOccurred()))
 
                             server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
-                            Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Equal(ENoQuorum))
+                            Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Equal(ENoQuorum))
                             Expect(server.ReceivedRequests()).Should(HaveLen(1))
                         })
                     })
@@ -279,7 +280,7 @@ var _ = Describe("ClusterioNodeClient", func() {
                             Expect(err).Should(Not(HaveOccurred()))
 
                             server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedBatchResult))
-                            Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(Not(HaveOccurred()))
+                            Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(Not(HaveOccurred()))
                             Expect(server.ReceivedRequests()).Should(HaveLen(1))
                         })
                     })
@@ -289,7 +290,7 @@ var _ = Describe("ClusterioNodeClient", func() {
             Context("And the http request responds with a status code other than 200, 404, or 500", func() {
                 It("Should return an error", func() {
                     server.AppendHandlers(ghttp.RespondWith(http.StatusForbidden, ""))
-                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ })).Should(HaveOccurred())
+                    Expect(client.Merge(context.TODO(), remoteNodeID, 50, "site1", "default", map[string]*SiblingSet{ }, true)).Should(HaveOccurred())
                     Expect(server.ReceivedRequests()).Should(HaveLen(1))
                 })
             })

@@ -3,6 +3,7 @@ package routes_test
 import (
     "context"
     "github.com/gorilla/websocket"
+    "net/http"
 
     . "devicedb/bucket"
     . "devicedb/cluster"
@@ -46,7 +47,7 @@ type MockClusterFacade struct {
     getCB func(siteID string, bucket string, keys [][]byte)
     getMatchesCB func(siteID string, bucket string, keys [][]byte)
     localBatchCB func(partition uint64, siteID string, bucket string, updateBatch *UpdateBatch)
-    localMergeCB func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet)
+    localMergeCB func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool)
     localGetCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     localGetMatchesCB func(partition uint64, siteID string, bucket string, keys [][]byte)
     addRelayCB func(ctx context.Context, relayID string)
@@ -161,9 +162,9 @@ func (clusterFacade *MockClusterFacade) LocalBatch(partition uint64, siteID stri
     return clusterFacade.defaultLocalBatchPatch, clusterFacade.defaultLocalBatchError
 }
 
-func (clusterFacade *MockClusterFacade) LocalMerge(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+func (clusterFacade *MockClusterFacade) LocalMerge(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
     if clusterFacade.localMergeCB != nil {
-        clusterFacade.localMergeCB(partition, siteID, bucket, patch)
+        clusterFacade.localMergeCB(partition, siteID, bucket, patch, broadcastToRelays)
     }
 
     return clusterFacade.defaultLocalMergeResponse
@@ -201,7 +202,7 @@ func (clusterFacade *MockClusterFacade) LocalGetMatches(partition uint64, siteID
     return clusterFacade.defaultLocalGetMatchesResponse, clusterFacade.defaultLocalGetMatchesResponseError
 }
 
-func (clusterFacade *MockClusterFacade) AcceptRelayConnection(conn *websocket.Conn) {
+func (clusterFacade *MockClusterFacade) AcceptRelayConnection(conn *websocket.Conn, header http.Header) {
     if clusterFacade.acceptRelayConnectionCB != nil {
         clusterFacade.acceptRelayConnectionCB(conn)
     }

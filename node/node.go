@@ -30,7 +30,7 @@ type Node interface {
     // Shut down the node
     Stop()
     Batch(ctx context.Context, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error)
-    Merge(ctx context.Context, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error
+    Merge(ctx context.Context, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error
     Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
 }

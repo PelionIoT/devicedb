@@ -53,7 +53,7 @@ func (readRepairer *ReadRepairer) BeginRepair(partition uint64, siteID string, b
                 Log.Infof("Repairing key %s in bucket %s at site %s at node %d", key, bucket, siteID, nodeID)
             }
 
-            if err := readRepairer.NodeClient.Merge(ctxDeadline, nodeID, partition, siteID, bucket, patch); err != nil {
+            if err := readRepairer.NodeClient.Merge(ctxDeadline, nodeID, partition, siteID, bucket, patch, true); err != nil {
                 Log.Errorf("Unable to perform read repair on bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
             }
         }(nodeID)

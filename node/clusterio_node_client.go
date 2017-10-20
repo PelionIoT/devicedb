@@ -30,7 +30,7 @@ func NewNodeClient(localNode Node, configController ClusterConfigController) *No
     }
 }
 
-func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
     var nodeAddress PeerAddress = nodeClient.configController.ClusterController().ClusterMemberAddress(nodeID)
 
     if nodeAddress.IsEmpty() {
@@ -38,7 +38,7 @@ func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partitio
     }
 
     if nodeID == nodeClient.localNode.ID() {
-        err := nodeClient.localNode.Merge(ctx, partition, siteID, bucket, patch)
+        err := nodeClient.localNode.Merge(ctx, partition, siteID, bucket, patch, broadcastToRelays)
 
         switch err {
         case ENoSuchBucket:
@@ -58,7 +58,13 @@ func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partitio
         return err
     }
 
-    status, body, err := nodeClient.sendRequest(ctx, "POST", fmt.Sprintf("http://%s:%d/partitions/%d/sites/%s/buckets/%s/merges", nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket), encodedPatch)
+    broadcastQuery := ""
+
+    if broadcastToRelays {
+        broadcastQuery = "?broadcast=true"
+    }
+
+    status, body, err := nodeClient.sendRequest(ctx, "POST", fmt.Sprintf("http://%s:%d/partitions/%d/sites/%s/buckets/%s/merges%s", nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket, broadcastQuery), encodedPatch)
 
     if err != nil {
         return err

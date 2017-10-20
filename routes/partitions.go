@@ -24,6 +24,7 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
         var patch map[string]*SiblingSet
         var err error
         var decoder *json.Decoder = json.NewDecoder(r.Body)
+        var broadcast bool = r.URL.Query().Get("broadcast") != ""
 
         err = decoder.Decode(&patch)
 
@@ -52,7 +53,7 @@ func (partitionsEndpoint *PartitionsEndpoint) Attach(router *mux.Router) {
         var siteID string = mux.Vars(r)["siteID"]
         var bucket string = mux.Vars(r)["bucketID"]
 
-        err = partitionsEndpoint.ClusterFacade.LocalMerge(partitionID, siteID, bucket, patch)
+        err = partitionsEndpoint.ClusterFacade.LocalMerge(partitionID, siteID, bucket, patch, broadcast)
 
         if err == ENoSuchPartition || err == ENoSuchSite || err == ENoSuchBucket {
             var responseBody string

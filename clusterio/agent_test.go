@@ -407,7 +407,7 @@ var _ = Describe("Agent", func() {
                 }
 
                 var mergeMu sync.Mutex
-                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                     mergeMu.Lock()
                     defer mergeMu.Unlock()
                     defer GinkgoRecover()
@@ -419,6 +419,7 @@ var _ = Describe("Agent", func() {
                     Expect(siteID).Should(Equal("site1"))
                     Expect(bucket).Should(Equal("default"))
                     Expect(patch).Should(Equal(map[string]*SiblingSet{ "a": nil }))
+                    Expect(broadcastToRelays).Should(BeTrue())
 
                     nodeClientMergeCalled <- 1
 
@@ -470,7 +471,7 @@ var _ = Describe("Agent", func() {
                     }
 
                     var mergeMu sync.Mutex
-                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                         mergeMu.Lock()
                         defer mergeMu.Unlock()
                         defer GinkgoRecover()
@@ -513,7 +514,7 @@ var _ = Describe("Agent", func() {
                     }
 
                     var mergeMu sync.Mutex
-                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                         mergeMu.Lock()
                         defer mergeMu.Unlock()
                         defer GinkgoRecover()
@@ -562,7 +563,7 @@ var _ = Describe("Agent", func() {
 
                     var mergeMu sync.Mutex
                     nodeClientMergeCalled := make(chan int, 2)
-                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                         mergeMu.Lock()
                         defer mergeMu.Unlock()
                         defer GinkgoRecover()
@@ -643,7 +644,7 @@ var _ = Describe("Agent", func() {
 
                     var mergeMu sync.Mutex
                     nodeClientMergeCalled := make(chan int, 2)
-                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                         mergeMu.Lock()
                         defer mergeMu.Unlock()
                         defer GinkgoRecover()
@@ -720,7 +721,7 @@ var _ = Describe("Agent", func() {
 
                     var mergeMu sync.Mutex
                     nodeClientMergeCalled := make(chan int, 2)
-                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                         mergeMu.Lock()
                         defer mergeMu.Unlock()
                         defer GinkgoRecover()
@@ -793,7 +794,7 @@ var _ = Describe("Agent", func() {
 
                     var mergeMu sync.Mutex
                     nodeClientMergeCalled := make(chan int, 2)
-                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+                    nodeClient.mergeCB = func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
                         mergeMu.Lock()
                         defer mergeMu.Unlock()
                         defer GinkgoRecover()

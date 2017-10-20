@@ -67,32 +67,66 @@ var _ = Describe("Partitions", func() {
             })
 
             Context("When the body and partition ID are parsed without error", func() {
-                It("Should invoke LocalMerge() using the partition, site, bucket, and patch passed into the request", func() {
-                    patch := map[string]*SiblingSet{ }
-                    encodedPatch, err := json.Marshal(patch)
+                Context("And a \"broadcast\" query parameter is set", func() {
+                    It("Should invoke LocalMerge() using the partition, site, bucket, and patch passed into the request and set broadcastToRelays to true", func() {
+                        patch := map[string]*SiblingSet{ }
+                        encodedPatch, err := json.Marshal(patch)
 
-                    Expect(err).Should(BeNil())
+                        Expect(err).Should(BeNil())
 
-                    req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
-                    localMergeCalled := make(chan int, 1)
-                    clusterFacade.localMergeCB = func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) {
-                        Expect(partition).Should(Equal(uint64(68)))
-                        Expect(siteID).Should(Equal("site1"))
-                        Expect(bucket).Should(Equal("default"))
+                        req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges?broadcast=true", strings.NewReader(string(encodedPatch)))
+                        localMergeCalled := make(chan int, 1)
+                        clusterFacade.localMergeCB = func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) {
+                            Expect(partition).Should(Equal(uint64(68)))
+                            Expect(siteID).Should(Equal("site1"))
+                            Expect(bucket).Should(Equal("default"))
+                            Expect(broadcastToRelays).Should(BeTrue())
 
-                        localMergeCalled <- 1
-                    }
+                            localMergeCalled <- 1
+                        }
 
-                    Expect(err).Should(BeNil())
+                        Expect(err).Should(BeNil())
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
 
-                    select {
-                    case <-localMergeCalled:
-                    default:
-                        Fail("Request did not cause LocalMerge() to be invoked")
-                    }
+                        select {
+                        case <-localMergeCalled:
+                        default:
+                            Fail("Request did not cause LocalMerge() to be invoked")
+                        }
+                    })
+                })
+
+                Context("And a \"broadcast\" query parameter is not set", func() {
+                    It("Should invoke LocalMerge() using the partition, site, bucket, and patch passed into the request and set broadcastToRelays to false", func() {
+                        patch := map[string]*SiblingSet{ }
+                        encodedPatch, err := json.Marshal(patch)
+
+                        Expect(err).Should(BeNil())
+
+                        req, err := http.NewRequest("POST", "/partitions/68/sites/site1/buckets/default/merges", strings.NewReader(string(encodedPatch)))
+                        localMergeCalled := make(chan int, 1)
+                        clusterFacade.localMergeCB = func(partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) {
+                            Expect(partition).Should(Equal(uint64(68)))
+                            Expect(siteID).Should(Equal("site1"))
+                            Expect(bucket).Should(Equal("default"))
+                            Expect(broadcastToRelays).Should(BeFalse())
+
+                            localMergeCalled <- 1
+                        }
+
+                        Expect(err).Should(BeNil())
+
+                        rr := httptest.NewRecorder()
+                        router.ServeHTTP(rr, req)
+
+                        select {
+                        case <-localMergeCalled:
+                        default:
+                            Fail("Request did not cause LocalMerge() to be invoked")
+                        }
+                    })
                 })
 
                 Context("And LocalMerge() returns an error", func() {

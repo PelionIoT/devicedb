@@ -42,7 +42,7 @@ type MockNodeClient struct {
     defaultGetResponseError error
     defaultGetMatchesResponse SiblingSetIterator
     defaultGetMatchesResponseError error
-    mergeCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error
+    mergeCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error
     batchCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error)
     getCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     getMatchesCB func(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
@@ -52,9 +52,9 @@ func NewMockNodeClient() *MockNodeClient {
     return &MockNodeClient{ }
 }
 
-func (nodeClient *MockNodeClient) Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet) error {
+func (nodeClient *MockNodeClient) Merge(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
     if nodeClient.mergeCB != nil {
-        return nodeClient.mergeCB(ctx, nodeID, partition, siteID, bucket, patch)
+        return nodeClient.mergeCB(ctx, nodeID, partition, siteID, bucket, patch, broadcastToRelays)
     }
     
     return nil

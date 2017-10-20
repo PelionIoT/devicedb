@@ -653,7 +653,7 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
     return patch, nil
 }
 
-func (node *ClusterNode) Merge(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, patch map[string]*SiblingSet) error {
+func (node *ClusterNode) Merge(ctx context.Context, partitionNumber uint64, siteID string, bucketName string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
     partition := node.partitionPool.Get(partitionNumber)
 
     if partition == nil {
@@ -680,6 +680,10 @@ func (node *ClusterNode) Merge(ctx context.Context, partitionNumber uint64, site
 
     if !node.configController.ClusterController().LocalNodeHoldsPartition(partitionNumber) {
         return ENoQuorum
+    }
+
+    if broadcastToRelays {
+        node.hub.BroadcastUpdate(siteID, bucketName, patch, 10)
     }
 
     return nil
@@ -974,8 +978,8 @@ func (clusterFacade *ClusterNodeFacade) LocalBatch(partitionNumber uint64, siteI
     return clusterFacade.node.Batch(context.TODO(), partitionNumber, siteID, bucketName, updateBatch)
 }
 
-func (clusterFacade *ClusterNodeFacade) LocalMerge(partitionNumber uint64, siteID string, bucketName string, patch map[string]*SiblingSet) error {
-    return clusterFacade.node.Merge(context.TODO(), partitionNumber, siteID, bucketName, patch)
+func (clusterFacade *ClusterNodeFacade) LocalMerge(partitionNumber uint64, siteID string, bucketName string, patch map[string]*SiblingSet, broadcastToRelays bool) error {
+    return clusterFacade.node.Merge(context.TODO(), partitionNumber, siteID, bucketName, patch, broadcastToRelays)
 }
 
 func (clusterFacade *ClusterNodeFacade) AddRelay(ctx context.Context, relayID string) error {
