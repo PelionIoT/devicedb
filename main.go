@@ -330,6 +330,7 @@ func main() {
     clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
     clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
     clusterStartReplacement := clusterStartCommand.Bool("replacement", false, "Specify this flag if this node is being added to replace some other node in the cluster.")
+    clusterStartMerkleDepth := clusterStartCommand.Uint("merkle", 4, "Use this flag to adjust the merkle depth used for site merkle trees.")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
     clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
@@ -609,7 +610,7 @@ func main() {
             }
 
             if *clusterStartReplicationFactor == 0 {
-                fmt.Fprintf(os.Stderr, "Error: -replication_factor must be a positive value")
+                fmt.Fprintf(os.Stderr, "Error: -replication_factor must be a positive value\n")
                 os.Exit(1)
             }
         }
@@ -653,14 +654,20 @@ func main() {
         cert, err := tls.X509KeyPair([]byte(certificate), []byte(key))
         
         if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair")
+            fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair\n")
             os.Exit(1)
         }
 
         rootCAs := x509.NewCertPool()
 
         if !rootCAs.AppendCertsFromPEM([]byte(relayCA)) {
-            fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid")
+            fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid\n")
+            os.Exit(1)
+        }
+
+
+        if *clusterStartMerkleDepth < uint(MerkleMinDepth) || *clusterStartMerkleDepth > uint(MerkleMaxDepth) {
+            fmt.Fprintf(os.Stderr, "Error: The specified merkle depth is not valid. It must be between %d and %d inclusive\n", MerkleMinDepth, MerkleMaxDepth)
             os.Exit(1)
         }
 
@@ -707,7 +714,7 @@ func main() {
         cloudNode := node.New(node.ClusterNodeConfig{
             CloudServer: cloudServer,
             StorageDriver: cloudNodeStorage,
-            MerkleDepth: 4,
+            MerkleDepth: uint8(*clusterStartMerkleDepth),
             Capacity: capacity,
         })
 
