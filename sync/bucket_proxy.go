@@ -100,7 +100,7 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID
             return nil, ENoLocalBucket
         }
 
-        localBucket := &RelayBucketProxy{
+        localBucket := &CloudLocalBucketProxy{
             Bucket: site.Buckets().Get(bucketName),
             SitePool: cloudBucketProxyFactory.SitePool,
             SiteID: siteID,
@@ -109,7 +109,7 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID
         return localBucket, nil
     }
 
-    return &CloudResponderBucketProxy{
+    return &CloudRemoteBucketProxy{
         Client: cloudBucketProxyFactory.Client,
         PeerAddress: cloudBucketProxyFactory.ClusterController.ClusterMemberAddress(nodeID),
         SiteID: siteID,
@@ -166,68 +166,6 @@ func (relayBucketProxy *RelayBucketProxy) Forget(keys [][]byte) error {
     return relayBucketProxy.Bucket.Forget(keys)
 }
 
-type CloudResponderBucketProxy struct {
-    Client Client
-    PeerAddress PeerAddress
-    SiteID string
-    BucketName string
-}
-
-func (cloudResponderBucketProxy *CloudResponderBucketProxy) Name() string {
-    return cloudResponderBucketProxy.BucketName
-}
-
-func (cloudResponderBucketProxy *CloudResponderBucketProxy) MerkleTree() MerkleTreeProxy {
-    merkleTreeStats, err := cloudResponderBucketProxy.Client.MerkleTreeStats(context.TODO(), cloudResponderBucketProxy.PeerAddress, cloudResponderBucketProxy.SiteID, cloudResponderBucketProxy.BucketName)
-
-    if err != nil {
-        return &CloudResponderMerkleTreeProxy{
-            err: err,
-        }
-    }
-
-    dummyMerkleTree, err := NewDummyMerkleTree(merkleTreeStats.Depth)
-
-    if err != nil {
-        return &CloudResponderMerkleTreeProxy{
-            err: err,
-        }
-    }
-
-    return &CloudResponderMerkleTreeProxy{
-        err: nil,
-        client: cloudResponderBucketProxy.Client,
-        peerAddress: cloudResponderBucketProxy.PeerAddress,
-        siteID: cloudResponderBucketProxy.SiteID,
-        bucketName: cloudResponderBucketProxy.BucketName,
-        merkleTree: dummyMerkleTree,
-    }
-}
-
-func (cloudResponderBucketProxy *CloudResponderBucketProxy) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
-    merkleKeys, err := cloudResponderBucketProxy.Client.MerkleTreeNodeKeys(context.TODO(), cloudResponderBucketProxy.PeerAddress, cloudResponderBucketProxy.SiteID, cloudResponderBucketProxy.BucketName, nodeID)
-
-    if err != nil {
-        return nil, err
-    }
-
-    return &CloudResponderMerkleNodeIterator{
-        MerkleKeys: merkleKeys,
-        CurrentIndex: -1,
-    }, nil
-}
-
-func (cloudResponderBucketProxy *CloudResponderBucketProxy) Merge(mergedKeys map[string]*SiblingSet) error {
-    return nil
-}
-
-func (cloudResponderBucketProxy *CloudResponderBucketProxy) Forget(keys [][]byte) error {
-    return nil
-}
-
-func (cloudResponderBucketProxy *CloudResponderBucketProxy) Close() {
-}
-
 type CloudResponderMerkleNodeIterator struct {
     MerkleKeys rest.MerkleKeys
     CurrentIndex int
@@ -272,34 +210,107 @@ func (iter *CloudResponderMerkleNodeIterator) Error() error {
     return nil
 }
 
-type CloudInitiatorBucketProxy struct {
-    Client Client
-    ClusterController ClusterController
+type CloudLocalBucketProxy struct {
     Bucket Bucket
     SiteID string
     SitePool SitePool
 }
 
-func (cloudInitiatorBucketProxy *CloudInitiatorBucketProxy) Name() string {
-    return cloudInitiatorBucketProxy.Bucket.Name()
+func (bucketProxy *CloudLocalBucketProxy) Name() string {
+    return bucketProxy.Bucket.Name()
 }
 
-func (cloudInitiatorBucketProxy *CloudInitiatorBucketProxy) MerkleTree() MerkleTreeProxy {
-    return &DirectMerkleTreeProxy{ merkleTree: cloudInitiatorBucketProxy.Bucket.MerkleTree() }
+func (bucketProxy *CloudLocalBucketProxy) MerkleTree() MerkleTreeProxy {
+    return &DirectMerkleTreeProxy{
+        merkleTree: bucketProxy.Bucket.MerkleTree(),
+    }
 }
 
-func (cloudInitiatorBucketProxy *CloudInitiatorBucketProxy) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
-    return nil, nil
+func (bucketProxy *CloudLocalBucketProxy) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
+    return bucketProxy.Bucket.GetSyncChildren(nodeID)
 }
 
-func (cloudInitiatorBucketProxy *CloudInitiatorBucketProxy) Merge(mergedKeys map[string]*SiblingSet) error {
+func (bucketProxy *CloudLocalBucketProxy) Merge(mergedKeys map[string]*SiblingSet) error {
     return nil
 }
 
-func (cloudInitiatorBucketProxy *CloudInitiatorBucketProxy) Forget(keys [][]byte) error {
+func (bucketProxy *CloudLocalBucketProxy) Forget(keys [][]byte) error {
     return nil
 }
 
-func (cloudInitiatorBucketProxy *CloudInitiatorBucketProxy) Close() {
-    cloudInitiatorBucketProxy.SitePool.Release(cloudInitiatorBucketProxy.SiteID)
+func (bucketProxy *CloudLocalBucketProxy) Close() {
+    bucketProxy.SitePool.Release(bucketProxy.SiteID)
+}
+
+type CloudRemoteBucketProxy struct {
+    Client Client
+    PeerAddress PeerAddress
+    SiteID string
+    BucketName string
+    merkleTreeProxy MerkleTreeProxy
+}
+
+func (bucketProxy *CloudRemoteBucketProxy) Name() string {
+    return bucketProxy.BucketName
+}
+
+func (bucketProxy *CloudRemoteBucketProxy) MerkleTree() MerkleTreeProxy {
+    if bucketProxy.merkleTreeProxy != nil {
+        return bucketProxy.merkleTreeProxy
+    }
+
+    merkleTreeStats, err := bucketProxy.Client.MerkleTreeStats(context.TODO(), bucketProxy.PeerAddress, bucketProxy.SiteID, bucketProxy.BucketName)
+
+    if err != nil {
+        bucketProxy.merkleTreeProxy = &CloudResponderMerkleTreeProxy{
+            err: err,
+        }
+
+        return bucketProxy.merkleTreeProxy
+    }
+
+    dummyMerkleTree, err := NewDummyMerkleTree(merkleTreeStats.Depth)
+
+    if err != nil {
+        bucketProxy.merkleTreeProxy = &CloudResponderMerkleTreeProxy{
+            err: err,
+        }
+
+        return bucketProxy.merkleTreeProxy
+    }
+
+    bucketProxy.merkleTreeProxy = &CloudResponderMerkleTreeProxy{
+        err: nil,
+        client: bucketProxy.Client,
+        peerAddress: bucketProxy.PeerAddress,
+        siteID: bucketProxy.SiteID,
+        bucketName: bucketProxy.BucketName,
+        merkleTree: dummyMerkleTree,
+    }
+
+    return bucketProxy.merkleTreeProxy
+}
+
+func (bucketProxy *CloudRemoteBucketProxy) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
+    merkleKeys, err := bucketProxy.Client.MerkleTreeNodeKeys(context.TODO(), bucketProxy.PeerAddress, bucketProxy.SiteID, bucketProxy.BucketName, nodeID)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return &CloudResponderMerkleNodeIterator{
+        MerkleKeys: merkleKeys,
+        CurrentIndex: -1,
+    }, nil
+}
+
+func (bucketProxy *CloudRemoteBucketProxy) Merge(mergedKeys map[string]*SiblingSet) error {
+    return nil
+}
+
+func (bucketProxy *CloudRemoteBucketProxy) Forget(keys [][]byte) error {
+    return nil
+}
+
+func (bucketProxy *CloudRemoteBucketProxy) Close() {
 }

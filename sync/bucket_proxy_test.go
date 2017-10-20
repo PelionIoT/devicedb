@@ -371,10 +371,10 @@ var _ = Describe("BucketProxy", func() {
         })
     })
 
-    Describe("CloudResponderBucketProxy", func() {
+    Describe("CloudRemoteBucketProxy", func() {
         Describe("#Name", func() {
             Specify("Should return the result of Name of the Bucket it is a proxy for", func() {
-                remoteBucketProxy := &CloudResponderBucketProxy{
+                remoteBucketProxy := &CloudRemoteBucketProxy{
                     BucketName: "default",
                 }
 
@@ -386,7 +386,7 @@ var _ = Describe("BucketProxy", func() {
             var httpServer *TestHTTPServer
             var bucketSyncHTTP *BucketSyncHTTP
             var remoteBucket Bucket
-            var remoteBucketProxy *CloudResponderBucketProxy
+            var remoteBucketProxy *CloudRemoteBucketProxy
 
             BeforeEach(func() {
                 httpServer = NewTestHTTPServer(9000)
@@ -430,7 +430,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when there is an error performing the request to the peer specified by PeerAddress", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &CloudResponderBucketProxy{
+                    remoteBucketProxy = &CloudRemoteBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -449,7 +449,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when the request to the peer specified by PeerAddress works", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &CloudResponderBucketProxy{
+                    remoteBucketProxy = &CloudRemoteBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -501,7 +501,7 @@ var _ = Describe("BucketProxy", func() {
             var httpServer *TestHTTPServer
             var bucketSyncHTTP *BucketSyncHTTP
             var remoteBucket Bucket
-            var remoteBucketProxy *CloudResponderBucketProxy
+            var remoteBucketProxy *CloudRemoteBucketProxy
 
             BeforeEach(func() {
                 httpServer = NewTestHTTPServer(9000)
@@ -545,7 +545,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when there is an error performing the request to the peer specified by PeerAddress", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &CloudResponderBucketProxy{
+                    remoteBucketProxy = &CloudRemoteBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),
@@ -563,7 +563,7 @@ var _ = Describe("BucketProxy", func() {
 
             Context("when the request to the peer specified by PeerAddress works", func() {
                 BeforeEach(func() {
-                    remoteBucketProxy = &CloudResponderBucketProxy{
+                    remoteBucketProxy = &CloudRemoteBucketProxy{
                         SiteID: "site1",
                         BucketName: "default",
                         Client: *NewClient(ClientConfig{ }),

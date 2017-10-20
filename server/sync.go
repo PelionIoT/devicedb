@@ -6,6 +6,7 @@ import (
     . "devicedb/bucket"
     . "devicedb/data"
     . "devicedb/logging"
+    ddbSync "devicedb/sync"
 )
 
 const (
@@ -44,19 +45,19 @@ type InitiatorSyncSession struct {
     theirDepth uint8
     explorationQueue []uint32
     explorationPathLimit uint32
-    bucket Bucket
+    bucketProxy ddbSync.BucketProxy
     replicatesOutgoing bool
     currentNodeKeys map[string]bool
 }
 
-func NewInitiatorSyncSession(id uint, bucket Bucket, explorationPathLimit uint32, replicatesOutgoing bool) *InitiatorSyncSession {
+func NewInitiatorSyncSession(id uint, bucketProxy ddbSync.BucketProxy, explorationPathLimit uint32, replicatesOutgoing bool) *InitiatorSyncSession {
     return &InitiatorSyncSession{
         sessionID: id,
         currentState: START,
-        maxDepth: bucket.MerkleTree().Depth(),
+        maxDepth: bucketProxy.MerkleTree().Depth(),
         explorationQueue: make([]uint32, 0),
         explorationPathLimit: explorationPathLimit,
-        bucket: bucket,
+        bucketProxy: bucketProxy,
         replicatesOutgoing: replicatesOutgoing,
     }
 }
@@ -125,7 +126,7 @@ func (syncSession *InitiatorSyncSession) getNodeKeys() error {
     }
     
     nodeKeys := make(map[string]bool)
-    iter, err := syncSession.bucket.GetSyncChildren(syncSession.PeekExplorationQueue())
+    iter, err := syncSession.bucketProxy.GetSyncChildren(syncSession.PeekExplorationQueue())
     
     if err != nil {
         return err
@@ -157,32 +158,40 @@ func (syncSession *InitiatorSyncSession) forgetNonAuthoritativeKeys() error {
         nodeKeys = append(nodeKeys, []byte(key))
     }
 
-    return syncSession.bucket.Forget(nodeKeys)
+    return syncSession.bucketProxy.Forget(nodeKeys)
 }
 
 func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessageWrapper) *SyncMessageWrapper {
+    // Once an error occurs in the MerkleTree() the merkle tree will remain in the error state
+    // should abort this sync session
+    var messageWrapper *SyncMessageWrapper
+
     switch syncSession.currentState {
     case START:
         syncSession.currentState = HANDSHAKE
     
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_START,
             MessageBody: Start{
                 ProtocolVersion: PROTOCOL_VERSION,
-                MerkleDepth: syncSession.bucket.MerkleTree().Depth(),
-                Bucket: syncSession.bucket.Name(),
+                MerkleDepth: syncSession.bucketProxy.MerkleTree().Depth(),
+                Bucket: syncSession.bucketProxy.Name(),
             },
         }
+
+        break
     case HANDSHAKE:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: &Abort{ },
             }
+
+            break
         }
 
         if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
@@ -190,11 +199,13 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: &Abort{ },
             }
+
+            break
         }
         
         if syncSession.maxDepth > syncMessageWrapper.MessageBody.(Start).MerkleDepth {
@@ -203,103 +214,119 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
         
         syncSession.theirDepth = syncMessageWrapper.MessageBody.(Start).MerkleDepth
         syncSession.currentState = ROOT_HASH_COMPARE
-        syncSession.PushExplorationQueue(syncSession.bucket.MerkleTree().RootNode())
+        syncSession.PushExplorationQueue(syncSession.bucketProxy.MerkleTree().RootNode())
     
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_NODE_HASH,
             MessageBody: MerkleNodeHash{
-                NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
-                HashHigh: syncSession.bucket.MerkleTree().NodeHash(syncSession.PeekExplorationQueue()).High(),
-                HashLow: syncSession.bucket.MerkleTree().NodeHash(syncSession.PeekExplorationQueue()).Low(),
+                NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+                HashHigh: syncSession.bucketProxy.MerkleTree().NodeHash(syncSession.PeekExplorationQueue()).High(),
+                HashLow: syncSession.bucketProxy.MerkleTree().NodeHash(syncSession.PeekExplorationQueue()).Low(),
             },
         }
+
+        break
     case ROOT_HASH_COMPARE:
-        myHash := syncSession.bucket.MerkleTree().NodeHash(syncSession.PeekExplorationQueue())
+        myHash := syncSession.bucketProxy.MerkleTree().NodeHash(syncSession.PeekExplorationQueue())
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         } else if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh == myHash.High() && syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow == myHash.Low() {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else if syncSession.bucket.MerkleTree().Level(syncSession.PeekExplorationQueue()) != syncSession.maxDepth {
+
+            break
+        } else if syncSession.bucketProxy.MerkleTree().Level(syncSession.PeekExplorationQueue()) != syncSession.maxDepth {
             syncSession.currentState = LEFT_HASH_COMPARE
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_NODE_HASH,
                 MessageBody: MerkleNodeHash{
-                    NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.bucket.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
+                    NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.bucketProxy.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
                     HashHigh: 0,
                     HashLow: 0,
                 },
             }
+
+            break
         } else {
             syncSession.currentState = DB_OBJECT_PUSH
                 
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_OBJECT_NEXT,
                 MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+                    NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
                 },
             }
+
+            break
         }
     case LEFT_HASH_COMPARE:
-        myLeftChildHash := syncSession.bucket.MerkleTree().NodeHash(syncSession.bucket.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()))
+        myLeftChildHash := syncSession.bucketProxy.MerkleTree().NodeHash(syncSession.bucketProxy.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()))
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
         
         if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh != myLeftChildHash.High() || syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow != myLeftChildHash.Low() {
-            syncSession.PushExplorationQueue(syncSession.bucket.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()))
+            syncSession.PushExplorationQueue(syncSession.bucketProxy.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()))
         }
 
         syncSession.currentState = RIGHT_HASH_COMPARE
         
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_NODE_HASH,
             MessageBody: MerkleNodeHash{
-                NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.bucket.MerkleTree().RightChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
+                NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.bucketProxy.MerkleTree().RightChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
                 HashHigh: 0,
                 HashLow: 0,
             },
         }
+
+        break
     case RIGHT_HASH_COMPARE:
-        myRightChildHash := syncSession.bucket.MerkleTree().NodeHash(syncSession.bucket.MerkleTree().RightChild(syncSession.PeekExplorationQueue()))
+        myRightChildHash := syncSession.bucketProxy.MerkleTree().NodeHash(syncSession.bucketProxy.MerkleTree().RightChild(syncSession.PeekExplorationQueue()))
         
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
 
         if syncMessageWrapper.MessageBody.(MerkleNodeHash).HashHigh != myRightChildHash.High() || syncMessageWrapper.MessageBody.(MerkleNodeHash).HashLow != myRightChildHash.Low() {
             if syncSession.ExplorationQueueSize() <= syncSession.ExplorationPathLimit() {
-                syncSession.PushExplorationQueue(syncSession.bucket.MerkleTree().RightChild(syncSession.PeekExplorationQueue()))
+                syncSession.PushExplorationQueue(syncSession.bucketProxy.MerkleTree().RightChild(syncSession.PeekExplorationQueue()))
             }
         }
 
@@ -309,56 +336,66 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             // no more nodes to explore. abort
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
-        } else if syncSession.bucket.MerkleTree().Level(syncSession.PeekExplorationQueue()) == syncSession.maxDepth {
+
+            break
+        } else if syncSession.bucketProxy.MerkleTree().Level(syncSession.PeekExplorationQueue()) == syncSession.maxDepth {
             // cannot dig any deeper in any paths. need to move to DB_OBJECT_PUSH
             err := syncSession.getNodeKeys()
 
             if err != nil {
                 syncSession.currentState = END
                 
-                return &SyncMessageWrapper{
+                messageWrapper = &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
                     MessageBody: Abort{ },
                 }
+
+                break
             }
 
             syncSession.currentState = DB_OBJECT_PUSH
 
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_OBJECT_NEXT,
                 MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+                    NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
                 },
             }
+
+            break
         }
 
         syncSession.currentState = LEFT_HASH_COMPARE
 
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_NODE_HASH,
             MessageBody: MerkleNodeHash{
-                NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.bucket.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
+                NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.bucketProxy.MerkleTree().LeftChild(syncSession.PeekExplorationQueue()), syncSession.theirDepth),
                 HashHigh: 0,
                 HashLow: 0,
             },
         }
+
+        break
     case DB_OBJECT_PUSH:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_PUSH_MESSAGE && syncMessageWrapper.MessageType != SYNC_PUSH_DONE {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
 
         if syncMessageWrapper.MessageType == SYNC_PUSH_DONE {
@@ -369,11 +406,13 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             if err != nil || syncSession.ExplorationQueueSize() == 0 {
                 syncSession.currentState = END
                 
-                return &SyncMessageWrapper{
+                messageWrapper = &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
                     MessageBody: Abort{ },
                 }
+
+                break
             }
 
             err = syncSession.getNodeKeys()
@@ -381,20 +420,24 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
             if err != nil {
                 syncSession.currentState = END
                 
-                return &SyncMessageWrapper{
+                messageWrapper = &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
                     MessageBody: Abort{ },
                 }
+
+                break
             }
 
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_OBJECT_NEXT,
                 MessageBody: ObjectNext{
-                    NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+                    NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
                 },
             }
+            
+            break
         }
 
         var key string = syncMessageWrapper.MessageBody.(PushMessage).Key
@@ -402,30 +445,46 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
 
         delete(syncSession.currentNodeKeys, key)
 
-        err := syncSession.bucket.Merge(map[string]*SiblingSet{ key: siblingSet })
+        err := syncSession.bucketProxy.Merge(map[string]*SiblingSet{ key: siblingSet })
         
         if err != nil {
             syncSession.currentState = END
         
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
         
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_OBJECT_NEXT,
             MessageBody: ObjectNext{
-                NodeID: syncSession.bucket.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
+                NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(syncSession.PeekExplorationQueue(), syncSession.theirDepth),
             },
         }
+
+        break
     case END:
         return nil
     }
     
-    return nil
+    if syncSession.bucketProxy.MerkleTree().Error() != nil {
+        // Encountered a proxy error with the merkle tree
+        // need to abort
+        syncSession.currentState = END
+
+        messageWrapper = &SyncMessageWrapper{
+            SessionID: syncSession.sessionID,
+            MessageType: SYNC_ABORT,
+            MessageBody: Abort{ },
+        }
+    }
+
+    return messageWrapper
 }
 
     // the state machine
@@ -435,18 +494,18 @@ type ResponderSyncSession struct {
     node uint32
     maxDepth uint8
     theirDepth uint8
-    bucket Bucket
+    bucketProxy ddbSync.BucketProxy
     iter SiblingSetIterator
     currentIterationNode uint32
 }
 
-func NewResponderSyncSession(bucket Bucket) *ResponderSyncSession {
+func NewResponderSyncSession(bucketProxy ddbSync.BucketProxy) *ResponderSyncSession {
     return &ResponderSyncSession{
         sessionID: 0,
         currentState: START,
-        node: bucket.MerkleTree().RootNode(),
-        maxDepth: bucket.MerkleTree().Depth(),
-        bucket: bucket,
+        node: bucketProxy.MerkleTree().RootNode(),
+        maxDepth: bucketProxy.MerkleTree().Depth(),
+        bucketProxy: bucketProxy,
         iter: nil,
     }
 }
@@ -468,6 +527,8 @@ func (syncSession *ResponderSyncSession) InitiatorDepth() uint8 {
 }
 
 func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessageWrapper) *SyncMessageWrapper {
+    var messageWrapper *SyncMessageWrapper
+
     switch syncSession.currentState {
     case START:
         if syncMessageWrapper != nil {
@@ -477,11 +538,13 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_START {
             syncSession.currentState = END
         
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
 
         if syncMessageWrapper.MessageBody.(Start).ProtocolVersion != PROTOCOL_VERSION {
@@ -489,76 +552,87 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             
             syncSession.currentState = END
         
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
 
+            break
         }
     
         syncSession.theirDepth = syncMessageWrapper.MessageBody.(Start).MerkleDepth
         syncSession.currentState = HASH_COMPARE
     
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_START,
             MessageBody: Start{
                 ProtocolVersion: PROTOCOL_VERSION,
-                MerkleDepth: syncSession.bucket.MerkleTree().Depth(),
-                Bucket: syncSession.bucket.Name(),
+                MerkleDepth: syncSession.bucketProxy.MerkleTree().Depth(),
+                Bucket: syncSession.bucketProxy.Name(),
             },
         }
+
+        break
     case HASH_COMPARE:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_NODE_HASH && syncMessageWrapper.MessageType != SYNC_OBJECT_NEXT {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
         
         if syncMessageWrapper.MessageType == SYNC_NODE_HASH {
             nodeID := syncMessageWrapper.MessageBody.(MerkleNodeHash).NodeID
             
-            if nodeID >= syncSession.bucket.MerkleTree().NodeLimit() || nodeID == 0 {
+            if nodeID >= syncSession.bucketProxy.MerkleTree().NodeLimit() || nodeID == 0 {
                 syncSession.currentState = END
                 
-                return &SyncMessageWrapper{
+                messageWrapper = &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
                     MessageBody: Abort{ },
                 }
+
+                break
             }
             
-            nodeHash := syncSession.bucket.MerkleTree().NodeHash(nodeID)
+            nodeHash := syncSession.bucketProxy.MerkleTree().NodeHash(nodeID)
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_NODE_HASH,
                 MessageBody: MerkleNodeHash{
-                    NodeID: syncSession.bucket.MerkleTree().TranslateNode(nodeID, syncSession.theirDepth),
+                    NodeID: syncSession.bucketProxy.MerkleTree().TranslateNode(nodeID, syncSession.theirDepth),
                     HashHigh: nodeHash.High(),
                     HashLow: nodeHash.Low(),
                 },
             }
+
+            break
         }
 
         // if items to iterate over, send first
         nodeID := syncMessageWrapper.MessageBody.(ObjectNext).NodeID
         syncSession.currentIterationNode = nodeID
-        iter, err := syncSession.bucket.GetSyncChildren(nodeID)
+        iter, err := syncSession.bucketProxy.GetSyncChildren(nodeID)
         
         if err != nil {
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
         
         if !iter.Next() {
@@ -568,26 +642,30 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             if err == nil {
                 syncSession.currentState = DB_OBJECT_PUSH
 
-                return &SyncMessageWrapper{
+                messageWrapper = &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_PUSH_DONE,
                     MessageBody: PushDone{ },
                 }
+
+                break
             }
             
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
     
         syncSession.iter = iter
         syncSession.currentState = DB_OBJECT_PUSH
         
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_PUSH_MESSAGE,
             MessageBody: PushMessage{
@@ -595,6 +673,8 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 Value: iter.Value(),
             },
         }
+
+        break
     case DB_OBJECT_PUSH:
         if syncMessageWrapper == nil || syncMessageWrapper.MessageType != SYNC_OBJECT_NEXT {
             if syncSession.iter != nil {
@@ -603,21 +683,25 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
 
         if syncSession.iter == nil {
             syncSession.currentState = END
                 
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
 
         if syncSession.currentIterationNode != syncMessageWrapper.MessageBody.(ObjectNext).NodeID {
@@ -626,16 +710,18 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
             }
 
             syncSession.currentIterationNode = syncMessageWrapper.MessageBody.(ObjectNext).NodeID
-            iter, err := syncSession.bucket.GetSyncChildren(syncSession.currentIterationNode)
+            iter, err := syncSession.bucketProxy.GetSyncChildren(syncSession.currentIterationNode)
 
             if err != nil {
                 syncSession.currentState = END
                 
-                return &SyncMessageWrapper{
+                messageWrapper = &SyncMessageWrapper{
                     SessionID: syncSession.sessionID,
                     MessageType: SYNC_ABORT,
                     MessageBody: Abort{ },
                 }
+
+                break
             }
 
             syncSession.iter = iter
@@ -648,24 +734,28 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 syncSession.iter.Release()
 
                 if err == nil {
-                    return &SyncMessageWrapper{
+                    messageWrapper = &SyncMessageWrapper{
                         SessionID: syncSession.sessionID,
                         MessageType: SYNC_PUSH_DONE,
                         MessageBody: PushDone{ },
                     }
+
+                    break
                 }
             }
             
             syncSession.currentState = END
             
-            return &SyncMessageWrapper{
+            messageWrapper = &SyncMessageWrapper{
                 SessionID: syncSession.sessionID,
                 MessageType: SYNC_ABORT,
                 MessageBody: Abort{ },
             }
+
+            break
         }
         
-        return &SyncMessageWrapper{
+        messageWrapper = &SyncMessageWrapper{
             SessionID: syncSession.sessionID,
             MessageType: SYNC_PUSH_MESSAGE,
             MessageBody: PushMessage{
@@ -673,11 +763,25 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
                 Value: syncSession.iter.Value(),
             },
         }
+
+        break
     case END:
         return nil
     }
+
+    if syncSession.bucketProxy.MerkleTree().Error() != nil {
+        // Encountered a proxy error with the merkle tree
+        // need to abort
+        syncSession.currentState = END
+
+        messageWrapper = &SyncMessageWrapper{
+            SessionID: syncSession.sessionID,
+            MessageType: SYNC_ABORT,
+            MessageBody: Abort{ },
+        }
+    }
     
-    return nil
+    return messageWrapper
 }
 
 const (

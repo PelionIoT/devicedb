@@ -19,6 +19,13 @@ type RelaySiteReplica struct {
     id string
 }
 
+func NewRelaySiteReplica(id string, buckets *BucketList) *RelaySiteReplica {
+    return &RelaySiteReplica{
+        id: id,
+        bucketList: buckets,
+    }
+}
+
 func (relaySiteReplica *RelaySiteReplica) Buckets() *BucketList {
     if relaySiteReplica == nil {
         return NewBucketList()

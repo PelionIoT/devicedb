@@ -26,6 +26,7 @@ import (
     . "devicedb/error"
     . "devicedb/logging"
     ddbSync "devicedb/sync"
+    . "devicedb/site"
     . "devicedb/transport"
 )
 
@@ -227,7 +228,10 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     }
     
     if server.hub != nil && server.hub.syncController != nil {
-        server.hub.syncController.buckets = server.bucketList
+        site := NewRelaySiteReplica(nodeID, server.bucketList)
+        sitePool := &RelayNodeSitePool{ Site: site }
+        bucketProxyFactory := &ddbSync.RelayBucketProxyFactory{ SitePool: sitePool }
+        server.hub.syncController.bucketProxyFactory = bucketProxyFactory
     }
     
     if server.hub != nil && serverConfig.PeerAddresses != nil {

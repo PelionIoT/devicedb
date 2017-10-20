@@ -1035,7 +1035,7 @@ type SyncSession struct {
 }
 
 type SyncController struct {
-    buckets *BucketList
+    bucketProxyFactory ddbSync.BucketProxyFactory
     incoming chan *SyncMessageWrapper
     peers map[string]chan *SyncMessageWrapper
     waitGroups map[string]*sync.WaitGroup
@@ -1050,9 +1050,9 @@ type SyncController struct {
     explorationPathLimit uint32
 }
 
-func NewSyncController(maxSyncSessions uint, bucketList *BucketList, syncScheduler ddbSync.SyncScheduler, explorationPathLimit uint32) *SyncController {
+func NewSyncController(maxSyncSessions uint, bucketProxyFactory ddbSync.BucketProxyFactory, syncScheduler ddbSync.SyncScheduler, explorationPathLimit uint32) *SyncController {
     syncController := &SyncController{
-        buckets: bucketList,
+        bucketProxyFactory: bucketProxyFactory,
         incoming: make(chan *SyncMessageWrapper),
         peers: make(map[string]chan *SyncMessageWrapper),
         waitGroups: make(map[string]*sync.WaitGroup),
@@ -1089,10 +1089,10 @@ func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) erro
     s.initiatorSessionsMap[peerID] = make(map[uint]*SyncSession)
     s.responderSessionsMap[peerID] = make(map[uint]*SyncSession)
 
-    var buckets []string = make([]string, 0, len(s.buckets.Incoming(peerID)))
+    var buckets []string = make([]string, 0, len(s.bucketProxyFactory.IncomingBuckets(peerID)))
 
-    for _, bucket := range s.buckets.Incoming(peerID) {
-        buckets = append(buckets, bucket.Name())
+    for bucket, _ := range s.bucketProxyFactory.IncomingBuckets(peerID) {
+        buckets = append(buckets, bucket)
     }
 
     s.syncScheduler.AddPeer(peerID, buckets)
@@ -1130,17 +1130,19 @@ func (s *SyncController) removePeer(peerID string) {
 }
 
 func (s *SyncController) addResponderSession(peerID string, sessionID uint, bucketName string) bool {
-    if !s.buckets.HasBucket(bucketName) {
-        Log.Errorf("Unable to add responder session %d for peer %s because %s is not a valid bucket name", sessionID, peerID, bucketName)
-        
-        return false
-    } else if !s.buckets.Get(bucketName).ShouldReplicateOutgoing(peerID) {
+    if !s.bucketProxyFactory.OutgoingBuckets(peerID)[bucketName] {
         Log.Errorf("Unable to add responder session %d for peer %s because bucket %s does not allow outgoing messages to this peer", sessionID, peerID, bucketName)
         
         return false
     }
     
-    bucket := s.buckets.Get(bucketName)
+    bucketProxy, err := s.bucketProxyFactory.CreateBucketProxy(peerID, bucketName)
+
+    if err != nil {
+        Log.Errorf("Unable to add responder session %d for peer %s because a bucket proxy could not be created for bucket %s: %v", sessionID, peerID, bucketName, err)
+
+        return false
+    }
     
     s.mapMutex.Lock()
     defer s.mapMutex.Unlock()
@@ -1160,7 +1162,7 @@ func (s *SyncController) addResponderSession(peerID string, sessionID uint, buck
     newResponderSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
-        sessionState: NewResponderSyncSession(bucket),
+        sessionState: NewResponderSyncSession(bucketProxy),
         waitGroup: s.waitGroups[peerID],
         peerID: peerID,
         sessionID: sessionID,
@@ -1184,18 +1186,20 @@ func (s *SyncController) addResponderSession(peerID string, sessionID uint, buck
 }
 
 func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, bucketName string) bool {
-    if !s.buckets.HasBucket(bucketName) {
-        Log.Errorf("Unable to add initiator session %d for peer %s because %s is not a valid bucket name", sessionID, peerID, bucketName)
-        
-        return false
-    } else if !s.buckets.Get(bucketName).ShouldReplicateIncoming(peerID) {
-        Log.Errorf("Unable to add responder session %d for peer %s because bucket %s does not allow incoming messages from this peer", sessionID, peerID, bucketName)
+    if !s.bucketProxyFactory.IncomingBuckets(peerID)[bucketName] {
+        Log.Errorf("Unable to add initiator session %d for peer %s because bucket %s does not allow incoming messages from this peer", sessionID, peerID, bucketName)
         
         return false
     }
     
-    bucket := s.buckets.Get(bucketName)
+    bucketProxy, err := s.bucketProxyFactory.CreateBucketProxy(peerID, bucketName)
     
+    if err != nil {
+        Log.Errorf("Unable to add initiator session %d for peer %s because a bucket proxy could not be created for bucket %s: %v", sessionID, peerID, bucketName, err)
+
+        return false
+    }
+
     s.mapMutex.Lock()
     defer s.mapMutex.Unlock()
     
@@ -1208,7 +1212,7 @@ func (s *SyncController) addInitiatorSession(peerID string, sessionID uint, buck
     newInitiatorSession := &SyncSession{
         receiver: make(chan *SyncMessageWrapper, 1),
         sender: s.peers[peerID],
-        sessionState: NewInitiatorSyncSession(sessionID, bucket, s.explorationPathLimit, bucket.ShouldReplicateOutgoing(peerID)),
+        sessionState: NewInitiatorSyncSession(sessionID, bucketProxy, s.explorationPathLimit, s.bucketProxyFactory.OutgoingBuckets(peerID)[bucketName]),
         waitGroup: s.waitGroups[peerID],
         peerID: peerID,
         sessionID: sessionID,
@@ -1334,13 +1338,7 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
     } else if msg.MessageType == SYNC_PUSH_MESSAGE {
         pushMessage := msg.MessageBody.(PushMessage)
         
-        if !s.buckets.HasBucket(pushMessage.Bucket) {
-            Log.Errorf("Ignoring push message from %s because %s is not a valid bucket", nodeID, pushMessage.Bucket)
-            
-            return
-        }
-        
-        if !s.buckets.Get(pushMessage.Bucket).ShouldReplicateIncoming(nodeID) {
+        if !s.bucketProxyFactory.IncomingBuckets(nodeID)[pushMessage.Bucket] {
             Log.Errorf("Ignoring push message from %s because this node does not accept incoming pushes from bucket %s from that node", nodeID, pushMessage.Bucket)
             
             return
@@ -1348,8 +1346,15 @@ func (s *SyncController) receiveMessage(msg *SyncMessageWrapper) {
 
         key := pushMessage.Key
         value := pushMessage.Value
-        bucket := s.buckets.Get(pushMessage.Bucket)
-        err := bucket.Merge(map[string]*SiblingSet{ key: value })
+        bucketProxy, err := s.bucketProxyFactory.CreateBucketProxy(nodeID, pushMessage.Bucket)
+
+        if err != nil {
+            Log.Errorf("Ignoring push message from %s for bucket %s because an error occurred while creating a bucket proxy: %v", nodeID, pushMessage.Bucket, err)
+
+            return
+        }
+
+        err = bucketProxy.Merge(map[string]*SiblingSet{ key: value })
         
         if err != nil {
             Log.Errorf("Unable to merge object from peer %s into key %s in bucket %s: %v", nodeID, key, pushMessage.Bucket, err)
@@ -1452,11 +1457,9 @@ func (s *SyncController) StartInitiatorSessions() {
                 continue
             }
 
-            bucket := s.buckets.Get(bucketName)
-    
             s.mapMutex.RUnlock()
             
-            if s.addInitiatorSession(peerID, s.nextSessionID, bucket.Name()) {
+            if s.addInitiatorSession(peerID, s.nextSessionID, bucketName) {
                 s.nextSessionID += 1
             } else {
             }
@@ -1494,7 +1497,7 @@ func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, 
     }
     
     for peerID, w := range s.peers {
-        if !s.buckets.Get(bucket).ShouldReplicateOutgoing(peerID) {
+        if !s.bucketProxyFactory.OutgoingBuckets(peerID)[bucket] {
             continue
         }
         
