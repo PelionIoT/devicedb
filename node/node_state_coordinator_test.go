@@ -68,6 +68,7 @@ type MockNodeCoordinatorFacade struct {
     incomingTransfers *PartitionReplicaSet
     readLocks map[uint64]bool
     writeLocks map[uint64]bool
+    disconnects map[uint64]bool
     sites map[string]bool
     relays map[string]string
     joinedCluster chan int
@@ -92,6 +93,7 @@ func NewMockNodeCoordinatorFacade(id uint64) *MockNodeCoordinatorFacade {
         leftCluster: make(chan int, 1),
         sites: make(map[string]bool, 0),
         relays: make(map[string]string, 0),
+        disconnects: make(map[uint64]bool),
     }
 }
 
@@ -184,6 +186,14 @@ func (nodeFacade *MockNodeCoordinatorFacade) RemoveRelay(relayID string) {
 
 func (nodeFacade *MockNodeCoordinatorFacade) MoveRelay(relayID string, siteID string) {
     nodeFacade.relays[relayID] = siteID
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) DisconnectRelays(partitionNumber uint64) {
+    nodeFacade.disconnects[partitionNumber] = true
+}
+
+func (nodeFacade *MockNodeCoordinatorFacade) Disconnects() map[uint64]bool {
+    return nodeFacade.disconnects
 }
 
 func (nodeFacade *MockNodeCoordinatorFacade) Relays() map[string]string {
@@ -349,6 +359,12 @@ var _ = Describe("NodeStateCoordinator", func() {
                         nodeFacade.HeldPartitionReplicaSet().Add(1, 1)
                     })
 
+                    It("Should disconnect any relays whose site belong to that partition", func() {
+                        Expect(nodeFacade.Disconnects()).Should(Equal(map[uint64]bool{ }))
+                        nodePartitionUpdater.UpdatePartition(1)
+                        Expect(nodeFacade.Disconnects()).Should(Equal(map[uint64]bool{ 1: true }))
+                    })
+
                     It("Should ensure that partition has been added to the partition pool", func() {
                         Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ }))
                         nodePartitionUpdater.UpdatePartition(1)
@@ -379,6 +395,12 @@ var _ = Describe("NodeStateCoordinator", func() {
                 })
 
                 Context("And the node does not hold a replica of that partition", func() {
+                    It("Should disconnect any relays whose site belong to that partition", func() {
+                        Expect(nodeFacade.Disconnects()).Should(Equal(map[uint64]bool{ }))
+                        nodePartitionUpdater.UpdatePartition(1)
+                        Expect(nodeFacade.Disconnects()).Should(Equal(map[uint64]bool{ 1: true }))
+                    })
+                    
                     It("Should remove that partition from the partition pool", func() {
                         nodeFacade.AddPartition(1)
                         Expect(nodeFacade.Partitions()).Should(Equal(map[uint64]bool{ 1: true }))

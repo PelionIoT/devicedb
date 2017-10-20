@@ -2,9 +2,11 @@ package node
 
 import (
     "context"
+    "crypto/tls"
     "encoding/binary"
     "errors"
     "fmt"
+    "math/rand"
     "sync"
     "time"
 
@@ -67,6 +69,7 @@ type ClusterNode struct {
     shutdownDecommissioner func()
     lock sync.Mutex
     emptyMu sync.Mutex
+    relayConnectionsMu sync.Mutex
     hub *Hub
 }
 
@@ -152,20 +155,6 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.configControllerBuilder.SetCreateNewCluster(options.ShouldStartCluster())
     node.configController = node.configControllerBuilder.Create()
 
-    bucketProxyFactory := &ddbSync.CloudBucketProxyFactory{
-        Client: *node.interClusterClient,
-        ClusterController: node.configController.ClusterController(),
-        PartitionPool: node.partitionPool,
-    }
-
-    if options.SyncPeriod < 1000 {
-        options.SyncPeriod = 1000
-    }
-
-    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
-
-    node.hub = NewHub("", syncController, nil)
-
     stateCoordinator := NewClusterNodeStateCoordinator(&NodeCoordinatorFacade{ node: node }, nil)
     node.configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
         stateCoordinator.ProcessClusterUpdates(deltas)
@@ -188,6 +177,21 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.transferAgent = NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
     node.clusterioAgent = clusterio.NewAgent(NewNodeClient(node, node.configController), NewPartitionResolver(node.configController))
     stateCoordinator.InitializeNodeState()
+
+    bucketProxyFactory := &ddbSync.CloudBucketProxyFactory{
+        Client: *node.interClusterClient,
+        ClusterController: node.configController.ClusterController(),
+        PartitionPool: node.partitionPool,
+        ClusterIOAgent: node.clusterioAgent,
+    }
+
+    if options.SyncPeriod < 1000 {
+        options.SyncPeriod = 1000
+    }
+
+    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
+
+    node.hub = NewHub("", syncController, nil)
 
     node.hub.SyncController().Start()
     serverStopResult := node.startNetworking()
@@ -721,6 +725,87 @@ func (node *ClusterNode) GetMatches(ctx context.Context, partitionNumber uint64,
     return bucket.GetMatches(keys)
 }
 
+func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn) {
+    node.relayConnectionsMu.Lock()
+    defer node.relayConnectionsMu.Unlock()
+
+    if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
+        Log.Warningf("Cannot accept non-secure relay connections. Must use TLS")
+
+        conn.Close()
+
+        return
+    }
+
+    relayID, err := node.hub.ExtractPeerID(conn.UnderlyingConn().(*tls.Conn))
+
+    if err != nil {
+        Log.Warningf("Cannot accept connection from relay because it provided an invalid client cert.")
+
+        conn.Close()
+
+        return
+    }
+
+    siteID := node.configController.ClusterController().RelaySite(relayID)
+
+    if siteID == "" {
+        Log.Warningf("Unable to accept connection from relay %s because it has either not been added to the devicedb relay database or it does not belong to a site", relayID)
+
+        conn.Close()
+
+        return
+    }
+
+    partitionNumber := node.configController.ClusterController().Partition(siteID)
+    owners := node.configController.ClusterController().PartitionOwners(partitionNumber)
+
+    if len(owners) == 0 {
+        Log.Warningf("Unable to accept connection from relay %s because no node owns the partition for its site, site %s", relayID, siteID)
+
+        conn.Close()
+
+        return
+    }
+
+    for _, nodeID := range owners {
+        if nodeID == node.configController.ClusterController().LocalNodeID {
+            Log.Infof("Local node (id = %d) accepting connection from relay %s which belongs to site %s", nodeID, relayID, siteID)
+
+            // The local node owns this site database. It can accept the connection for this relay
+            node.hub.Accept(conn, partitionNumber, siteID)
+
+            return
+        }
+    }
+
+    // The local node does not own the site database for this site. It should proxy the connection to one of the owners
+    nodeID := owners[int(rand.Uint32() % uint32(len(owners)))]
+
+    Log.Infof("Local node (id = %d) proxying connection from relay %s which belongs to site %s to node %d", node.configController.ClusterController().LocalNodeID, relayID, siteID, nodeID)
+}
+
+func (node *ClusterNode) DisconnectRelay(relayID string) {
+    node.relayConnectionsMu.Lock()
+    defer node.relayConnectionsMu.Unlock()
+
+    node.hub.ReconnectPeer(relayID)
+}
+
+func (node *ClusterNode) DisconnectRelayBySite(siteID string) {
+    node.relayConnectionsMu.Lock()
+    defer node.relayConnectionsMu.Unlock()
+
+    node.hub.ReconnectPeerBySite(siteID)
+}
+
+func (node *ClusterNode) DisconnectRelayByPartition(partitionNumber uint64) {
+    node.relayConnectionsMu.Lock()
+    defer node.relayConnectionsMu.Unlock()
+
+    node.hub.ReconnectPeerByPartition(partitionNumber)
+}
+
 func (node *ClusterNode) ClusterIO() clusterio.ClusterIOAgent {
     return node.clusterioAgent
 }
@@ -859,5 +944,5 @@ func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID s
 }
 
 func (clusterFacade *ClusterNodeFacade) AcceptRelayConnection(conn *websocket.Conn) {
-    clusterFacade.node.hub.Accept(conn)
+    clusterFacade.node.AcceptRelayConnection(conn)
 }

@@ -112,6 +112,8 @@ func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
     localNodeOwnedPartitionReplica := clusterController.localNodeOwnedPartitionReplicas()
     localNodeTokenSnapshot := clusterController.localNodeTokenSnapshot()
     localNodePartitionReplicaSnapshot := clusterController.localNodePartitionReplicaSnapshot()
+    relaysSnapshot := clusterController.relaysSnapshot()
+    sitesSnapshot := clusterController.sitesSnapshot()
     _, localNodeWasPresentBefore := clusterController.State.Nodes[clusterController.LocalNodeID]
 
     if err := clusterController.State.Recover(snap); err != nil {
@@ -128,6 +130,8 @@ func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
     clusterController.localDiffTokensAndNotify(localNodeTokenSnapshot)
     clusterController.localDiffOwnedPartitionReplicasAndNotify(localNodeOwnedPartitionReplica)
     clusterController.localDiffPartitionReplicasAndNotify(localNodePartitionReplicaSnapshot)
+    clusterController.diffRelaysAndNotify(relaysSnapshot)
+    clusterController.diffSitesAndNotify(sitesSnapshot)
 
     if localNodeWasPresentBefore && !localNodeIsPresentNow {
         // This node was removed. Provide a remove node delta
@@ -135,6 +139,56 @@ func (clusterController *ClusterController) ApplySnapshot(snap []byte) error {
     }
 
     return nil
+}
+
+func (clusterController *ClusterController) relaysSnapshot() map[string]string {
+    var relays map[string]string = make(map[string]string)
+
+    for relay, site := range clusterController.State.Relays {
+        relays[relay] = site
+    }
+
+    return relays
+}
+
+func (clusterController *ClusterController) sitesSnapshot() map[string]bool {
+    var sites map[string]bool = make(map[string]bool)
+
+    for site, _ := range clusterController.State.Sites {
+        sites[site] = true
+    }
+
+    return sites
+}
+
+func (clusterController *ClusterController) diffRelaysAndNotify(relaysSnapshot map[string]string) {
+    for relay, site := range relaysSnapshot {
+        if _, ok := clusterController.State.Relays[relay]; !ok {
+            clusterController.notifyLocalNode(DeltaRelayRemoved, RelayRemoved{ RelayID: relay })
+        } else if clusterController.State.Relays[relay] != site {
+            clusterController.notifyLocalNode(DeltaRelayMoved, RelayMoved{ RelayID: relay, SiteID: clusterController.State.Relays[relay] })
+        }
+    }
+
+    for relay, _ := range clusterController.State.Relays {
+        if _, ok := relaysSnapshot[relay]; !ok {
+            clusterController.notifyLocalNode(DeltaRelayAdded, RelayAdded{ RelayID: relay })
+        }
+    }
+}
+
+func (clusterController *ClusterController) diffSitesAndNotify(sitesSnapshot map[string]bool) {
+    for site, _ := range sitesSnapshot {
+        if _, ok := clusterController.State.Sites[site]; !ok {
+            clusterController.notifyLocalNode(DeltaSiteRemoved, SiteRemoved{ SiteID: site })
+        }
+    }
+
+    for site, _ := range clusterController.State.Sites {
+        if _, ok := sitesSnapshot[site]; !ok {
+            clusterController.notifyLocalNode(DeltaSiteAdded, SiteAdded{ SiteID: site })
+        }
+    }
 }
 
 func (clusterController *ClusterController) UpdateNodeConfig(clusterCommand ClusterUpdateNodeBody) error {
@@ -393,7 +447,7 @@ func (clusterController *ClusterController) RemoveRelay(clusterCommand ClusterRe
 }
 
 func (clusterController *ClusterController) MoveRelay(clusterCommand ClusterMoveRelayBody) error {
-    if !clusterController.State.SiteExists(clusterCommand.SiteID) {
+    if !clusterController.State.SiteExists(clusterCommand.SiteID) && clusterCommand.SiteID != "" {
         return ENoSuchSite
     }
 

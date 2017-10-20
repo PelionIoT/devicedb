@@ -145,6 +145,7 @@ func (partitionUpdater *NodePartitionUpdater) UpdatePartition(partitionNumber ui
     if !nodeOwnsPartition && !nodeHoldsPartition {
         Log.Infof("Local node (id = %d) no longer owns or holds any replica of partition %d. It will remove this partition from its local store", partitionUpdater.nodeFacade.ID(), partitionNumber)
 
+        partitionUpdater.nodeFacade.DisconnectRelays(partitionNumber)
         partitionUpdater.nodeFacade.DisableOutgoingTransfers(partitionNumber)
         partitionUpdater.nodeFacade.LockPartitionReads(partitionNumber)
         partitionUpdater.nodeFacade.LockPartitionWrites(partitionNumber)
@@ -158,6 +159,7 @@ func (partitionUpdater *NodePartitionUpdater) UpdatePartition(partitionNumber ui
     if nodeOwnsPartition {
         partitionUpdater.nodeFacade.UnlockPartitionWrites(partitionNumber)
     } else {
+        partitionUpdater.nodeFacade.DisconnectRelays(partitionNumber)
         partitionUpdater.nodeFacade.LockPartitionWrites(partitionNumber)
     }
 

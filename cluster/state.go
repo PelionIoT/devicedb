@@ -168,7 +168,7 @@ func (clusterState *ClusterState) MoveRelay(relayID, siteID string) {
         return
     }
 
-    if _, ok := clusterState.Sites[siteID]; !ok {
+    if _, ok := clusterState.Sites[siteID]; !ok && siteID != "" {
         return
     }
 

@@ -1628,6 +1628,165 @@ var _ = Describe("Controller", func() {
                 Expect(clusterController.State).Should(Equal(snapshotClusterState))
                 Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaNodeLosePartitionReplica, Delta: NodeLosePartitionReplica{ NodeID: 1, Partition: 1, Replica: 0 } }))
             })
+
+            It("should notify the node of relays that have been added to the cluster database if they are not present before the snapshot but are after the snapshot is applied", func() {
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                    Relays: map[string]string{ },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                    Relays: map[string]string{ "WWRL000000": "" },
+                }
+
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaRelayAdded, Delta: RelayAdded{ RelayID: "WWRL000000" } }))
+            })
+
+            It("should notify the node of relays that have been removed from the cluster database if they are present before the snapshot but are not present after the snapshot is applied", func() {
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                    Relays: map[string]string{ "WWRL000000": "" },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                    Relays: map[string]string{ },
+                }
+
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaRelayRemoved, Delta: RelayRemoved{ RelayID: "WWRL000000" } }))
+            })
+
+            It("should notify the node of relays that have been moved if they are present both before and after the snapshot is applied but their site assignment is different", func() {
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                    Relays: map[string]string{ "WWRL000000": "site1" },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                    Relays: map[string]string{ "WWRL000000": "site2" },
+                }
+
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaRelayMoved, Delta: RelayMoved{ RelayID: "WWRL000000", SiteID: "site2" } }))
+            })
+
+            It("should notify the node of sites that have been added to the cluster database if they are not present before the snapshot but are after the snapshot is applied", func() {
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                    Relays: map[string]string{ },
+                    Sites: map[string]bool{ },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                    Relays: map[string]string{ },
+                    Sites: map[string]bool{ "site1": true },
+                }
+
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaSiteAdded, Delta: SiteAdded{ SiteID: "site1" } }))
+            })
+
+            It("should notify the node of sites that have been removed from the cluster database if they are present before the snapshot but are not present after the snapshot is applied", func() {
+                originalClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 },
+                    Relays: map[string]string{ },
+                    Sites: map[string]bool{ "site1": true },
+                }
+                snapshotClusterState := ClusterState{
+                    Nodes: map[uint64]*NodeConfig{
+                    },
+                    ClusterSettings: ClusterSettings{ ReplicationFactor: 2, Partitions: 4 }, // normally these values dont change but to test the difference we will change these
+                    Relays: map[string]string{ },
+                    Sites: map[string]bool{ },
+                }
+
+                snapshotClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+                originalClusterState.Initialize() // makes sure tokens and partition replicas are filled in
+
+                clusterController := &ClusterController{
+                    LocalNodeID: 1,
+                    State: originalClusterState,
+                    PartitioningStrategy: &testPartitioningStrategy{ },
+                }
+
+                snap, _ := snapshotClusterState.Snapshot()
+
+                Expect(clusterController.State).Should(Equal(originalClusterState))
+                Expect(clusterController.ApplySnapshot(snap)).Should(BeNil())
+                Expect(clusterController.State).Should(Equal(snapshotClusterState))
+                Expect(clusterController.Deltas()[0]).Should(Equal(ClusterStateDelta{ Type: DeltaSiteRemoved, Delta: SiteRemoved{ SiteID: "site1" } }))
+            })
         })
     })
 })

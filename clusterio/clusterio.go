@@ -8,6 +8,7 @@ import (
 )
 
 type ClusterIOAgent interface {
+    Merge(ctx context.Context, siteID string, bucket string, patch map[string]*SiblingSet) (replicas int, nApplied int, err error)
     Batch(ctx context.Context, siteID string, bucket string, updateBatch *UpdateBatch) (replicas int, nApplied int, err error)
     Get(ctx context.Context, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)

@@ -46,6 +46,30 @@ func NewAgent(nodeClient NodeClient, partitionResolver PartitionResolver) *Agent
     }
 }
 
+func (agent *Agent) Merge(ctx context.Context, siteID string, bucket string, patch map[string]*SiblingSet) (int, int, error) {
+    var partitionNumber uint64 = agent.PartitionResolver.Partition(siteID)
+    var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)
+    var resultError error = ENoQuorum
+
+    opID, ctxDeadline := agent.newOperation(ctx)
+
+    var remainingNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
+    
+    for _, nodeID := range replicaNodes {
+        remainingNodes[nodeID] = true
+    }
+
+    nTotal := len(remainingNodes)
+    nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal), partitionNumber, siteID, bucket, patch)
+
+    if err == ENoQuorum {
+        // If a specific error occurred before this overrides ENoQuorum
+        err = resultError
+    }
+
+    return nTotal, nMerged, err
+}
+
 func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, updateBatch *UpdateBatch) (int, int, error) {
     var partitionNumber uint64 = agent.PartitionResolver.Partition(siteID)
     var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)

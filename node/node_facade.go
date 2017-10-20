@@ -96,15 +96,22 @@ func (nodeFacade *NodeCoordinatorFacade) RemoveSite(siteID string) {
     }
 
     partition.Sites().Remove(siteID)
+    nodeFacade.node.DisconnectRelayBySite(siteID)
 }
 
 func (nodeFacade *NodeCoordinatorFacade) AddRelay(relayID string) {
 }
 
 func (nodeFacade *NodeCoordinatorFacade) RemoveRelay(relayID string) {
+    nodeFacade.node.DisconnectRelay(relayID)
 }
 
 func (nodeFacade *NodeCoordinatorFacade) MoveRelay(relayID string, siteID string) {
+    nodeFacade.node.DisconnectRelay(relayID)
+}
+
+func (nodeFacade *NodeCoordinatorFacade) DisconnectRelays(partitionNumber uint64) {
+    nodeFacade.node.DisconnectRelayByPartition(partitionNumber)
 }
 
 func (nodeFacade *NodeCoordinatorFacade) OwnedPartitionReplicas() map[uint64]map[uint64]bool {

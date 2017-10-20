@@ -59,6 +59,8 @@ type Peer struct {
     result error
     host string
     port int
+    partitionNumber uint64
+    siteID string
     httpClient *http.Client
 }
 
@@ -237,17 +239,17 @@ func (peer *Peer) typeCheck(rawMsg *rawSyncMessageWrapper, msg *SyncMessageWrapp
     return err
 }
 
-func (peer *Peer) close() {
+func (peer *Peer) close(closeCode int) {
     peer.csLock.Lock()
     defer peer.csLock.Unlock()
-    
+
     if !peer.closed {
         peer.closeChan <- true
         peer.closed = true
     }
         
     if peer.connection != nil {
-        err := peer.connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+        err := peer.connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, ""))
         
         if err != nil {
             return
@@ -449,6 +451,8 @@ type Hub struct {
     tlsConfig *tls.Config
     peerMapLock sync.Mutex
     peerMap map[string]*Peer
+    peerMapByPartitionNumber map[uint64]map[string]*Peer
+    peerMapBySiteID map[string]map[string]*Peer
     syncController *SyncController
     forwardEvents chan int
     forwardAlerts chan int
@@ -462,6 +466,8 @@ func NewHub(id string, syncController *SyncController, tlsConfig *tls.Config) *H
         syncController: syncController,
         tlsConfig: tlsConfig,
         peerMap: make(map[string]*Peer),
+        peerMapByPartitionNumber: make(map[uint64]map[string]*Peer),
+        peerMapBySiteID: make(map[string]map[string]*Peer),
         id: id,
         forwardEvents: make(chan int, 1),
         forwardAlerts: make(chan int, 1),
@@ -470,11 +476,11 @@ func NewHub(id string, syncController *SyncController, tlsConfig *tls.Config) *H
     return hub
 }
 
-func (hub *Hub) Accept(connection *websocket.Conn) error {
+func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, siteID string) error {
     conn := connection.UnderlyingConn()
     
     if _, ok := conn.(*tls.Conn); ok {
-        peerID, err := hub.extractPeerID(conn.(*tls.Conn))
+        peerID, err := hub.ExtractPeerID(conn.(*tls.Conn))
         
         if err != nil {
             Log.Warningf("Unable to accept peer connection: %v", err)
@@ -486,6 +492,8 @@ func (hub *Hub) Accept(connection *websocket.Conn) error {
 
         go func() {
             peer := NewPeer(peerID, INCOMING)
+            peer.partitionNumber = partitionNumber
+            peer.siteID = siteID
             
             if !hub.register(peer) {
                 Log.Warningf("Rejected peer connection from %s because that peer is already connected", peerID)
@@ -498,7 +506,11 @@ func (hub *Hub) Accept(connection *websocket.Conn) error {
             incoming, outgoing, err := peer.accept(connection)
             
             if err != nil {
+                Log.Errorf("Unable to accept peer connection from %s: %v. Closing connection and unregistering peer", peerID, err)
+
                 closeWSConnection(connection)
+
+                hub.unregister(peer)
                 
                 return
             }
@@ -568,6 +580,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool)
             }
             
             Log.Infof("Disconnected from devicedb cloud. Reconnecting...")
+            <-time.After(time.Second)
         }
         
         hub.unregister(peer)
@@ -638,7 +651,40 @@ func (hub *Hub) Disconnect(peerID string) {
     peer, ok := hub.peerMap[peerID]
     
     if ok {
-        peer.close()
+        peer.close(websocket.CloseNormalClosure)
+    }
+}
+
+func (hub *Hub) ReconnectPeer(peerID string) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+    
+    peer, ok := hub.peerMap[peerID]
+    
+    if ok {
+        peer.close(websocket.CloseTryAgainLater)
+    }
+}
+
+func (hub *Hub) ReconnectPeerByPartition(partitionNumber uint64) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+
+    if peers, ok := hub.peerMapByPartitionNumber[partitionNumber]; ok {
+        for _, peer := range peers {
+            peer.close(websocket.CloseTryAgainLater)
+        }
+    }
+}
+
+func (hub *Hub) ReconnectPeerBySite(siteID string) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+
+    if peers, ok := hub.peerMapBySiteID[siteID]; ok {
+        for _, peer := range peers {
+            peer.close(websocket.CloseTryAgainLater)
+        }
     }
 }
 
@@ -674,6 +720,17 @@ func (hub *Hub) register(peer *Peer) bool {
     Log.Debugf("Register peer %s", peer.id)
     hub.peerMap[peer.id] = peer
     
+    if _, ok := hub.peerMapByPartitionNumber[peer.partitionNumber]; !ok {
+        hub.peerMapByPartitionNumber[peer.partitionNumber] = make(map[string]*Peer)
+    }
+
+    if _, ok := hub.peerMapBySiteID[peer.siteID]; !ok {
+        hub.peerMapBySiteID[peer.siteID] = make(map[string]*Peer)
+    }
+
+    hub.peerMapByPartitionNumber[peer.partitionNumber][peer.id] = peer
+    hub.peerMapBySiteID[peer.siteID][peer.id] = peer
+    
     return true
 }
 
@@ -686,6 +743,16 @@ func (hub *Hub) unregister(peer *Peer) {
     }
     
     delete(hub.peerMap, peer.id)
+    delete(hub.peerMapByPartitionNumber[peer.partitionNumber], peer.id)
+    delete(hub.peerMapBySiteID[peer.siteID], peer.id)
+
+    if len(hub.peerMapByPartitionNumber[peer.partitionNumber]) == 0 {
+        delete(hub.peerMapByPartitionNumber, peer.partitionNumber)
+    }
+
+    if len(hub.peerMapBySiteID[peer.siteID]) == 0 {
+        delete(hub.peerMapBySiteID, peer.siteID)
+    }
 }
 
 func (hub *Hub) Peers() []*PeerJSON {
@@ -700,7 +767,7 @@ func (hub *Hub) Peers() []*PeerJSON {
     return peers
 }
 
-func (hub *Hub) extractPeerID(conn *tls.Conn) (string, error) {
+func (hub *Hub) ExtractPeerID(conn *tls.Conn) (string, error) {
     // VerifyClientCertIfGiven
     verifiedChains := conn.ConnectionState().VerifiedChains
     

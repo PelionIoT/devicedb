@@ -8,6 +8,7 @@ import (
     . "devicedb/bucket"
     . "devicedb/client"
     . "devicedb/cluster"
+    . "devicedb/clusterio"
     . "devicedb/data"
     . "devicedb/partition"
     . "devicedb/site"
@@ -80,6 +81,8 @@ type CloudBucketProxyFactory struct {
     ClusterController *ClusterController
     // The partition pool for this node
     PartitionPool PartitionPool
+    // The cluster io agent for this node
+    ClusterIOAgent ClusterIOAgent
 }
 
 func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID string, bucketName string) (BucketProxy, error) {
@@ -111,6 +114,7 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID
             Bucket: site.Buckets().Get(bucketName),
             SitePool: partition.Sites(),
             SiteID: siteID,
+            ClusterIOAgent: cloudBucketProxyFactory.ClusterIOAgent,
         }
 
         return localBucket, nil
@@ -121,6 +125,7 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID
         PeerAddress: cloudBucketProxyFactory.ClusterController.ClusterMemberAddress(nodeID),
         SiteID: siteID,
         BucketName: bucketName,
+        ClusterIOAgent: cloudBucketProxyFactory.ClusterIOAgent,
     }, nil
 }
 
@@ -221,6 +226,7 @@ type CloudLocalBucketProxy struct {
     Bucket Bucket
     SiteID string
     SitePool SitePool
+    ClusterIOAgent ClusterIOAgent
 }
 
 func (bucketProxy *CloudLocalBucketProxy) Name() string {
@@ -238,7 +244,9 @@ func (bucketProxy *CloudLocalBucketProxy) GetSyncChildren(nodeID uint32) (Siblin
 }
 
 func (bucketProxy *CloudLocalBucketProxy) Merge(mergedKeys map[string]*SiblingSet) error {
-    return nil
+    _, _, err := bucketProxy.ClusterIOAgent.Merge(context.TODO(), bucketProxy.SiteID, bucketProxy.Bucket.Name(), mergedKeys)
+
+    return err
 }
 
 func (bucketProxy *CloudLocalBucketProxy) Forget(keys [][]byte) error {
@@ -254,6 +262,7 @@ type CloudRemoteBucketProxy struct {
     PeerAddress PeerAddress
     SiteID string
     BucketName string
+    ClusterIOAgent ClusterIOAgent
     merkleTreeProxy MerkleTreeProxy
 }
 
@@ -312,7 +321,9 @@ func (bucketProxy *CloudRemoteBucketProxy) GetSyncChildren(nodeID uint32) (Sibli
 }
 
 func (bucketProxy *CloudRemoteBucketProxy) Merge(mergedKeys map[string]*SiblingSet) error {
-    return nil
+    _, _, err := bucketProxy.ClusterIOAgent.Merge(context.TODO(), bucketProxy.SiteID, bucketProxy.BucketName, mergedKeys)
+
+    return err
 }
 
 func (bucketProxy *CloudRemoteBucketProxy) Forget(keys [][]byte) error {
