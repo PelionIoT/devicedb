@@ -985,9 +985,7 @@ func (server *Server) Start() error {
         }
     
         if server.hub != nil {
-            for key, siblingSet := range updatedSiblingSets {
-                server.hub.SyncController().BroadcastUpdate(bucket, key, siblingSet, server.syncPushBroadcastLimit)
-            }
+            server.hub.BroadcastUpdate("", bucket, updatedSiblingSets, server.syncPushBroadcastLimit)
         }
         
         w.Header().Set("Content-Type", "application/json; charset=utf8")

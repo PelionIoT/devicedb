@@ -972,6 +972,29 @@ func (hub *Hub) StartForwardingAlerts() {
     }()
 }
 
+func (hub *Hub) BroadcastUpdate(siteID string, bucket string, update map[string]*SiblingSet, n uint64) {
+    // broadcast the specified update to at most n peers, or all peers if n is non-positive
+    var count uint64 = 0
+
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+
+    peers := hub.peerMapBySiteID[siteID]
+
+    for peerID, _ := range peers {
+        if !hub.syncController.bucketProxyFactory.OutgoingBuckets(peerID)[bucket] {
+            continue
+        }
+
+        if n != 0 && count == n {
+            break
+        }
+
+        hub.syncController.BroadcastUpdate(peerID, bucket, update, n)
+        count += 1
+    }
+}
+
 type SyncSession struct {
     receiver chan *SyncMessageWrapper
     sender chan *SyncMessageWrapper
@@ -1425,35 +1448,25 @@ func (s *SyncController) Start() {
     s.StartResponderSessions()
 }
 
-func (s *SyncController) BroadcastUpdate(bucket, key string, value *SiblingSet, n uint64) {    
-    // broadcast the specified object to at most n peers, or all peers if n is non-positive
-    var count uint64 = 0
-    
+func (s *SyncController) BroadcastUpdate(peerID string, bucket string, update map[string]*SiblingSet, n uint64) {    
     s.mapMutex.RLock()
     defer s.mapMutex.RUnlock()
-    
-    msg := &SyncMessageWrapper{
-        SessionID: 0,
-        MessageType: SYNC_PUSH_MESSAGE,
-        MessageBody: PushMessage{
-            Key: key,
-            Value: value,
-            Bucket: bucket,
-        },
-        Direction: PUSH,
-    }
-    
-    for peerID, w := range s.peers {
-        if !s.bucketProxyFactory.OutgoingBuckets(peerID)[bucket] {
-            continue
+   
+    for key, value := range update {
+        msg := &SyncMessageWrapper{
+            SessionID: 0,
+            MessageType: SYNC_PUSH_MESSAGE,
+            MessageBody: PushMessage{
+                Key: key,
+                Value: value,
+                Bucket: bucket,
+            },
+            Direction: PUSH,
         }
-        
-        if n != 0 && count == n {
-            break
-        }
+       
+        w := s.peers[peerID]
 
-        Log.Debugf("Push object at key %s to peer %s", key, peerID)
+        Log.Debugf("Push object at key %s in bucket %s to peer %s", key, bucket, peerID)
         w <- msg
-        count += 1
     }
 }

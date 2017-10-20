@@ -646,6 +646,9 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
         return nil, err
     }
 
+    // TODO use node.hub to broadcast to the appropriate peers
+    node.hub.BroadcastUpdate(siteID, bucketName, patch, 10)
+
     return patch, nil
 }
 
