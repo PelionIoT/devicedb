@@ -22,6 +22,7 @@ import (
     . "devicedb/server"
     . "devicedb/site"
     . "devicedb/storage"
+    ddbSync "devicedb/sync"
     . "devicedb/transfer"
     . "devicedb/util"
 
@@ -66,7 +67,7 @@ type ClusterNode struct {
     shutdownDecommissioner func()
     lock sync.Mutex
     emptyMu sync.Mutex
-    hub *CloudHub
+    hub *Hub
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -85,7 +86,6 @@ func New(config ClusterNodeConfig) *ClusterNode {
         capacity: config.Capacity,
         partitionFactory: NewDefaultPartitionFactory(),
         partitionPool: NewDefaultPartitionPool(),
-        hub: NewCloudHub(),
     }
 
     return clusterNode
@@ -151,6 +151,16 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.configControllerBuilder.SetRaftNodeTransport(node.raftTransport)
     node.configControllerBuilder.SetCreateNewCluster(options.ShouldStartCluster())
     node.configController = node.configControllerBuilder.Create()
+
+    bucketProxyFactory := &ddbSync.CloudBucketProxyFactory{
+        Client: *node.interClusterClient,
+        ClusterController: node.configController.ClusterController(),
+        PartitionPool: node.partitionPool,
+    }
+
+    syncController := NewSyncController(uint(10), bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Second), uint32(10))
+
+    node.hub = NewHub("", syncController, nil)
 
     stateCoordinator := NewClusterNodeStateCoordinator(&NodeCoordinatorFacade{ node: node }, nil)
     node.configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {

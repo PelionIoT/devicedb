@@ -9,6 +9,7 @@ import (
     . "devicedb/client"
     . "devicedb/cluster"
     . "devicedb/data"
+    . "devicedb/partition"
     . "devicedb/site"
     . "devicedb/raft"
     rest "devicedb/rest"
@@ -77,8 +78,8 @@ type CloudBucketProxyFactory struct {
     Client Client
     // The cluster controller for this node
     ClusterController *ClusterController
-    // The site pool for this node
-    SitePool SitePool
+    // The partition pool for this node
+    PartitionPool PartitionPool
 }
 
 func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID string, bucketName string) (BucketProxy, error) {
@@ -94,7 +95,13 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID
     nodeID := nodeIDs[int(rand.Uint32() % uint32(len(nodeIDs)))]
 
     if cloudBucketProxyFactory.ClusterController.LocalNodeID == nodeID {
-        site := cloudBucketProxyFactory.SitePool.Acquire(siteID)
+        partition := cloudBucketProxyFactory.PartitionPool.Get(partitionNumber)
+
+        if partition == nil {
+            return nil, ENoLocalBucket
+        }
+
+        site := partition.Sites().Acquire(siteID)
 
         if site == nil || site.Buckets().Get(bucketName) == nil {
             return nil, ENoLocalBucket
@@ -102,7 +109,7 @@ func (cloudBucketProxyFactory *CloudBucketProxyFactory) CreateBucketProxy(peerID
 
         localBucket := &CloudLocalBucketProxy{
             Bucket: site.Buckets().Get(bucketName),
-            SitePool: cloudBucketProxyFactory.SitePool,
+            SitePool: partition.Sites(),
             SiteID: siteID,
         }
 

@@ -12,51 +12,6 @@ import (
     . "devicedb/logging"
 )
 
-/*type RelayHandler struct {
-    upgrader websocket.Upgrader
-}
-
-func NewRelayHandler() *RelayHandler {
-    return &RelayHandler{
-        upgrader: websocket.Upgrader{
-            ReadBufferSize:  1024,
-            WriteBufferSize: 1024,
-        },
-    }
-}
-
-func (rh *RelayHandler) extractRelayID(conn *tls.Conn) (string, error) {
-    verifiedChains := conn.ConnectionState().VerifiedChains
-    
-    if len(verifiedChains) != 1 {
-        return "", errors.New("Invalid client certificate")
-    }
-    
-    relayID:= verifiedChains[0][0].Subject.CommonName
-    
-    return relayID, nil
-}
-
-func (rh *RelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    connection, err := rh.upgrader.Upgrade(w, r, nil)
-    
-    if err != nil {
-        return
-    }
- 
-    conn := connection.UnderlyingConn()
-    relayID, err := rh.extractRelayID(conn.(*tls.Conn))
-
-    if err != nil {
-        conn.Close()
-
-        return
-    }
-
-    // rh.relayHub.HandleRelayConnection(relayID, connection)
-    Log.Infof("Relay %s connected", relayID)
-}*/
-
 type CloudServerConfig struct {
     NodeID uint64
     ExternalPort int
