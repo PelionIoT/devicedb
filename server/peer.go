@@ -476,11 +476,18 @@ func NewHub(id string, syncController *SyncController, tlsConfig *tls.Config) *H
     return hub
 }
 
-func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, siteID string) error {
+func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relayID string, siteID string) error {
     conn := connection.UnderlyingConn()
     
-    if _, ok := conn.(*tls.Conn); ok {
-        peerID, err := hub.ExtractPeerID(conn.(*tls.Conn))
+    if _, ok := conn.(*tls.Conn); ok || relayID != "" {
+        var peerID string
+        var err error
+
+        if _, ok := conn.(*tls.Conn); ok {
+            peerID, err = hub.ExtractPeerID(conn.(*tls.Conn))
+        } else {
+            peerID = relayID
+        }
         
         if err != nil {
             Log.Warningf("Unable to accept peer connection: %v", err)

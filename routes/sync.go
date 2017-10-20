@@ -23,6 +23,6 @@ func (syncEndpoint *SyncEndpoint) Attach(router *mux.Router) {
             return
         }
         
-        syncEndpoint.ClusterFacade.AcceptRelayConnection(conn)
+        syncEndpoint.ClusterFacade.AcceptRelayConnection(conn, r.Header)
     }).Methods("GET")
 }

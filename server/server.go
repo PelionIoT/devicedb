@@ -1063,7 +1063,7 @@ func (server *Server) Start() error {
             return
         }
         
-        server.hub.Accept(conn, 0, "")
+        server.hub.Accept(conn, 0, "", "")
     }).Methods("GET")
 
     r.HandleFunc("/debug/pprof/", pprof.Index)

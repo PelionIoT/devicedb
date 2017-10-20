@@ -6,7 +6,9 @@ import (
     "encoding/binary"
     "errors"
     "fmt"
+    "io"
     "math/rand"
+    "net/http"
     "sync"
     "time"
 
@@ -646,7 +648,6 @@ func (node *ClusterNode) Batch(ctx context.Context, partitionNumber uint64, site
         return nil, err
     }
 
-    // TODO use node.hub to broadcast to the appropriate peers
     node.hub.BroadcastUpdate(siteID, bucketName, patch, 10)
 
     return patch, nil
@@ -728,26 +729,33 @@ func (node *ClusterNode) GetMatches(ctx context.Context, partitionNumber uint64,
     return bucket.GetMatches(keys)
 }
 
-func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn) {
+func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn, header http.Header) {
     node.relayConnectionsMu.Lock()
     defer node.relayConnectionsMu.Unlock()
 
+    var relayID string
+
     if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
-        Log.Warningf("Cannot accept non-secure relay connections. Must use TLS")
+        if header.Get("X-WigWag-RelayID") == "" {
+            Log.Warningf("Cannot accept non-secure relay connections. Must use TLS")
 
-        conn.Close()
+            conn.Close()
 
-        return
-    }
+            return
+        }
 
-    relayID, err := node.hub.ExtractPeerID(conn.UnderlyingConn().(*tls.Conn))
+        relayID = header.Get("X-WigWag-RelayID")
+    } else {
+        var err error
+        relayID, err = node.hub.ExtractPeerID(conn.UnderlyingConn().(*tls.Conn))
 
-    if err != nil {
-        Log.Warningf("Cannot accept connection from relay because it provided an invalid client cert.")
+        if err != nil {
+            Log.Warningf("Cannot accept connection from relay because it provided an invalid client cert.")
 
-        conn.Close()
+            conn.Close()
 
-        return
+            return
+        }
     }
 
     siteID := node.configController.ClusterController().RelaySite(relayID)
@@ -776,16 +784,60 @@ func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn) {
             Log.Infof("Local node (id = %d) accepting connection from relay %s which belongs to site %s", nodeID, relayID, siteID)
 
             // The local node owns this site database. It can accept the connection for this relay
-            node.hub.Accept(conn, partitionNumber, siteID)
+            node.hub.Accept(conn, partitionNumber, relayID, siteID)
 
             return
         }
+    }
+
+    // Can only proxy wss -> ws
+    if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
+        Log.Warningf("Local node (id = %d) cannot accept proxied connection from relay %s because it does not own the partition to which its site, site %s, belongs", node.configController.ClusterController().LocalNodeID, relayID, siteID)
+
+        conn.Close()
+
+        return
     }
 
     // The local node does not own the site database for this site. It should proxy the connection to one of the owners
     nodeID := owners[int(rand.Uint32() % uint32(len(owners)))]
 
     Log.Infof("Local node (id = %d) proxying connection from relay %s which belongs to site %s to node %d", node.configController.ClusterController().LocalNodeID, relayID, siteID, nodeID)
+    node.proxyRelayConnection(nodeID, relayID, conn)
+}
+
+func (node *ClusterNode) proxyRelayConnection(nodeID uint64, relayID string, conn *websocket.Conn) {
+    var dialer *websocket.Dialer = websocket.DefaultDialer
+
+    header := http.Header{}
+    header.Set("X-WigWag-RelayID", relayID)
+    nodeAddress := node.ClusterConfigController().ClusterController().ClusterMemberAddress(nodeID)
+    connBackend, _, err := dialer.Dial(fmt.Sprintf("ws://%s:%d/sync", nodeAddress.Host, nodeAddress.Port), header)
+
+    if err != nil {
+        Log.Warningf("Unable to proxy connection to node %d: %v", nodeID, err)
+
+        conn.Close()
+
+        return
+    }
+
+    errors := make(chan error, 2)
+    cp := func(dest io.Writer, src io.Reader) {
+        _, err := io.Copy(dest, src)
+        errors <- err
+    }
+
+    go cp(connBackend.UnderlyingConn(), conn.UnderlyingConn())
+    go cp(conn.UnderlyingConn(), connBackend.UnderlyingConn())
+
+    go func() {
+        err := <-errors
+        Log.Infof("Closing proxied connection: %v", err)
+
+        conn.Close()
+        connBackend.Close()
+    }()
 }
 
 func (node *ClusterNode) DisconnectRelay(relayID string) {
@@ -946,6 +998,6 @@ func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID s
     return clusterFacade.node.configController.ClusterCommand(ctx, ClusterRemoveSiteBody{ SiteID: siteID })
 }
 
-func (clusterFacade *ClusterNodeFacade) AcceptRelayConnection(conn *websocket.Conn) {
-    clusterFacade.node.AcceptRelayConnection(conn)
+func (clusterFacade *ClusterNodeFacade) AcceptRelayConnection(conn *websocket.Conn, header http.Header) {
+    clusterFacade.node.AcceptRelayConnection(conn, header)
 }
