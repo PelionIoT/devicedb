@@ -14,6 +14,9 @@ type NodeInitializationOptions struct {
     ClusterPort int
     ExternalHost string
     ExternalPort int
+    SyncMaxSessions uint
+    SyncPathLimit uint32
+    SyncPeriod uint
 }
 
 func (options NodeInitializationOptions) ShouldStartCluster() bool {

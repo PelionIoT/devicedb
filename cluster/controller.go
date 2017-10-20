@@ -393,7 +393,7 @@ func (clusterController *ClusterController) RemoveRelay(clusterCommand ClusterRe
 }
 
 func (clusterController *ClusterController) MoveRelay(clusterCommand ClusterMoveRelayBody) error {
-    if clusterController.State.SiteExists(clusterCommand.SiteID) {
+    if !clusterController.State.SiteExists(clusterCommand.SiteID) {
         return ENoSuchSite
     }
 

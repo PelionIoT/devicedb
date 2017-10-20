@@ -158,7 +158,11 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
         PartitionPool: node.partitionPool,
     }
 
-    syncController := NewSyncController(uint(10), bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Second), uint32(10))
+    if options.SyncPeriod < 1000 {
+        options.SyncPeriod = 1000
+    }
+
+    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
 
     node.hub = NewHub("", syncController, nil)
 
@@ -185,6 +189,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.clusterioAgent = clusterio.NewAgent(NewNodeClient(node, node.configController), NewPartitionResolver(node.configController))
     stateCoordinator.InitializeNodeState()
 
+    node.hub.SyncController().Start()
     serverStopResult := node.startNetworking()
     decommission, err := node.raftStore.IsDecommissioning()
 

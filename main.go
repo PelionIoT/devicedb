@@ -248,6 +248,9 @@ Cluster Commands:
     overview      Show an overview of the nodes in the cluster
     add_site      Add a site to the cluster
     remove_site   Remove a site from the cluster
+    add_relay     Add a relay to the cluster
+    remove_relay  Remove a relay from the cluster
+    move_relay    Move a relay to a site
     get           Get an entry in a site database with a certain key
     get_matches   Get all entries in a site database whose keys match some prefix
     put           Put a value in a site database with a certain key
@@ -302,6 +305,9 @@ func main() {
     clusterOverviewCommand := flag.NewFlagSet("overview", flag.ExitOnError)
     clusterAddSiteCommand := flag.NewFlagSet("add_site", flag.ExitOnError)
     clusterRemoveSiteCommand := flag.NewFlagSet("remove_site", flag.ExitOnError)
+    clusterAddRelayCommand := flag.NewFlagSet("add_relay", flag.ExitOnError)
+    clusterRemoveRelayCommand := flag.NewFlagSet("remove_relay", flag.ExitOnError)
+    clusterMoveRelayCommand := flag.NewFlagSet("move_relay", flag.ExitOnError)
     clusterGetCommand := flag.NewFlagSet("get", flag.ExitOnError)
     clusterGetMatchesCommand := flag.NewFlagSet("get_matches", flag.ExitOnError)
     clusterPutCommand := flag.NewFlagSet("put", flag.ExitOnError)
@@ -331,6 +337,9 @@ func main() {
     clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
     clusterStartReplacement := clusterStartCommand.Bool("replacement", false, "Specify this flag if this node is being added to replace some other node in the cluster.")
     clusterStartMerkleDepth := clusterStartCommand.Uint("merkle", 4, "Use this flag to adjust the merkle depth used for site merkle trees.")
+    clusterStartSyncMaxSessions := clusterStartCommand.Uint("sync_max_sessions", 10, "The number of sync sessions to allow at the same time.")
+    clusterStartSyncPathLimit := clusterStartCommand.Uint("sync_path_limit", 10, "The number of exploration paths to allow in a sync session.")
+    clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
     clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
@@ -355,6 +364,19 @@ func main() {
     clusterRemoveSiteHost := clusterRemoveSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the site.")
     clusterRemoveSitePort := clusterRemoveSiteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
     clusterRemoveSiteSiteID := clusterRemoveSiteCommand.String("site", "", "The ID of the site to remove. (Required)")
+
+    clusterAddRelayHost := clusterAddRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the relay.")
+    clusterAddRelayPort := clusterAddRelayCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterAddRelayRelayID := clusterAddRelayCommand.String("relay", "", "The ID of the relay to add. (Required)")
+
+    clusterRemoveRelayHost := clusterRemoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
+    clusterRemoveRelayPort := clusterRemoveRelayCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRemoveRelayRelayID := clusterRemoveRelayCommand.String("relay", "", "The ID of the relay to remove. (Required)")
+
+    clusterMoveRelayHost := clusterMoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
+    clusterMoveRelayPort := clusterMoveRelayCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterMoveRelayRelayID := clusterMoveRelayCommand.String("relay", "", "The ID of the relay to move. (Required)")
+    clusterMoveRelaySiteID := clusterMoveRelayCommand.String("site", "", "The ID of the site to move the relay to. If left blank the relay is removed from its current site.")
 
     clusterGetHost := clusterGetCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting this key.")
     clusterGetPort := clusterGetCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
@@ -412,6 +434,12 @@ func main() {
             clusterAddSiteCommand.Parse(os.Args[3:])
         case "remove_site":
             clusterRemoveSiteCommand.Parse(os.Args[3:])
+        case "add_relay":
+            clusterAddRelayCommand.Parse(os.Args[3:])
+        case "remove_relay":
+            clusterRemoveRelayCommand.Parse(os.Args[3:])
+        case "move_relay":
+            clusterMoveRelayCommand.Parse(os.Args[3:])
         case "get":
             clusterGetCommand.Parse(os.Args[3:])
         case "get_matches":
@@ -671,6 +699,21 @@ func main() {
             os.Exit(1)
         }
 
+        if *clusterStartSyncMaxSessions == 0 {
+            fmt.Fprintf(os.Stderr, "Error: The specified sync sessions max is not valid. It must be a positive integer\n")
+            os.Exit(1)
+        }
+
+        if *clusterStartSyncPathLimit == 0 {
+            fmt.Fprintf(os.Stderr, "Error: The specified sync path limit is not valid. It must be a positive integer\n")
+            os.Exit(1)
+        }
+
+        if *clusterStartSyncPeriod == 0 {
+            fmt.Fprintf(os.Stderr, "Error: The specified sync period is not valid. It must be a positive integer\n")
+            os.Exit(1)
+        }
+
         var seedHost string
         var seedPort int
         var startOptions node.NodeInitializationOptions
@@ -690,6 +733,9 @@ func main() {
         startOptions.ClusterPort = int(*clusterStartPort)
         startOptions.ExternalHost = *clusterStartRelayHost
         startOptions.ExternalPort = int(*clusterStartRelayPort)
+        startOptions.SyncMaxSessions = *clusterStartSyncMaxSessions
+        startOptions.SyncPathLimit = uint32(*clusterStartSyncPathLimit)
+        startOptions.SyncPeriod = *clusterStartSyncPeriod
 
         cloudNodeStorage := storage.NewLevelDBStorageDriver(*clusterStartStore, nil)
         cloudServer := NewCloudServer(CloudServerConfig{
@@ -833,6 +879,72 @@ func main() {
         }
 
         fmt.Fprintf(os.Stderr, "Removed site %s\n", *clusterRemoveSiteSiteID)
+
+        os.Exit(0)
+    }
+
+    if clusterAddRelayCommand.Parsed() {
+        if *clusterAddRelayRelayID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Adding relay %s...\n", *clusterAddRelayRelayID)
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterAddRelayHost, *clusterAddRelayPort) } })
+        err := apiClient.AddRelay(context.TODO(), *clusterAddRelayRelayID)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to add relay: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Added relay %s\n", *clusterAddRelayRelayID)
+
+        os.Exit(0)
+    }
+
+    if clusterRemoveRelayCommand.Parsed() {
+        if *clusterRemoveRelayRelayID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Removing relay %s...\n", *clusterRemoveRelayRelayID)
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterRemoveRelayHost, *clusterRemoveRelayPort) } })
+        err := apiClient.RemoveRelay(context.TODO(), *clusterRemoveRelayRelayID)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to remove relay: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Removed relay %s\n", *clusterRemoveRelayRelayID)
+
+        os.Exit(0)
+    }
+
+    if clusterMoveRelayCommand.Parsed() {
+        if *clusterMoveRelayRelayID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Moving relay %s to site %s...\n", *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterMoveRelayHost, *clusterMoveRelayPort) } })
+        err := apiClient.MoveRelay(context.TODO(), *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to move relay: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Moved relay %s to site %s\n", *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
 
         os.Exit(0)
     }
@@ -1002,6 +1114,12 @@ func main() {
             flagSet = clusterAddSiteCommand
         case "remove_site":
             flagSet = clusterRemoveSiteCommand
+        case "add_relay":
+            flagSet = clusterAddRelayCommand
+        case "remove_relay":
+            flagSet = clusterRemoveRelayCommand
+        case "move_relay":
+            flagSet = clusterMoveRelayCommand
         case "get":
             flagSet = clusterGetCommand
         case "get_matches":

@@ -219,6 +219,8 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
         command.Type = ClusterAddRelay
     case ClusterRemoveRelayBody:
         command.Type = ClusterRemoveRelay
+    case ClusterMoveRelayBody:
+        command.Type = ClusterMoveRelay
     default:
         return ENoSuchCommand
     }
