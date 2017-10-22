@@ -13,7 +13,7 @@ var _ = Describe("SiblingSetMergeIterator", func() {
     var mergeIterator *SiblingSetMergeIterator
 
     BeforeEach(func() {
-        readMerger = NewReadMerger()
+        readMerger = NewReadMerger("default")
         mergeIterator = NewSiblingSetMergeIterator(readMerger)
     })
 

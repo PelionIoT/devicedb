@@ -196,7 +196,7 @@ func (agent *Agent) merge(ctx context.Context, opID uint64, nodes map[uint64]boo
 func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error) {
     var partitionNumber uint64 = agent.PartitionResolver.Partition(siteID)
     var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)
-    var readMerger *ReadMerger = NewReadMerger()
+    var readMerger *ReadMerger = NewReadMerger(bucket)
     var readResults chan getResult = make(chan getResult, len(replicaNodes))
     var failed chan error = make(chan error, len(replicaNodes))
     var nRead int = 0
@@ -277,7 +277,7 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
 func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error) {
     var partitionNumber uint64 = agent.PartitionResolver.Partition(siteID)
     var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)
-    var readMerger *ReadMerger = NewReadMerger()
+    var readMerger *ReadMerger = NewReadMerger(bucket)
     var mergeIterator *SiblingSetMergeIterator = NewSiblingSetMergeIterator(readMerger)
     var readResults chan getMatchesResult = make(chan getMatchesResult, len(replicaNodes))
     var failed chan error = make(chan error, len(replicaNodes))

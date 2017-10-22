@@ -2,17 +2,30 @@ package clusterio
 
 import (
     . "devicedb/data"
+    "devicedb/resolver"
+    "devicedb/resolver/strategies"
 )
 
 type ReadMerger struct {
     keyVersions map[string]map[uint64]*SiblingSet
     mergedKeys map[string]*SiblingSet
+    conflictResolver resolver.ConflictResolver
 }
 
-func NewReadMerger() *ReadMerger {
+func NewReadMerger(bucket string) *ReadMerger {
+    var conflictResolver resolver.ConflictResolver
+
+    switch bucket {
+    case "lww":
+        conflictResolver = &strategies.LastWriterWins{}
+    default:
+        conflictResolver = &strategies.MultiValue{}
+    }
+
     return &ReadMerger{
         keyVersions: make(map[string]map[uint64]*SiblingSet),
         mergedKeys: make(map[string]*SiblingSet),
+        conflictResolver: conflictResolver,
     }
 }
 
@@ -43,7 +56,7 @@ func (readMerger *ReadMerger) Get(key string) *SiblingSet {
         return nil
     }
     
-    return readMerger.mergedKeys[key]
+    return readMerger.conflictResolver.ResolveConflicts(readMerger.mergedKeys[key])
 }
 
 func (readMerger *ReadMerger) Patch(nodeID uint64) map[string]*SiblingSet {

@@ -39,7 +39,7 @@ var _ = Describe("ReadRepairer", func() {
                     return nil
                 }
 
-                readMerger := NewReadMerger()
+                readMerger := NewReadMerger("default")
                 readMerger.InsertKeyReplica(2, "a", nil)
                 readMerger.InsertKeyReplica(4, "b", nil)
                 readMerger.InsertKeyReplica(6, "c", nil)
@@ -76,7 +76,7 @@ var _ = Describe("ReadRepairer", func() {
                     return nil
                 }
 
-                readMerger := NewReadMerger()
+                readMerger := NewReadMerger("default")
                 readMerger.InsertKeyReplica(2, "a", nil)
                 readMerger.InsertKeyReplica(4, "b", nil)
                 readMerger.InsertKeyReplica(6, "c", nil)
@@ -105,7 +105,7 @@ var _ = Describe("ReadRepairer", func() {
                     return nil
                 }
 
-                readMerger := NewReadMerger()
+                readMerger := NewReadMerger("default")
                 readMerger.InsertKeyReplica(2, "a", nil)
                 readMerger.InsertKeyReplica(4, "b", nil)
                 readMerger.InsertKeyReplica(6, "c", nil)
@@ -144,7 +144,7 @@ var _ = Describe("ReadRepairer", func() {
                 return nil
             }
 
-            readMerger := NewReadMerger()
+            readMerger := NewReadMerger("default")
             readMerger.InsertKeyReplica(2, "a", nil)
             readMerger.InsertKeyReplica(4, "b", nil)
             readMerger.InsertKeyReplica(6, "c", nil)
