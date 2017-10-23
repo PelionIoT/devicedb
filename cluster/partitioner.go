@@ -6,7 +6,6 @@ import (
     "sync"
 
     . "devicedb/data"
-    //. "devicedb/logging"
 )
 
 type NodeTokenCount struct {
@@ -196,6 +195,8 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
         }
     }
 
+    var nextNode int
+
     // find an owner for unplaced tokens. Tokens may be unplaced due to an uninitialized cluster,
     // removed nodes, or decommissioned nodes
     for token, owner := range assignments {
@@ -204,15 +205,19 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
         }
 
         // Token is unassigned. Need to find a home for it
-        for i, node := range nodes {
+        for i := 0; i < len(nodes); i++ {
+            nodeIndex := (nextNode + i) % len(nodes)
+            node := nodes[nodeIndex]
+
             if node.Capacity == 0 {
                 // This node is decommissioning. It is effectively removed from the cluster
                 continue
             }
 
-            if tokenCounts[i] < tokenCountCeil {
+            if tokenCounts[nodeIndex] < tokenCountCeil {
                 assignments[token] = node.Address.NodeID
-                tokenCounts[i]++
+                tokenCounts[nodeIndex]++
+                nextNode = (nodeIndex + 1) % len(nodes)
 
                 break
             }
@@ -227,6 +232,32 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
             continue
         }
 
+        // Pass 1: Each time after givine a token to this node,
+        // skip the next token in an attempt to avoid adjacencies
+        for token := 0; token < len(assignments) && tokenCounts[i] < tokenCountFloor; token++ {
+            owner := assignments[token]
+            ownerIndex := 0
+
+            for j := 0; j < len(nodes); j++ {
+                if nodes[j].Address.NodeID == owner {
+                    ownerIndex = j
+                    break
+                }
+            }
+
+            // take this token
+            if tokenCounts[ownerIndex] > tokenCountFloor {
+                assignments[token] = nodes[i].Address.NodeID
+                tokenCounts[i]++
+                tokenCounts[ownerIndex]--
+
+                // Increment so a space is skipped
+                token++
+            }
+        }
+
+        // Pass 2: Don't skip any spaces. Just make sure the node
+        // gets enough tokens assigned to it
         // Should evenly space tokens throughout the ring for this node for even
         // partition distributions
         for j := 0; tokenCounts[i] < tokenCountFloor && j < len(tokenCounts); j++ {
@@ -254,11 +285,9 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
         // loop invariant: all nodes in nodes[:i+1] that have positive capacity have been assigned at least tokenCountFloor tokens and at most tokenCountCeil tokens
     }
 
-    //Log.Infof("New assignment %v", assignments)
-
     return assignments, nil
 }
-    
+
 func (ps *SimplePartitioningStrategy) AssignPartitions(nodes []NodeConfig, currentPartitionAssignment [][]uint64) {
     sort.Sort(NodeConfigList(nodes))
 

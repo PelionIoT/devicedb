@@ -35,4 +35,5 @@ type ClusterFacade interface {
     ClusterNodes() []NodeConfig
     ClusterSettings() ClusterSettings
     PartitionDistribution() [][]uint64
+    TokenAssignments() []uint64
 }

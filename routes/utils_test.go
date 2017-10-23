@@ -220,6 +220,10 @@ func (clusterFacade *MockClusterFacade) PartitionDistribution() [][]uint64 {
     return nil
 }
 
+func (clusterFacade *MockClusterFacade) TokenAssignments() []uint64 {
+    return nil
+}
+
 type siblingSetIteratorEntry struct {
     Prefix []byte
     Key []byte

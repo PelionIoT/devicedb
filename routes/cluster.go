@@ -26,6 +26,7 @@ func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.Router) {
         clusterOverview.Nodes = clusterEndpoint.ClusterFacade.ClusterNodes()
         clusterOverview.ClusterSettings = clusterEndpoint.ClusterFacade.ClusterSettings()
         clusterOverview.PartitionDistribution = clusterEndpoint.ClusterFacade.PartitionDistribution()
+        clusterOverview.TokenAssignments = clusterEndpoint.ClusterFacade.TokenAssignments()
 
         encodedOverview, err := json.Marshal(clusterOverview)
 

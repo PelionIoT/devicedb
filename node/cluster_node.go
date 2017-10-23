@@ -1032,3 +1032,7 @@ func (clusterFacade *ClusterNodeFacade) PartitionDistribution() [][]uint64 {
 
     return partitionDistribution
 }
+
+func (clusterFacade *ClusterNodeFacade) TokenAssignments() []uint64 {
+    return clusterFacade.node.configController.ClusterController().State.Tokens
+}

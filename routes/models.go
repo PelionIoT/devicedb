@@ -10,6 +10,7 @@ type ClusterOverview struct {
     Nodes []NodeConfig
     ClusterSettings ClusterSettings
     PartitionDistribution [][]uint64
+    TokenAssignments []uint64
 }
 
 type InternalEntry struct {

@@ -870,6 +870,18 @@ func main() {
         partitionTable.Render()
         fmt.Fprintf(os.Stderr, "\n")
 
+        tokenTable := tablewriter.NewWriter(os.Stdout)
+        tokenTable.SetHeader([]string{ "Token", "Owner Node" })
+
+        for token, owner := range overview.TokenAssignments {
+            tokenTable.Append([]string{ fmt.Sprintf("%d", token), fmt.Sprintf("%d", owner) })
+        }
+
+        fmt.Fprintf(os.Stderr, "Tokens\n")
+        tokenTable.Render()
+        fmt.Fprintf(os.Stderr, "\n")
+
+
         nodeTable := tablewriter.NewWriter(os.Stdout)
         nodeTable.SetHeader([]string{ "Node ID", "Host", "Port", "Capacity %" })
 
