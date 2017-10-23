@@ -831,10 +831,62 @@ func main() {
     }
 
     if clusterOverviewCommand.Parsed() {
-        table := tablewriter.NewWriter(os.Stdout)
-        table.SetHeader([]string{ "Node ID", "Host", "Port" })
-        table.Append([]string{ "2323423432", *clusterOverviewHost, fmt.Sprintf("%d", *clusterOverviewPort) })
-        table.Render()
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterOverviewHost, *clusterOverviewPort) } })
+        overview, err := apiClient.ClusterOverview(context.TODO())
+        ownershipHist := make(map[uint64]int)
+
+        for _, replicas := range overview.PartitionDistribution {
+            var seenNodes map[uint64]bool = make(map[uint64]bool)
+
+            for _, owner := range replicas {
+                if seenNodes[owner] {
+                    continue
+                }
+
+                seenNodes[owner] = true
+                ownershipHist[owner] = ownershipHist[owner] + 1
+            }
+        }
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to get cluster overview: %v\n", err)
+
+            os.Exit(1)
+        }
+
+        partitionTable := tablewriter.NewWriter(os.Stdout)
+
+        partitionTable.SetHeader([]string{ "Partition", "Replica", "Owner Node" })
+
+        for partition, replicas := range overview.PartitionDistribution {
+            for replica, owner := range replicas {
+                partitionTable.Append([]string{ fmt.Sprintf("%d", partition), fmt.Sprintf("%d", replica), fmt.Sprintf("%d", owner) })
+            }
+        }
+
+        //partitionTable.SetAutoMergeCells(true)
+
+        fmt.Fprintf(os.Stderr, "Partitions\n")
+        partitionTable.Render()
+        fmt.Fprintf(os.Stderr, "\n")
+
+        nodeTable := tablewriter.NewWriter(os.Stdout)
+        nodeTable.SetHeader([]string{ "Node ID", "Host", "Port", "Capacity %" })
+
+        for _, nodeConfig := range overview.Nodes {
+            var ownershipPercentage int 
+           
+            if len(overview.PartitionDistribution) != 0 {
+                ownershipPercentage = (100 * ownershipHist[nodeConfig.Address.NodeID]) / len(overview.PartitionDistribution)
+            }
+
+            nodeTable.Append([]string{ fmt.Sprintf("%d", nodeConfig.Address.NodeID), nodeConfig.Address.Host, fmt.Sprintf("%d", nodeConfig.Address.Port), fmt.Sprintf("%d", ownershipPercentage) })
+        }
+
+        nodeTable.SetFooter([]string{ "", "", fmt.Sprintf("Partitions: %d", overview.ClusterSettings.Partitions), fmt.Sprintf("Replication Factor: %d", overview.ClusterSettings.ReplicationFactor) })
+       
+        fmt.Fprintf(os.Stderr, "Nodes\n")
+        nodeTable.Render()
 
         os.Exit(0)
     }

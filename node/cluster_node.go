@@ -1005,3 +1005,30 @@ func (clusterFacade *ClusterNodeFacade) RemoveSite(ctx context.Context, siteID s
 func (clusterFacade *ClusterNodeFacade) AcceptRelayConnection(conn *websocket.Conn, header http.Header) {
     clusterFacade.node.AcceptRelayConnection(conn, header)
 }
+
+func (clusterFacade *ClusterNodeFacade) ClusterNodes() []NodeConfig {
+    var nodeConfigs []NodeConfig = clusterFacade.node.configController.ClusterController().ClusterNodeConfigs()
+
+    for i, nodeConfig := range nodeConfigs {
+        nodeConfigs[i] = NodeConfig{
+            Address: nodeConfig.Address,
+            Capacity: nodeConfig.Capacity,
+        }
+    }
+
+    return nodeConfigs
+}
+
+func (clusterFacade *ClusterNodeFacade) ClusterSettings() ClusterSettings {
+    return clusterFacade.node.configController.ClusterController().State.ClusterSettings
+}
+
+func (clusterFacade *ClusterNodeFacade) PartitionDistribution() [][]uint64 {
+    var partitionDistribution [][]uint64 = make([][]uint64, clusterFacade.node.configController.ClusterController().State.ClusterSettings.Partitions)
+
+    for partition, _ := range partitionDistribution {
+        partitionDistribution[partition] = clusterFacade.node.configController.ClusterController().PartitionOwners(uint64(partition))
+    }
+
+    return partitionDistribution
+}

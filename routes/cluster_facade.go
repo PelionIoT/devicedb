@@ -32,4 +32,7 @@ type ClusterFacade interface {
     GetMatches(siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
     LocalGetMatches(partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
     AcceptRelayConnection(conn *websocket.Conn, header http.Header)
+    ClusterNodes() []NodeConfig
+    ClusterSettings() ClusterSettings
+    PartitionDistribution() [][]uint64
 }

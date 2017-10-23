@@ -41,6 +41,24 @@ func (client *APIClient) nextServer() (server string) {
     return
 }
 
+func (client *APIClient) ClusterOverview(ctx context.Context) (routes.ClusterOverview, error) {
+    encodedOverview, err := client.sendRequest(ctx, "GET", "/cluster", nil)
+
+    if err != nil {
+        return routes.ClusterOverview{}, err
+    }
+
+    var clusterOverview routes.ClusterOverview
+
+    err = json.Unmarshal(encodedOverview, &clusterOverview)
+
+    if err != nil {
+        return routes.ClusterOverview{}, err
+    }
+
+    return clusterOverview, nil
+}
+
 func (client *APIClient) AddSite(ctx context.Context, siteID string) error {
     _, err := client.sendRequest(ctx, "PUT", "/sites/" + siteID, nil)
 

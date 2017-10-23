@@ -208,6 +208,18 @@ func (clusterFacade *MockClusterFacade) AcceptRelayConnection(conn *websocket.Co
     }
 }
 
+func (clusterFacade *MockClusterFacade) ClusterNodes() []NodeConfig {
+    return nil
+}
+
+func (clusterFacade *MockClusterFacade) ClusterSettings() ClusterSettings {
+    return ClusterSettings{}
+}
+
+func (clusterFacade *MockClusterFacade) PartitionDistribution() [][]uint64 {
+    return nil
+}
+
 type siblingSetIteratorEntry struct {
     Prefix []byte
     Key []byte

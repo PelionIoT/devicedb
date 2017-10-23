@@ -722,6 +722,19 @@ func (clusterController *ClusterController) ClusterNodes() map[uint64]bool {
     return nodeMap
 }
 
+func (clusterController *ClusterController) ClusterNodeConfigs() []NodeConfig {
+    clusterController.stateUpdateLock.Lock()
+    defer clusterController.stateUpdateLock.Unlock()
+
+    nodeConfigs := make([]NodeConfig, 0, len(clusterController.State.Nodes))
+
+    for _, config := range clusterController.State.Nodes {
+        nodeConfigs = append(nodeConfigs, *config)
+    }
+
+    return nodeConfigs
+}
+
 func (clusterController *ClusterController) initializeClusterIfReady() {
     if !clusterController.State.ClusterSettings.AreInitialized() {
         // the cluster settings have not been finalized so the cluster cannot yet be initialized

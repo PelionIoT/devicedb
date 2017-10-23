@@ -1,9 +1,16 @@
 package routes
 
 import (
+    . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/transport"
 )
+
+type ClusterOverview struct {
+    Nodes []NodeConfig
+    ClusterSettings ClusterSettings
+    PartitionDistribution [][]uint64
+}
 
 type InternalEntry struct {
     Prefix string

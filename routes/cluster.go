@@ -19,6 +19,31 @@ type ClusterEndpoint struct {
 }
 
 func (clusterEndpoint *ClusterEndpoint) Attach(router *mux.Router) {
+    // Get an overview of the cluster
+    router.HandleFunc("/cluster", func(w http.ResponseWriter, r *http.Request) {
+        var clusterOverview ClusterOverview
+
+        clusterOverview.Nodes = clusterEndpoint.ClusterFacade.ClusterNodes()
+        clusterOverview.ClusterSettings = clusterEndpoint.ClusterFacade.ClusterSettings()
+        clusterOverview.PartitionDistribution = clusterEndpoint.ClusterFacade.PartitionDistribution()
+
+        encodedOverview, err := json.Marshal(clusterOverview)
+
+        if err != nil {
+            Log.Warningf("GET /cluster: %v", err)
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, string(encodedOverview) + "\n")
+    }).Methods("GET")
+
     router.HandleFunc("/cluster/nodes", func(w http.ResponseWriter, r *http.Request) {
         // Add a node to the cluster
         body, err := ioutil.ReadAll(r.Body)
