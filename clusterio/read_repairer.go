@@ -5,6 +5,7 @@ import (
     "sync"
     "time"
 
+    . "devicedb/data"
     . "devicedb/logging"
 )
 
@@ -32,32 +33,45 @@ func (readRepairer *ReadRepairer) BeginRepair(partition uint64, siteID string, b
         return
     }
 
-    _, ctxDeadline := readRepairer.newOperation(context.Background())
+    var wg sync.WaitGroup
+    opID, ctxDeadline := readRepairer.newOperation(context.Background())
 
     for nodeID, _ := range readMerger.Nodes() {
-        go func(nodeID uint64) {
-            patch := readMerger.Patch(nodeID)
+        patch := readMerger.Patch(nodeID)
 
-            if len(patch) == 0 {
-                return
+        for key, siblingSet := range patch {
+            if siblingSet.Size() == 0 {
+                // Filter out keys that don't need patch
+                delete(patch, key)
+
+                continue
             }
+            
+            Log.Infof("Repairing key %s in bucket %s at site %s at node %d", key, bucket, siteID, nodeID)
+        }
 
-            for key, siblingSet := range patch {
-                if siblingSet.Size() == 0 {
-                    // Filter out keys that don't need patch
-                    delete(patch, key)
+        if len(patch) == 0 {
+            continue
+        }
 
-                    continue
-                }
-                
-                Log.Infof("Repairing key %s in bucket %s at site %s at node %d", key, bucket, siteID, nodeID)
-            }
+        wg.Add(1)
+
+        go func(nodeID uint64, patch map[string]*SiblingSet) {
+            defer wg.Done()
 
             if err := readRepairer.NodeClient.Merge(ctxDeadline, nodeID, partition, siteID, bucket, patch, true); err != nil {
                 Log.Errorf("Unable to perform read repair on bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
             }
-        }(nodeID)
+        }(nodeID, patch)
     }
+
+    go func() {
+        wg.Wait()
+        readRepairer.mu.Lock()
+        defer readRepairer.mu.Unlock()
+
+        readRepairer.cancelOperation(opID)
+    }()
 }
 
 func (readRepairer *ReadRepairer) newOperation(ctx context.Context) (uint64, context.Context) {
@@ -69,6 +83,13 @@ func (readRepairer *ReadRepairer) newOperation(ctx context.Context) (uint64, con
     readRepairer.operationCancellers[id] = cancel
 
     return id, ctxDeadline
+}
+
+func (readRepairer *ReadRepairer) cancelOperation(id uint64) {
+    if cancel, ok := readRepairer.operationCancellers[id]; ok {
+        cancel()
+        delete(readRepairer.operationCancellers, id)
+    }
 }
 
 func (readRepairer *ReadRepairer) StopRepairs() {

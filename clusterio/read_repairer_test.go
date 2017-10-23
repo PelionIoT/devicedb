@@ -39,10 +39,20 @@ var _ = Describe("ReadRepairer", func() {
                     return nil
                 }
 
+                sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+                sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), []byte("v2"), 0)
+                sibling3 := NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v3"), 0)
+                
+                siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                    sibling1: true,
+                    sibling2: true, // makes v5 obsolete
+                    sibling3: true,
+                })
+
                 readMerger := NewReadMerger("default")
-                readMerger.InsertKeyReplica(2, "a", nil)
-                readMerger.InsertKeyReplica(4, "b", nil)
-                readMerger.InsertKeyReplica(6, "c", nil)
+                readMerger.InsertKeyReplica(2, "a", siblingSet1)
+                readMerger.InsertKeyReplica(4, "b", siblingSet1)
+                readMerger.InsertKeyReplica(6, "c", siblingSet1)
 
                 readRepairer.BeginRepair(50, "site1", "default", readMerger)
 
@@ -76,10 +86,19 @@ var _ = Describe("ReadRepairer", func() {
                     return nil
                 }
 
+                sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+                sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), []byte("v2"), 0)
+                sibling3 := NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v3"), 0)
+                
+                siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                    sibling1: true,
+                    sibling2: true, // makes v5 obsolete
+                    sibling3: true,
+                })
                 readMerger := NewReadMerger("default")
-                readMerger.InsertKeyReplica(2, "a", nil)
-                readMerger.InsertKeyReplica(4, "b", nil)
-                readMerger.InsertKeyReplica(6, "c", nil)
+                readMerger.InsertKeyReplica(2, "a", siblingSet1)
+                readMerger.InsertKeyReplica(4, "b", siblingSet1)
+                readMerger.InsertKeyReplica(6, "c", siblingSet1)
 
                 readRepairer.BeginRepair(50, "site1", "default", readMerger)
 
@@ -105,10 +124,19 @@ var _ = Describe("ReadRepairer", func() {
                     return nil
                 }
 
+                sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+                sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), []byte("v2"), 0)
+                sibling3 := NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v3"), 0)
+                
+                siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                    sibling1: true,
+                    sibling2: true, // makes v5 obsolete
+                    sibling3: true,
+                })
                 readMerger := NewReadMerger("default")
-                readMerger.InsertKeyReplica(2, "a", nil)
-                readMerger.InsertKeyReplica(4, "b", nil)
-                readMerger.InsertKeyReplica(6, "c", nil)
+                readMerger.InsertKeyReplica(2, "a", siblingSet1)
+                readMerger.InsertKeyReplica(4, "b", siblingSet1)
+                readMerger.InsertKeyReplica(6, "c", siblingSet1)
 
                 readRepairer.StopRepairs()
                 readRepairer.BeginRepair(50, "site1", "default", readMerger)
@@ -143,11 +171,19 @@ var _ = Describe("ReadRepairer", func() {
 
                 return nil
             }
-
+            sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+            sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), []byte("v2"), 0)
+            sibling3 := NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v3"), 0)
+            
+            siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+                sibling2: true, // makes v5 obsolete
+                sibling3: true,
+            })
             readMerger := NewReadMerger("default")
-            readMerger.InsertKeyReplica(2, "a", nil)
-            readMerger.InsertKeyReplica(4, "b", nil)
-            readMerger.InsertKeyReplica(6, "c", nil)
+            readMerger.InsertKeyReplica(2, "a", siblingSet1)
+            readMerger.InsertKeyReplica(4, "b", siblingSet1)
+            readMerger.InsertKeyReplica(6, "c", siblingSet1)
 
             readRepairer.BeginRepair(50, "site1", "default", readMerger)
 
