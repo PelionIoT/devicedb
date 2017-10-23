@@ -340,6 +340,7 @@ func main() {
     clusterStartSyncMaxSessions := clusterStartCommand.Uint("sync_max_sessions", 10, "The number of sync sessions to allow at the same time.")
     clusterStartSyncPathLimit := clusterStartCommand.Uint("sync_path_limit", 10, "The number of exploration paths to allow in a sync session.")
     clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
+    clusterStartLogLevel := clusterStartCommand.String("log_level", "info", "The log level configures how detailed the output produced by devicedb is. Must be one of { critical, error, warning, notice, info, debug }")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
     clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
@@ -643,6 +644,11 @@ func main() {
             }
         }
 
+        if *clusterStartLogLevel != "critical" && *clusterStartLogLevel != "error" && *clusterStartLogLevel != "warning" && *clusterStartLogLevel != "notice" && *clusterStartLogLevel != "info" && *clusterStartLogLevel != "debug" {
+            fmt.Fprintf(os.Stderr, "Error: -log_level must be one of { critical, error, warning, notice, info, debug }\n")
+            os.Exit(1)
+        }
+
         if *clusterStartTLSCertificate == "" {
             fmt.Fprintf(os.Stderr, "Error: -cert must be specified\n")
             os.Exit(1)
@@ -736,6 +742,7 @@ func main() {
         startOptions.SyncMaxSessions = *clusterStartSyncMaxSessions
         startOptions.SyncPathLimit = uint32(*clusterStartSyncPathLimit)
         startOptions.SyncPeriod = *clusterStartSyncPeriod
+        SetLoggingLevel(*clusterStartLogLevel)
 
         cloudNodeStorage := storage.NewLevelDBStorageDriver(*clusterStartStore, nil)
         cloudServer := NewCloudServer(CloudServerConfig{
