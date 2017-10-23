@@ -77,8 +77,8 @@ func (server *CloudServer) Start() error {
 
     server.httpServer = &http.Server{
         Handler: server.router,
-        WriteTimeout: 15 * time.Second,
-        ReadTimeout: 15 * time.Second,
+        WriteTimeout: 45 * time.Second,
+        ReadTimeout: 45 * time.Second,
     }
 
     server.relayHTTPServer = &http.Server{

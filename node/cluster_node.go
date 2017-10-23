@@ -311,6 +311,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     relaysEndpoint := &RelaysEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
+    profileEndpoint := &ProfilerEndpoint{ }
 
     node.raftTransport.Attach(router)
     node.transferAgent.(*HTTPTransferAgent).Attach(router)
@@ -319,6 +320,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     relaysEndpoint.Attach(router)
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
+    profileEndpoint.Attach(router)
 
     startResult := make(chan error)
 
