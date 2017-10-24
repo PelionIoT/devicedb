@@ -59,9 +59,12 @@ type Peer struct {
     result error
     host string
     port int
+    historyHost string
+    historyPort int
     partitionNumber uint64
     siteID string
     httpClient *http.Client
+    httpHistoryClient *http.Client
 }
 
 func NewPeer(id string, direction int) *Peer {
@@ -291,12 +294,23 @@ func (peer *Peer) toJSON(peerID string) *PeerJSON {
     }
 }
 
+func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName string, historyHost string, historyPort int, noValidate bool) {
+    peer.historyHost = historyHost
+    peer.historyPort = historyPort
+   
+    tlsConfig := *tlsBaseConfig
+    tlsConfig.InsecureSkipVerify = noValidate
+    tlsConfig.ServerName = historyServerName
+    
+    peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
+}
+
 func (peer *Peer) getLatestEventSerial(hubID string) (uint64, error) {
     if peer.id != CLOUD_PEER_ID {
         return 0, errors.New("This peer is not the cloud peer")
     }
     
-    resp, err := peer.httpClient.Get(fmt.Sprintf("https://%s:%d/abc/events/%s/latestSerial", peer.host, peer.port, hubID))
+    resp, err := peer.httpHistoryClient.Get(fmt.Sprintf("https://%s:%d/abc/events/%s/latestSerial", peer.historyHost, peer.historyPort, hubID))
     
     if err != nil {
         return 0, err
@@ -327,7 +341,7 @@ func (peer *Peer) getLatestAlertSerial(hubID string) (uint64, error) {
         return 0, errors.New("This peer is not the cloud peer")
     }
     
-    resp, err := peer.httpClient.Get(fmt.Sprintf("https://%s:%d/abc/alerts/%s/latestSerial", peer.host, peer.port, hubID))
+    resp, err := peer.httpHistoryClient.Get(fmt.Sprintf("https://%s:%d/abc/alerts/%s/latestSerial", peer.historyHost, peer.historyPort, hubID))
     
     if err != nil {
         return 0, err
@@ -356,7 +370,7 @@ func (peer *Peer) getLatestAlertSerial(hubID string) (uint64, error) {
 func (peer *Peer) pushEvent(hubID string, event *Event) error {
     // try to forward event to the cloud if failed or error response then return
     eventJSON, _ := json.Marshal(event)
-    request, err := http.NewRequest("PUT", fmt.Sprintf("https://%s:%d/abc/events/%s/%s/%s", peer.host, peer.port, hubID, event.SourceID, event.Type), bytes.NewReader(eventJSON))
+    request, err := http.NewRequest("PUT", fmt.Sprintf("https://%s:%d/abc/events/%s/%s/%s", peer.historyHost, peer.historyPort, hubID, event.SourceID, event.Type), bytes.NewReader(eventJSON))
     
     if err != nil {
         return err
@@ -364,7 +378,7 @@ func (peer *Peer) pushEvent(hubID string, event *Event) error {
     
     request.Header.Add("Content-Type", "application/json")
     
-    resp, err := peer.httpClient.Do(request)
+    resp, err := peer.httpHistoryClient.Do(request)
     
     if err != nil {
         return err
@@ -388,7 +402,7 @@ func (peer *Peer) pushEvent(hubID string, event *Event) error {
 func (peer *Peer) pushAlert(hubID string, event *Event) error {
     // try to forward event to the cloud if failed or error response then return
     eventJSON, _ := json.Marshal(event)
-    request, err := http.NewRequest("PUT", fmt.Sprintf("https://%s:%d/abc/alerts/%s/%s/%s", peer.host, peer.port, hubID, event.SourceID, event.Type), bytes.NewReader(eventJSON))
+    request, err := http.NewRequest("PUT", fmt.Sprintf("https://%s:%d/abc/alerts/%s/%s/%s", peer.historyHost, peer.historyPort, hubID, event.SourceID, event.Type), bytes.NewReader(eventJSON))
     
     if err != nil {
         return err
@@ -396,7 +410,7 @@ func (peer *Peer) pushAlert(hubID string, event *Event) error {
     
     request.Header.Add("Content-Type", "application/json")
     
-    resp, err := peer.httpClient.Do(request)
+    resp, err := peer.httpHistoryClient.Do(request)
     
     if err != nil {
         return err
@@ -542,7 +556,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
     return nil
 }
 
-func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool) error {
+func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerName, historyHost string, historyPort int, noValidate bool) error {
     if noValidate {
         Log.Warningf("The cloud.noValidate option is set to true. The cloud server's certificate chain and identity will not be verified. !!! THIS OPTION SHOULD NOT BE SET TO TRUE IN PRODUCTION !!!")
     }
@@ -563,6 +577,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, noValidate bool)
     
         for {
             // connect will return an error once the peer is disconnected for good
+            peer.useHistoryServer(hub.tlsConfig, historyServerName, historyHost, historyPort, noValidate)
             incoming, outgoing, err := peer.connect(dialer, host, port)
             
             if err != nil {

@@ -44,6 +44,9 @@ type YAMLCloud struct {
     ID string `yaml:"id"`
     Host string `yaml:"host"`
     Port int `yaml:"port"`
+    HistoryID string `yaml:"historyID"`
+    HistoryHost string `yaml:"historyHost"`
+    HistoryPort int `yaml:"historyPort"`
     NoValidate bool `yaml:"noValidate"`
 }
 
@@ -109,6 +112,22 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
         
         if !isValidPort(ysc.Cloud.Port) {
             return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud at %s", ysc.Cloud.Port, ysc.Cloud.Host))
+        }
+
+        if len(ysc.Cloud.HistoryHost) == 0 {
+            ysc.Cloud.HistoryHost = ysc.Cloud.Host
+        }
+
+        if !isValidPort(ysc.Cloud.HistoryPort) {
+            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud history service at %s", ysc.Cloud.HistoryPort, ysc.Cloud.HistoryHost))
+        }
+
+        if ysc.Cloud.HistoryPort == 0 {
+            ysc.Cloud.HistoryPort = ysc.Cloud.Port
+        }
+
+        if len(ysc.Cloud.HistoryID) == 0 {
+            ysc.Cloud.HistoryID = ysc.Cloud.ID
         }
     }
     

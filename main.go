@@ -180,6 +180,23 @@ logLevel: info
 #     id: *.wigwag.com
 #     host: devicedb.wigwag.com
 #     port: 443
+#     # Starting in version 1.3.0 of devicedb a seperate host name, port, and certificate
+#     # name can be specified for historical data forwarding. This is to allow decoupling
+#     # between the devicedb cloud service and historical data processing by putting
+#     # historical data logging and gathering sync into a standalone cloud service
+#     #
+#     # The historyID field is used to verify the host name that the cloud server provides
+#     # in its TLS certificate chain. If this field is omitted then the historyHost field
+#     # will be used as the expected host name in the cloud's certificate. If
+#     # noValidate is true then no verification is performed either way so this
+#     # effectively ignored. In this example, the TLS certificate uses a wildcard
+#     # certificate so the server name provided in the certificate will not 
+#     # match the domain name of the host to which this node is connecting.
+#     historyID: *.wigwag.com
+#     # historyHost and historyPort may be ommitted. In this case historyHost and
+#     # historyPort are set to the normal cloud host and port
+#     historyHost: history.wigwag.com
+#     historyPort: 443
 
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate

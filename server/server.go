@@ -64,6 +64,7 @@ type ServerConfig struct {
     GCInterval uint64
     GCPurgeAge uint64
     Cloud *cloudAddress
+    History *cloudAddress
     HistoryPurgeOnForward bool
     HistoryEventLimit uint64
     SyncExplorationPathLimit uint32
@@ -123,6 +124,13 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
             ID: ysc.Cloud.ID,
             Host: ysc.Cloud.Host,
             Port: ysc.Cloud.Port,
+            NoValidate: ysc.Cloud.NoValidate,
+        }
+
+        sc.History = &cloudAddress{
+            ID: ysc.Cloud.HistoryID,
+            Host: ysc.Cloud.HistoryHost,
+            Port: ysc.Cloud.HistoryPort,
             NoValidate: ysc.Cloud.NoValidate,
         }
     }
@@ -241,7 +249,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     }
     
     if server.hub != nil && serverConfig.Cloud != nil {
-        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.Cloud.NoValidate)
+        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.History.ID, serverConfig.History.Host, serverConfig.History.Port, serverConfig.Cloud.NoValidate)
     }
     
     return server, nil
