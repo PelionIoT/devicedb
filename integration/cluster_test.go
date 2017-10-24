@@ -1193,13 +1193,28 @@ var _ = Describe("Cluster Operation", func() {
             Describe("Partition distribution", func() {
                 Specify("Each node should be responsible for a roughly equal number of partitions", func() {
                     <-time.After(time.Second * 5)
+                    var hist map[uint64]int = make(map[uint64]int)
+
                     for i := 0; i < clusterSize; i++ {
                         fmt.Printf("Node %d owns %d partition replicas\n", nodes[i].ID(), len(nodes[i].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas()))
                         fmt.Printf("Node %d tokens %v\n", nodes[i].ID(), nodes[i].ClusterConfigController().ClusterController().State.Nodes[nodes[i].ID()].Tokens)
-                        fmt.Printf("Cluster d tokens %v\n", nodes[i].ClusterConfigController().ClusterController().State.Tokens)
+                        hist[nodes[i].ID()] = len(nodes[i].ClusterConfigController().ClusterController().LocalNodeOwnedPartitionReplicas())
                     }
                     <-time.After(time.Second * 5)
-                    Fail("The distribution is not yet equal. Need to optimize the partitioning algorithm")
+
+                    for nodeID, partitionCount := range hist {
+                        n := partitions * 2 // # partitions * replication factor
+                        percentage := 100 * partitionCount / n
+                        fmt.Printf("Node %d owns %d%% of the cluster capacity\n", nodeID, percentage)
+
+                        for _, otherPartitionCount := range hist {
+                            otherPercentage := 100 * otherPartitionCount / n
+
+                            Expect(percentage).Should(BeNumerically("~", otherPercentage, 10))
+                        }
+                    }
+
+                    //Fail("The distribution is not yet equal. Need to optimize the partitioning algorithm")
                 })
             })
 
