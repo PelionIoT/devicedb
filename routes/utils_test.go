@@ -224,6 +224,14 @@ func (clusterFacade *MockClusterFacade) TokenAssignments() []uint64 {
     return nil
 }
 
+func (clusterFacade *MockClusterFacade) GetRelayStatus(ctx context.Context, relayID string) (RelayStatus, error) {
+    return RelayStatus{}, nil
+}
+
+func (clusterFacade *MockClusterFacade) LocalGetRelayStatus(relayID string) (RelayStatus, error) {
+    return RelayStatus{}, nil
+}
+
 type siblingSetIteratorEntry struct {
     Prefix []byte
     Key []byte

@@ -4,12 +4,13 @@ import (
     "math"
     "time"
     "errors"
+    "context"
 
     . "devicedb/logging"
     
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
-    "golang.org/x/net/context"
+    //"golang.org/x/net/context"
 )
 
 var ECancelConfChange = errors.New("Conf change cancelled")
@@ -103,10 +104,10 @@ func (raftNode *RaftNode) Start() error {
         return err
     }
 
-    context := raftNode.config.Context
+    nodeContext := raftNode.config.Context
 
-    if context == nil {
-        context = []byte{ }
+    if nodeContext == nil {
+        nodeContext = []byte{ }
     }
 
     config := &raft.Config{
@@ -175,6 +176,11 @@ func (raftNode *RaftNode) run() {
     lastSnapshot, _ := raftNode.LastSnapshot()
 
     if !raft.IsEmptySnap(lastSnapshot) {
+        // It is essential that this happen so that when a new snapshot occurs
+        // it does not write an empty conf with no nodes in it. This will corrupt
+        // the cluster state. This caused an error where a node forgot that it belonged
+        // to its own cluster and couldn't become a leader or start a campaign.
+        raftNode.currentRaftConfState = lastSnapshot.Metadata.ConfState
         // call onSnapshot callback to give initial state to system config
         raftNode.onSnapshotCB(lastSnapshot)
 

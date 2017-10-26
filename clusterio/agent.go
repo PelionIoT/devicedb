@@ -9,6 +9,7 @@ import (
     . "devicedb/data"
     . "devicedb/error"
     . "devicedb/logging"
+    . "devicedb/routes"
 )
 
 var DefaultTimeout time.Duration = time.Second * 20
@@ -352,6 +353,84 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
     case <-quorumReached:
         mergeIterator.SortKeys()
         return mergeIterator, nil
+    }
+}
+
+func (agent *Agent) RelayStatus(ctx context.Context, siteID string, relayID string) (RelayStatus, error) {
+    var partitionNumber uint64 = agent.PartitionResolver.Partition(siteID)
+    var replicaNodes []uint64 = agent.PartitionResolver.ReplicaNodes(partitionNumber)
+    var results chan RelayStatus = make(chan RelayStatus, len(replicaNodes))
+    var failed chan error = make(chan error, len(replicaNodes))
+    var nRead int = 0
+    var nFailed int = 0
+    var resultError error
+
+    opID, ctxDeadline := agent.newOperation(ctx)
+
+    var appliedNodes map[uint64]bool = make(map[uint64]bool, len(replicaNodes))
+    
+    for _, nodeID := range replicaNodes {
+        if appliedNodes[nodeID] {
+            continue
+        }
+
+        appliedNodes[nodeID] = true
+
+        go func(nodeID uint64) {
+            relayStatus, err := agent.NodeClient.RelayStatus(ctxDeadline, nodeID, siteID, relayID)
+
+            if err != nil {
+                Log.Errorf("Unable to get relay status for relay %s at node %d: %v", relayID, nodeID, err.Error())
+
+                failed <- err
+
+                return
+            }
+
+            results <- relayStatus
+        }(nodeID)
+    }
+
+    var allAttemptsMade chan int = make(chan int, 1)
+    var mergedResult chan RelayStatus = make(chan RelayStatus)
+
+    go func() {
+        for nRead + nFailed < len(appliedNodes) {
+            select {
+            case err := <-failed:
+                nFailed++
+                resultError = err
+            case r := <-results:
+                nRead++
+
+                // If it's connected to this node return right away and cancel any
+                // ongoing requests to get the status
+                if r.Connected {
+                    mergedResult <- r
+                    agent.cancelOperation(opID)
+                }
+            }
+        }
+
+        if resultError != nil {
+            allAttemptsMade <- 1
+        } else {
+            mergedResult <- RelayStatus{
+                Connected: false,
+                ConnectedTo: 0,
+                Ping: 0,
+                Site: "",
+            }
+        }
+
+        agent.cancelOperation(opID)
+    }()
+
+    select {
+    case result := <-mergedResult:
+        return result, nil
+    case <-allAttemptsMade:
+        return RelayStatus{}, resultError
     }
 }
 

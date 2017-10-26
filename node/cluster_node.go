@@ -871,6 +871,25 @@ func (node *ClusterNode) ClusterIO() clusterio.ClusterIOAgent {
     return node.clusterioAgent
 }
 
+func (node *ClusterNode) RelayStatus(relayID string) (RelayStatus, error) {
+    var status RelayStatus
+
+    _, relayAdded := node.configController.ClusterController().State.Relays[relayID]
+
+    if !relayAdded {
+        return RelayStatus{}, ERelayDoesNotExist
+    }
+
+    connected, ping := node.hub.PeerStatus(relayID)
+
+    status.Connected = connected
+    status.Ping = ping
+    status.ConnectedTo = node.ID()
+    status.Site = node.configController.ClusterController().RelaySite(relayID)
+
+    return status, nil
+}
+
 type ClusterNodeFacade struct {
     node *ClusterNode
 }
@@ -1037,4 +1056,14 @@ func (clusterFacade *ClusterNodeFacade) PartitionDistribution() [][]uint64 {
 
 func (clusterFacade *ClusterNodeFacade) TokenAssignments() []uint64 {
     return clusterFacade.node.configController.ClusterController().State.Tokens
+}
+
+func (clusterFacade *ClusterNodeFacade) GetRelayStatus(ctx context.Context, relayID string) (RelayStatus, error) {
+    var siteID string = clusterFacade.node.configController.ClusterController().RelaySite(relayID)
+
+    return clusterFacade.node.clusterioAgent.RelayStatus(ctx, siteID, relayID)
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalGetRelayStatus(relayID string) (RelayStatus, error) {
+    return clusterFacade.node.RelayStatus(relayID)
 }

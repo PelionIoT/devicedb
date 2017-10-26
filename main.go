@@ -268,6 +268,7 @@ Cluster Commands:
     add_relay     Add a relay to the cluster
     remove_relay  Remove a relay from the cluster
     move_relay    Move a relay to a site
+    relay_status  Get the connection and site membership status of a relay
     get           Get an entry in a site database with a certain key
     get_matches   Get all entries in a site database whose keys match some prefix
     put           Put a value in a site database with a certain key
@@ -325,6 +326,7 @@ func main() {
     clusterAddRelayCommand := flag.NewFlagSet("add_relay", flag.ExitOnError)
     clusterRemoveRelayCommand := flag.NewFlagSet("remove_relay", flag.ExitOnError)
     clusterMoveRelayCommand := flag.NewFlagSet("move_relay", flag.ExitOnError)
+    clusterRelayStatusCommand := flag.NewFlagSet("relay_status", flag.ExitOnError)
     clusterGetCommand := flag.NewFlagSet("get", flag.ExitOnError)
     clusterGetMatchesCommand := flag.NewFlagSet("get_matches", flag.ExitOnError)
     clusterPutCommand := flag.NewFlagSet("put", flag.ExitOnError)
@@ -396,6 +398,10 @@ func main() {
     clusterMoveRelayRelayID := clusterMoveRelayCommand.String("relay", "", "The ID of the relay to move. (Required)")
     clusterMoveRelaySiteID := clusterMoveRelayCommand.String("site", "", "The ID of the site to move the relay to. If left blank the relay is removed from its current site.")
 
+    clusterRelayStatusHost := clusterRelayStatusCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting the relay status.")
+    clusterRelayStatusPort := clusterRelayStatusCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRelayStatusRelayID := clusterRelayStatusCommand.String("relay", "", "The ID of the relay to query. (Required)")
+
     clusterGetHost := clusterGetCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting this key.")
     clusterGetPort := clusterGetCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
     clusterGetSiteID := clusterGetCommand.String("site", "", "The ID of the site. (Required)")
@@ -458,6 +464,8 @@ func main() {
             clusterRemoveRelayCommand.Parse(os.Args[3:])
         case "move_relay":
             clusterMoveRelayCommand.Parse(os.Args[3:])
+        case "relay_status":
+            clusterRelayStatusCommand.Parse(os.Args[3:])
         case "get":
             clusterGetCommand.Parse(os.Args[3:])
         case "get_matches":
@@ -1036,6 +1044,39 @@ func main() {
 
         os.Exit(0)
     }
+    
+    if clusterRelayStatusCommand.Parsed() {
+        if *clusterRelayStatusRelayID == "" {
+            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterRelayStatusHost, *clusterRelayStatusPort) } })
+        relayStatus, err := apiClient.RelayStatus(context.TODO(), *clusterRelayStatusRelayID)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to retrieve relay status: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        if !relayStatus.Connected {
+            fmt.Fprintf(os.Stderr, "Relay %s is not connected\n", *clusterRelayStatusRelayID)
+
+            os.Exit(0)
+        }
+
+        fmt.Fprintf(os.Stderr, "Relay ID: %s\n", *clusterRelayStatusRelayID)
+        fmt.Fprintf(os.Stderr, "Connected To: %v\n", relayStatus.ConnectedTo)
+
+        if relayStatus.Ping == 0 {
+            fmt.Fprintf(os.Stderr, "Ping: <unknown>\n")
+        } else {
+            fmt.Fprintf(os.Stderr, "Ping: %v\n", relayStatus.Ping)
+        }
+
+        os.Exit(0)
+    }
 
     if clusterGetCommand.Parsed() {
         if *clusterGetSiteID == "" {
@@ -1208,6 +1249,8 @@ func main() {
             flagSet = clusterRemoveRelayCommand
         case "move_relay":
             flagSet = clusterMoveRelayCommand
+        case "relay_status":
+            flagSet = clusterRelayStatusCommand
         case "get":
             flagSet = clusterGetCommand
         case "get_matches":
