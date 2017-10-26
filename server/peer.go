@@ -30,6 +30,9 @@ const (
 
 const SYNC_SESSION_WAIT_TIMEOUT_SECONDS = 5
 const RECONNECT_WAIT_MAX_SECONDS = 32
+const WRITE_WAIT_SECONDS = 10
+const PONG_WAIT_SECONDS = 60
+const PING_PERIOD_SECONDS = 40
 const CLOUD_PEER_ID = "cloud"
 
 func randomID() string {
@@ -56,6 +59,8 @@ type Peer struct {
     closeChan chan bool
     doneChan chan bool
     csLock sync.Mutex
+    rttLock sync.Mutex
+    roundTripTime time.Duration
     result error
     host string
     port int
@@ -149,15 +154,40 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
     outgoing := make(chan *SyncMessageWrapper)
     
     go func() {
-        for msg := range outgoing {
-            // this lock ensures mutual exclusion with close message sending in peer.close()
-            peer.csLock.Lock()
-            err := connection.WriteJSON(msg)
-            peer.csLock.Unlock()
-                
-            if err != nil {
-                Log.Errorf("Error writing to websocket for peer %s: %v", peer.id, err)
-                //return
+        pingTicker := time.NewTicker(time.Second * PING_PERIOD_SECONDS)
+
+        for {
+            select {
+            case msg, ok := <-outgoing:
+                // this lock ensures mutual exclusion with close message sending in peer.close()
+                peer.csLock.Lock()
+                connection.SetWriteDeadline(time.Now().Add(time.Second * WRITE_WAIT_SECONDS))
+
+                if !ok {
+                    connection.WriteMessage(websocket.CloseMessage, []byte{})
+                    peer.csLock.Unlock()
+                    return
+                }
+
+                err := connection.WriteJSON(msg)
+                peer.csLock.Unlock()
+
+                if err != nil {
+                    Log.Errorf("Error writing to websocket for peer %s: %v", peer.id, err)
+                    //return
+                }
+            case <-pingTicker.C:
+                // this lock ensures mutual exclusion with close message sending in peer.close()
+                Log.Infof("Sending a ping to peer %s", peer.id)
+                peer.csLock.Lock()
+                connection.SetWriteDeadline(time.Now().Add(time.Second * WRITE_WAIT_SECONDS))
+
+                encodedPingTime, _ := time.Now().MarshalJSON()
+                if err := connection.WriteMessage(websocket.PingMessage, encodedPingTime); err != nil {
+                    Log.Errorf("Unable to send ping to peer %s: %v", peer.id, err.Error())
+                }
+
+                peer.csLock.Unlock()
             }
         }
     }()
@@ -165,6 +195,22 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
     // incoming, outgoing, err
     go func() {
         defer close(peer.doneChan)
+
+        connection.SetReadDeadline(time.Now().Add(time.Second * PONG_WAIT_SECONDS))
+        connection.SetPongHandler(func(encodedPingTime string) error {
+            var pingTime time.Time
+
+            if err := pingTime.UnmarshalJSON([]byte(encodedPingTime)); err == nil {
+                Log.Infof("Received pong from peer %s. Round trip time: %v", peer.id, time.Since(pingTime))
+                peer.setRoundTripTime(time.Since(pingTime))
+            } else {
+                Log.Infof("Received pong from peer %s", peer.id)
+            }
+
+            connection.SetReadDeadline(time.Now().Add(time.Second * PONG_WAIT_SECONDS));
+
+            return nil
+        })
         
         for {
             var nextRawMessage rawSyncMessageWrapper
@@ -207,6 +253,20 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
     }()
     
     return incoming, outgoing
+}
+
+func (peer *Peer) setRoundTripTime(duration time.Duration) {
+    peer.rttLock.Lock()
+    defer peer.rttLock.Unlock()
+
+    peer.roundTripTime = duration
+}
+
+func (peer *Peer) getRoundTripTime() time.Duration {
+    peer.rttLock.Lock()
+    defer peer.rttLock.Unlock()
+
+    return peer.roundTripTime
 }
 
 func (peer *Peer) typeCheck(rawMsg *rawSyncMessageWrapper, msg *SyncMessageWrapper) error {
