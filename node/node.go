@@ -5,6 +5,7 @@ import (
     
     . "devicedb/bucket"
     . "devicedb/data"
+    . "devicedb/routes"
 )
 
 // A Node coordinates interactions between
@@ -33,4 +34,5 @@ type Node interface {
     Merge(ctx context.Context, partition uint64, siteID string, bucket string, patch map[string]*SiblingSet, broadcastToRelays bool) error
     Get(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
+    RelayStatus(relayID string) (RelayStatus, error)
 }

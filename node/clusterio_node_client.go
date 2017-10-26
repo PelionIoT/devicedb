@@ -288,6 +288,49 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
     return newInternalEntrySiblingSetIterator(entries), nil
 }
 
+func (nodeClient *NodeClient) RelayStatus(ctx context.Context, nodeID uint64, siteID string, relayID string) (RelayStatus, error) {
+    var nodeAddress PeerAddress = nodeClient.configController.ClusterController().ClusterMemberAddress(nodeID)
+
+    if nodeAddress.IsEmpty() {
+        return RelayStatus{}, ENoSuchNode
+    }
+
+    if nodeID == nodeClient.localNode.ID() {
+        relayStatus, err := nodeClient.localNode.RelayStatus(relayID)
+
+        switch err {
+        case nil:
+            return relayStatus, nil
+        default:
+            return RelayStatus{}, err
+        }
+    }
+
+    status, body, err := nodeClient.sendRequest(ctx, "GET", fmt.Sprintf("http://%s:%d/relays/%s?local=true", nodeAddress.Host, nodeAddress.Port, relayID), nil)
+
+    if err != nil {
+        return RelayStatus{}, err
+    }
+
+    switch status {
+    case 404:
+        return RelayStatus{}, ERelayDoesNotExist
+    case 200:
+    default:
+        return RelayStatus{}, EStorage
+    }
+
+    var relayStatus RelayStatus
+
+    err = json.Unmarshal(body, &relayStatus)
+
+    if err != nil {
+        return RelayStatus{}, err
+    }
+
+    return relayStatus, nil
+}
+
 func (nodeClient *NodeClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) (int, []byte, error) {
     request, err := http.NewRequest(httpVerb, endpointURL, bytes.NewReader(body))
 

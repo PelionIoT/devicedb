@@ -737,6 +737,19 @@ func (hub *Hub) Disconnect(peerID string) {
     }
 }
 
+func (hub *Hub) PeerStatus(peerID string) (connected bool, pingTime time.Duration) {
+    hub.peerMapLock.Lock()
+    defer hub.peerMapLock.Unlock()
+
+    peer, ok := hub.peerMap[peerID]
+    
+    if ok {
+        return true, peer.getRoundTripTime()
+    }
+
+    return false, 0
+}
+
 func (hub *Hub) ReconnectPeer(peerID string) {
     hub.peerMapLock.Lock()
     defer hub.peerMapLock.Unlock()

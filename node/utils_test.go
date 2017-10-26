@@ -8,6 +8,7 @@ import (
     . "devicedb/data"
     . "devicedb/node"
     . "devicedb/raft"
+    . "devicedb/routes"
 )
 
 type MockConfigController struct {
@@ -166,6 +167,10 @@ func (node *MockNode) GetMatches(ctx context.Context, partition uint64, siteID s
     }
 
     return node.defaultGetMatchesSiblingSetIterator, node.defaultGetMatchesError
+}
+    
+func (node *MockNode) RelayStatus(relayID string) (RelayStatus, error) {
+    return RelayStatus{}, nil
 }
 
 type siblingSetIteratorEntry struct {

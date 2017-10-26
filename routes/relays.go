@@ -116,4 +116,45 @@ func (relaysEndpoint *RelaysEndpoint) Attach(router *mux.Router) {
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, "\n")
     }).Methods("DELETE")
+
+    // Get the status of a relay
+    router.HandleFunc("/relays/{relayID}", func(w http.ResponseWriter, r *http.Request) {
+        query := r.URL.Query()
+        _, local := query["local"]
+
+        var relayStatus RelayStatus
+        var err error
+
+        if local {
+            relayStatus, err = relaysEndpoint.ClusterFacade.LocalGetRelayStatus(mux.Vars(r)["relayID"])
+        } else {
+            relayStatus, err = relaysEndpoint.ClusterFacade.GetRelayStatus(r.Context(), mux.Vars(r)["relayID"])
+        }
+
+        if err == ERelayDoesNotExist {
+            Log.Warningf("GET /relays/{relayID}: %v", err.Error())
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(ERelayDoesNotExist.JSON()) + "\n")
+            
+            return
+        }
+
+        if err != nil {
+            Log.Warningf("GET /relays/{relayID}: %v", err.Error())
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+        
+        encodedStatus, err := json.Marshal(relayStatus)
+
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, string(encodedStatus) + "\n")
+    }).Methods("GET")
 }

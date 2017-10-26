@@ -36,4 +36,6 @@ type ClusterFacade interface {
     ClusterSettings() ClusterSettings
     PartitionDistribution() [][]uint64
     TokenAssignments() []uint64
+    GetRelayStatus(ctx context.Context, relayID string) (RelayStatus, error)
+    LocalGetRelayStatus(relayID string) (RelayStatus, error)
 }

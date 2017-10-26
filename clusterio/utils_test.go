@@ -6,6 +6,7 @@ import (
     . "devicedb/bucket"
     . "devicedb/clusterio"
     . "devicedb/data"
+    . "devicedb/routes"
 )
 
 type MockPartitionResolver struct {
@@ -82,6 +83,10 @@ func (nodeClient *MockNodeClient) GetMatches(ctx context.Context, nodeID uint64,
     }
 
     return nodeClient.defaultGetMatchesResponse, nodeClient.defaultGetMatchesResponseError
+}
+
+func (nodeClient *MockNodeClient) RelayStatus(ctx context.Context, nodeID uint64, siteID string, relayID string) (RelayStatus, error) {
+    return RelayStatus{}, nil
 }
 
 type MockNodeReadRepairer struct {

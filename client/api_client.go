@@ -59,6 +59,24 @@ func (client *APIClient) ClusterOverview(ctx context.Context) (routes.ClusterOve
     return clusterOverview, nil
 }
 
+func (client *APIClient) RelayStatus(ctx context.Context, relayID string) (routes.RelayStatus, error) {
+    encodedStatus, err := client.sendRequest(ctx, "GET", "/relays/" + relayID, nil)
+
+    if err != nil {
+        return routes.RelayStatus{}, err
+    }
+
+    var relayStatus routes.RelayStatus
+
+    err = json.Unmarshal(encodedStatus, &relayStatus)
+
+    if err != nil {
+        return routes.RelayStatus{}, err
+    }
+
+    return relayStatus, nil
+}
+
 func (client *APIClient) AddSite(ctx context.Context, siteID string) error {
     _, err := client.sendRequest(ctx, "PUT", "/sites/" + siteID, nil)
 

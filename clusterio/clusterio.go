@@ -5,6 +5,7 @@ import (
 
     . "devicedb/bucket"
     . "devicedb/data"
+    . "devicedb/routes"
 )
 
 type ClusterIOAgent interface {
@@ -12,6 +13,7 @@ type ClusterIOAgent interface {
     Batch(ctx context.Context, siteID string, bucket string, updateBatch *UpdateBatch) (replicas int, nApplied int, err error)
     Get(ctx context.Context, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
+    RelayStatus(ctx context.Context, siteID string, relayID string) (RelayStatus, error)
     CancelAll()
 }
 
@@ -25,6 +27,7 @@ type NodeClient interface {
     Batch(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, updateBatch *UpdateBatch) (map[string]*SiblingSet, error)
     Get(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
+    RelayStatus(ctx context.Context, nodeID uint64, siteID string, relayID string) (RelayStatus, error)
 }
 
 type NodeReadMerger interface {

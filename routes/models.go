@@ -1,10 +1,19 @@
 package routes
 
 import (
+    "time"
+
     . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/transport"
 )
+
+type RelayStatus struct {
+    Connected bool
+    ConnectedTo uint64
+    Ping time.Duration
+    Site string
+}
 
 type ClusterOverview struct {
     Nodes []NodeConfig
