@@ -89,6 +89,10 @@ func (nodeClient *MockNodeClient) RelayStatus(ctx context.Context, nodeID uint64
     return RelayStatus{}, nil
 }
 
+func (nodeClient *MockNodeClient) LocalNodeID() uint64 {
+    return 0
+}
+
 type MockNodeReadRepairer struct {
     beginRepairCB func(partition uint64, siteID string, bucket string, readMerger NodeReadMerger)
     stopRepairsCB func()

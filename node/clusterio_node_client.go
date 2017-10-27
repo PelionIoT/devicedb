@@ -335,6 +335,10 @@ func (nodeClient *NodeClient) RelayStatus(ctx context.Context, nodeID uint64, si
     return relayStatus, nil
 }
 
+func (nodeClient *NodeClient) LocalNodeID() uint64 {
+    return nodeClient.configController.ClusterController().LocalNodeID
+}
+
 func (nodeClient *NodeClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) (int, []byte, error) {
     request, err := http.NewRequest(httpVerb, endpointURL, bytes.NewReader(body))
 

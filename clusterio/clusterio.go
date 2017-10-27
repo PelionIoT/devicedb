@@ -28,6 +28,7 @@ type NodeClient interface {
     Get(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) ([]*SiblingSet, error)
     GetMatches(ctx context.Context, nodeID uint64, partition uint64, siteID string, bucket string, keys [][]byte) (SiblingSetIterator, error)
     RelayStatus(ctx context.Context, nodeID uint64, siteID string, relayID string) (RelayStatus, error)
+    LocalNodeID() uint64
 }
 
 type NodeReadMerger interface {
