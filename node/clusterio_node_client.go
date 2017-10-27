@@ -23,10 +23,14 @@ type NodeClient struct {
 }
 
 func NewNodeClient(localNode Node, configController ClusterConfigController) *NodeClient {
+    transportPointer := http.DefaultTransport.(*http.Transport)
+    transport := *transportPointer
+    transport.MaxIdleConns = 0
+    transport.MaxIdleConnsPerHost = 1000
     return &NodeClient{
         configController: configController,
         localNode: localNode,
-        httpClient: &http.Client{ },
+        httpClient: &http.Client{ Transport: &transport },
     }
 }
 
