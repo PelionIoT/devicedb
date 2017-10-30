@@ -808,13 +808,13 @@ func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn, header http
     }
 
     // Can only proxy wss -> ws
-    if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
-        Log.Warningf("Local node (id = %d) cannot accept proxied connection from relay %s because it does not own the partition to which its site, site %s, belongs", node.configController.ClusterController().LocalNodeID, relayID, siteID)
+    //if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
+    //    Log.Warningf("Local node (id = %d) cannot accept proxied connection from relay %s because it does not own the partition to which its site, site %s, belongs", node.configController.ClusterController().LocalNodeID, relayID, siteID)
 
-        conn.Close()
+    //    conn.Close()
 
-        return
-    }
+    //    return
+    //}
 
     // The local node does not own the site database for this site. It should proxy the connection to one of the owners
     nodeID := owners[int(rand.Uint32() % uint32(len(owners)))]

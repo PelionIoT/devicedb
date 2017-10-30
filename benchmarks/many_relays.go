@@ -73,6 +73,10 @@ func BenchmarkManyRelays(cloudAddresses []string, internalAddresses []string, nS
             }()
 
             go func(relay *server.Server, hub *server.Hub) {
+                if updatesPerSecond == 0 {
+                    return
+                }
+                
                 for {
                     <-time.After(time.Second / time.Duration(updatesPerSecond))
                     updateBatch := bucket.NewUpdateBatch()
