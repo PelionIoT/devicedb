@@ -1210,12 +1210,15 @@ func (s *SyncController) removePeer(peerID string) {
 
     s.syncScheduler.RemovePeer(peerID)
 
+    wg := s.waitGroups[peerID]
     s.mapMutex.Unlock()
-    s.waitGroups[peerID].Wait()
+    wg.Wait()
 
+    s.mapMutex.Lock()
     close(s.peers[peerID])
     delete(s.peers, peerID)
     delete(s.waitGroups, peerID)
+    s.mapMutex.Unlock()
 }
 
 func (s *SyncController) addResponderSession(peerID string, sessionID uint, bucketName string) bool {
