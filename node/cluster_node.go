@@ -45,6 +45,7 @@ type ClusterNodeConfig struct {
     CloudServer *CloudServer
     MerkleDepth uint8
     Capacity uint64
+    NoValidate bool
 }
 
 type ClusterNode struct {
@@ -73,6 +74,7 @@ type ClusterNode struct {
     emptyMu sync.Mutex
     relayConnectionsMu sync.Mutex
     hub *Hub
+    noValidate bool
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -91,6 +93,11 @@ func New(config ClusterNodeConfig) *ClusterNode {
         capacity: config.Capacity,
         partitionFactory: NewDefaultPartitionFactory(),
         partitionPool: NewDefaultPartitionPool(),
+        noValidate: config.NoValidate,
+    }
+
+    if clusterNode.noValidate {
+        Log.Criticalf("!!! Starting node with NoValidate set to true. This option should not be used in production as it allows connecting relays to determine their own ID based on an HTTP header. This is for use in testing only and should not be active in a production cluster !!!")
     }
 
     return clusterNode
@@ -755,12 +762,16 @@ func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn, header http
         var err error
         relayID, err = node.hub.ExtractPeerID(conn.UnderlyingConn().(*tls.Conn))
 
-        if err != nil {
+        if err != nil && !node.noValidate {
             Log.Warningf("Cannot accept connection from relay because it provided an invalid client cert.")
 
             conn.Close()
 
             return
+        }
+
+        if node.noValidate && header.Get("X-WigWag-RelayID") != "" {
+            relayID = header.Get("X-WigWag-RelayID")
         }
     }
 
@@ -790,7 +801,7 @@ func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn, header http
             Log.Infof("Local node (id = %d) accepting connection from relay %s which belongs to site %s", nodeID, relayID, siteID)
 
             // The local node owns this site database. It can accept the connection for this relay
-            node.hub.Accept(conn, partitionNumber, relayID, siteID)
+            node.hub.Accept(conn, partitionNumber, relayID, siteID, node.noValidate)
 
             return
         }

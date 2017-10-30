@@ -70,6 +70,7 @@ type Peer struct {
     siteID string
     httpClient *http.Client
     httpHistoryClient *http.Client
+    identityHeader string
 }
 
 func NewPeer(id string, direction int) *Peer {
@@ -105,11 +106,17 @@ func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan
     peer.host = host
     peer.port = port
     peer.httpClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: dialer.TLSClientConfig } }
+
+    var header http.Header = make(http.Header)
+
+    if peer.identityHeader != "" {
+        header.Set("X-WigWag-RelayID", peer.identityHeader)
+    }
     
     for {
         peer.connection = nil
 
-        conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", nil)
+        conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", header)
                 
         if err != nil {
             Log.Warningf("Unable to connect to peer %s at %s on port %d: %v. Reconnecting in %ds...", peer.id, host, port, err, reconnectWaitSeconds)
@@ -550,7 +557,7 @@ func NewHub(id string, syncController *SyncController, tlsConfig *tls.Config) *H
     return hub
 }
 
-func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relayID string, siteID string) error {
+func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relayID string, siteID string, noValidate bool) error {
     conn := connection.UnderlyingConn()
     
     if _, ok := conn.(*tls.Conn); ok || relayID != "" {
@@ -564,11 +571,27 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
         }
         
         if err != nil {
-            Log.Warningf("Unable to accept peer connection: %v", err)
-            
+            if !noValidate {
+                Log.Warningf("Unable to accept peer connection: %v", err)
+                
+                closeWSConnection(connection)
+                
+                return err
+            }
+
+            peerID = relayID
+        }
+
+        if noValidate && relayID != "" {
+            peerID = relayID
+        }
+
+        if peerID == "" {
+            Log.Warningf("Unable to accept peer connection")
+
             closeWSConnection(connection)
-            
-            return err
+
+            return errors.New("Relay id not known")
         }
 
         go func() {
@@ -638,6 +661,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerNam
         for {
             // connect will return an error once the peer is disconnected for good
             peer.useHistoryServer(hub.tlsConfig, historyServerName, historyHost, historyPort, noValidate)
+            peer.identityHeader = hub.id
             incoming, outgoing, err := peer.connect(dialer, host, port)
             
             if err != nil {
