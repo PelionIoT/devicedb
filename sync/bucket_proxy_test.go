@@ -9,6 +9,7 @@ import (
     . "devicedb/client"
     . "devicedb/raft"
     . "devicedb/site"
+    . "devicedb/partition"
     . "devicedb/sync"
 
     "github.com/gorilla/mux"
@@ -16,6 +17,7 @@ import (
     "time"
     "net"
     "net/http"
+    "context"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -178,6 +180,68 @@ func (dummyBucket *DummyBucket) Merge(siblingSets map[string]*SiblingSet) error 
     dummyBucket.mergeCalls++
 
     return nil
+}
+
+type MockConfigController struct {
+    clusterController *ClusterController
+    defaultClusterCommandResponse error
+    clusterCommandCB func(ctx context.Context, commandBody interface{})
+}
+
+func NewMockConfigController(clusterController *ClusterController) *MockConfigController {
+    return &MockConfigController{
+        clusterController: clusterController,
+    }
+}
+
+func (configController *MockConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
+    return nil
+}
+
+func (configController *MockConfigController) ReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error {
+    return nil
+}
+
+func (configController *MockConfigController) RemoveNode(ctx context.Context, nodeID uint64) error {
+    return nil
+}
+
+func (configController *MockConfigController) ClusterCommand(ctx context.Context, commandBody interface{}) error {
+    configController.notifyClusterCommand(ctx, commandBody)
+    return configController.defaultClusterCommandResponse
+}
+
+func (configController *MockConfigController) SetDefaultClusterCommandResponse(err error) {
+    configController.defaultClusterCommandResponse = err
+}
+
+func (configController *MockConfigController) onClusterCommand(cb func(ctx context.Context, commandBody interface{})) {
+    configController.clusterCommandCB = cb
+}
+
+func (configController *MockConfigController) notifyClusterCommand(ctx context.Context, commandBody interface{}) {
+    configController.clusterCommandCB(ctx, commandBody)
+}
+
+func (configController *MockConfigController) OnLocalUpdates(cb func(deltas []ClusterStateDelta)) {
+}
+
+func (configController *MockConfigController) ClusterController() *ClusterController {
+    return configController.clusterController
+}
+
+func (configController *MockConfigController) SetClusterController(clusterController *ClusterController) {
+    configController.clusterController = clusterController
+}
+
+func (configController *MockConfigController) Start() error {
+    return nil
+}
+
+func (configController *MockConfigController) Stop() {
+}
+
+func (configController *MockConfigController) CancelProposals() {
 }
 
 type TestHTTPServer struct {
@@ -410,14 +474,23 @@ var _ = Describe("BucketProxy", func() {
                 }
 
                 bucketList.AddBucket(remoteBucket)
-                bucketSyncHTTP = &BucketSyncHTTP{
-                    SitePool: &DummySitePool{
-                        sites: map[string]Site{
-                            "site1": &DummySite{
-                                bucketList: bucketList,
-                            },
-                        },
+                site1 := &DummySite{
+                    bucketList: bucketList,
+                }
+
+                partitions := NewDefaultPartitionPool()
+                partitions.Add(NewDefaultPartition(0, &DummySitePool{
+                    sites: map[string]Site{
+                        "site1": site1,
                     },
+                }))
+
+                clusterController := &ClusterController{ PartitioningStrategy: &SimplePartitioningStrategy{ } }
+                clusterController.AddNode(ClusterAddNodeBody{ NodeID: 1, NodeConfig: NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } } })
+
+                bucketSyncHTTP = &BucketSyncHTTP{
+                    PartitionPool: partitions,
+                    ClusterConfigController: NewMockConfigController(clusterController),
                 }
 
                 bucketSyncHTTP.Attach(httpServer.Router())
@@ -525,14 +598,24 @@ var _ = Describe("BucketProxy", func() {
                 }
 
                 bucketList.AddBucket(remoteBucket)
-                bucketSyncHTTP = &BucketSyncHTTP{
-                    SitePool: &DummySitePool{
-                        sites: map[string]Site{
-                            "site1": &DummySite{
-                                bucketList: bucketList,
-                            },
-                        },
+
+                site1 := &DummySite{
+                    bucketList: bucketList,
+                }
+
+                partitions := NewDefaultPartitionPool()
+                partitions.Add(NewDefaultPartition(0, &DummySitePool{
+                    sites: map[string]Site{
+                        "site1": site1,
                     },
+                }))
+
+                clusterController := &ClusterController{ PartitioningStrategy: &SimplePartitioningStrategy{ } }
+                clusterController.AddNode(ClusterAddNodeBody{ NodeID: 1, NodeConfig: NodeConfig{ Capacity: 1, Address: PeerAddress{ NodeID: 1 } } })
+
+                bucketSyncHTTP = &BucketSyncHTTP{
+                    PartitionPool: partitions,
+                    ClusterConfigController: NewMockConfigController(clusterController),
                 }
 
                 bucketSyncHTTP.Attach(httpServer.Router())

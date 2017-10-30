@@ -319,6 +319,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
     profileEndpoint := &ProfilerEndpoint{ }
+    merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
 
     node.raftTransport.Attach(router)
     node.transferAgent.(*HTTPTransferAgent).Attach(router)
@@ -328,6 +329,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
     profileEndpoint.Attach(router)
+    merkleSyncEndpoint.Attach(router)
 
     startResult := make(chan error)
 
