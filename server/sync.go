@@ -473,6 +473,8 @@ func (syncSession *InitiatorSyncSession) NextState(syncMessageWrapper *SyncMessa
     }
     
     if syncSession.bucketProxy.MerkleTree().Error() != nil {
+        Log.Errorf("Initiator sync session %d encountered a merkle tree error: %v", syncSession.sessionID, syncSession.bucketProxy.MerkleTree().Error())
+
         // Encountered a proxy error with the merkle tree
         // need to abort
         syncSession.currentState = END
@@ -772,6 +774,8 @@ func (syncSession *ResponderSyncSession) NextState(syncMessageWrapper *SyncMessa
     if syncSession.bucketProxy.MerkleTree().Error() != nil {
         // Encountered a proxy error with the merkle tree
         // need to abort
+        Log.Errorf("Initiator sync session %d encountered a merkle tree error: %v", syncSession.sessionID, syncSession.bucketProxy.MerkleTree().Error())
+        
         syncSession.currentState = END
 
         messageWrapper = &SyncMessageWrapper{
