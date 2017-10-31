@@ -29,6 +29,7 @@ import (
     . "devicedb/merkle"
     . "devicedb/bucket"
     . "devicedb/data"
+    ddbBenchmark "devicedb/benchmarks"
 
     "github.com/olekukonko/tablewriter"
 )
@@ -317,6 +318,7 @@ func main() {
     benchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
     helpCommand := flag.NewFlagSet("help", flag.ExitOnError)
     clusterStartCommand := flag.NewFlagSet("start", flag.ExitOnError)
+    clusterBenchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
     clusterRemoveCommand := flag.NewFlagSet("remove", flag.ExitOnError)
     clusterDecommissionCommand := flag.NewFlagSet("decommission", flag.ExitOnError)
     clusterReplaceCommand := flag.NewFlagSet("replace", flag.ExitOnError)
@@ -360,6 +362,15 @@ func main() {
     clusterStartSyncPathLimit := clusterStartCommand.Uint("sync_path_limit", 10, "The number of exploration paths to allow in a sync session.")
     clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
     clusterStartLogLevel := clusterStartCommand.String("log_level", "info", "The log level configures how detailed the output produced by devicedb is. Must be one of { critical, error, warning, notice, info, debug }")
+    clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It should only be used for testing.")
+
+    clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
+    clusterBenchmarkInternalAddresses := clusterBenchmarkCommand.String("internal_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
+    clusterBenchmarkName := clusterBenchmarkCommand.String("name", "multiple_relays", "The name of the benchmark to run")
+    clusterBenchmarkNSites := clusterBenchmarkCommand.Uint("n_sites", 100, "The number of sites to simulate")
+    clusterBenchmarkNRelays := clusterBenchmarkCommand.Uint("n_relays", 1, "The number of relays to simulate per site")
+    clusterBenchmarkUpdatesPerSecond := clusterBenchmarkCommand.Uint("updates_per_second", 5, "The number of updates per second to simulate per relay")
+    clusterBenchmarkSyncPeriod := clusterBenchmarkCommand.Uint("sync_period", 1000, "The sync period in milliseconds per relay")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
     clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
@@ -446,6 +457,8 @@ func main() {
         switch os.Args[2] {
         case "start":
             clusterStartCommand.Parse(os.Args[3:])
+        case "benchmark":
+            clusterBenchmarkCommand.Parse(os.Args[3:])
         case "remove":
             clusterRemoveCommand.Parse(os.Args[3:])
         case "decommission":
@@ -794,6 +807,7 @@ func main() {
             StorageDriver: cloudNodeStorage,
             MerkleDepth: uint8(*clusterStartMerkleDepth),
             Capacity: capacity,
+            NoValidate: *clusterStartNoValidate,
         })
 
         if err := cloudNode.Start(startOptions); err != nil {
@@ -1220,6 +1234,49 @@ func main() {
         os.Exit(0)
     }
 
+    if clusterBenchmarkCommand.Parsed() {
+        internalAddresses := strings.Split(*clusterBenchmarkInternalAddresses, ",")
+        externalAddresses := strings.Split(*clusterBenchmarkExternalAddresses, ",")
+
+        if len(internalAddresses) == 0 {
+            fmt.Fprintf(os.Stderr, "Error: No internal addresses specified for the cloud cluster\n")
+
+            os.Exit(1)
+        }
+
+        for _, address := range internalAddresses {
+            if !isValidJoinAddress(address) {
+                fmt.Fprintf(os.Stderr, "Error: %s is not a valid address\n", address)
+
+                os.Exit(1)
+            }
+        }
+
+        if len(externalAddresses) == 0 {
+            fmt.Fprintf(os.Stderr, "Error: No external addresses specified for the cloud cluster\n")
+
+            os.Exit(1)
+        }
+
+        for _, address := range externalAddresses {
+            if !isValidJoinAddress(address) {
+                fmt.Fprintf(os.Stderr, "Error: %s is not a valid address\n", address)
+
+                os.Exit(1)
+            }
+        }
+
+        switch *clusterBenchmarkName {
+        case "multiple_relays":
+            fmt.Fprintf(os.Stderr, "Running the %s benchmark\n  # Sites: %d\n  # Relays per Site: %d\n  # Updates Per Second: %d\n  Sync Period (ms): %d\n", *clusterBenchmarkName, *clusterBenchmarkNSites, *clusterBenchmarkNRelays, *clusterBenchmarkUpdatesPerSecond, *clusterBenchmarkSyncPeriod)
+            ddbBenchmark.BenchmarkManyRelays(externalAddresses, internalAddresses, int(*clusterBenchmarkNSites), int(*clusterBenchmarkNRelays), int(*clusterBenchmarkUpdatesPerSecond), int(*clusterBenchmarkSyncPeriod))
+        default:
+            fmt.Fprintf(os.Stderr, "Error: %s is not the name of any benchmark test\n", *clusterBenchmarkName)
+
+            os.Exit(1)
+        }
+    }
+
     if clusterHelpCommand.Parsed() {
         if len(os.Args) < 4 {
             fmt.Fprintf(os.Stderr, "Error: No cluster command specified for help\n")
@@ -1231,6 +1288,8 @@ func main() {
         switch os.Args[3] {
         case "start":
             flagSet = clusterStartCommand
+        case "benchmark":
+            flagSet = clusterBenchmarkCommand
         case "remove":
             flagSet = clusterRemoveCommand
         case "decommission":

@@ -1,6 +1,8 @@
 package clusterio
 
 import (
+    "sync"
+
     . "devicedb/data"
     "devicedb/resolver"
     "devicedb/resolver/strategies"
@@ -10,6 +12,7 @@ type ReadMerger struct {
     keyVersions map[string]map[uint64]*SiblingSet
     mergedKeys map[string]*SiblingSet
     conflictResolver resolver.ConflictResolver
+    mu sync.Mutex
 }
 
 func NewReadMerger(bucket string) *ReadMerger {
@@ -30,6 +33,9 @@ func NewReadMerger(bucket string) *ReadMerger {
 }
 
 func (readMerger *ReadMerger) InsertKeyReplica(nodeID uint64, key string, siblingSet *SiblingSet) {
+    readMerger.mu.Lock()
+    defer readMerger.mu.Unlock()
+
     if _, ok := readMerger.keyVersions[key]; !ok {
         readMerger.keyVersions[key] = make(map[uint64]*SiblingSet)
     }
@@ -48,6 +54,9 @@ func (readMerger *ReadMerger) InsertKeyReplica(nodeID uint64, key string, siblin
 }
 
 func (readMerger *ReadMerger) Get(key string) *SiblingSet {
+    readMerger.mu.Lock()
+    defer readMerger.mu.Unlock()
+
     if readMerger.mergedKeys[key] == nil {
         return nil
     }
@@ -60,6 +69,9 @@ func (readMerger *ReadMerger) Get(key string) *SiblingSet {
 }
 
 func (readMerger *ReadMerger) Patch(nodeID uint64) map[string]*SiblingSet {
+    readMerger.mu.Lock()
+    defer readMerger.mu.Unlock()
+
     var patch map[string]*SiblingSet = make(map[string]*SiblingSet, len(readMerger.keyVersions))
 
     for key, versions := range readMerger.keyVersions {
@@ -75,6 +87,9 @@ func (readMerger *ReadMerger) Patch(nodeID uint64) map[string]*SiblingSet {
 
 
 func (readMerger *ReadMerger) Nodes() map[uint64]bool {
+    readMerger.mu.Lock()
+    defer readMerger.mu.Unlock()
+    
     var nodes map[uint64]bool = make(map[uint64]bool)
 
     for _, keyHolders  := range readMerger.keyVersions {

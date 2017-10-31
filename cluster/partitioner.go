@@ -233,7 +233,14 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
         }
 
         // Pass 1: Each time after givine a token to this node,
-        // skip the next token in an attempt to avoid adjacencies
+        // skip some tokens in an attempt to avoid adjacencies
+        // Space out the placement evenly throughout the range using this skip amount
+        skipAmount := len(assignments) / int(tokenCountFloor)
+
+        if skipAmount > 1 {
+            skipAmount -= 1
+        }
+
         for token := 0; token < len(assignments) && tokenCounts[i] < tokenCountFloor; token++ {
             owner := assignments[token]
             ownerIndex := 0
@@ -252,7 +259,7 @@ func (ps *SimplePartitioningStrategy) AssignTokens(nodes []NodeConfig, currentAs
                 tokenCounts[ownerIndex]--
 
                 // Increment so a space is skipped
-                token++
+                token += skipAmount
             }
         }
 

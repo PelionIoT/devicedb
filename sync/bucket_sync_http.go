@@ -1,10 +1,11 @@
 package sync
 
 import (
+    . "devicedb/cluster"
     . "devicedb/error"
     . "devicedb/logging"
     . "devicedb/rest"
-    . "devicedb/site"
+    . "devicedb/partition"
 
     "io"
     "net/http"
@@ -14,22 +15,29 @@ import (
 )
 
 type BucketSyncHTTP struct {
-    SitePool SitePool
+    PartitionPool PartitionPool
+    ClusterConfigController ClusterConfigController
 }
 
 func (bucketSync *BucketSyncHTTP) Attach(router *mux.Router) {
-    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merges", func(w http.ResponseWriter, r *http.Request) {
-    }).Methods("POST")
-
-    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/batch", func(w http.ResponseWriter, r *http.Request) {
-    }).Methods("POST")
-
     router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle", func(w http.ResponseWriter, r *http.Request) {
         siteID := mux.Vars(r)["siteID"]
         bucketName := mux.Vars(r)["bucket"]
+        partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
+        partition := bucketSync.PartitionPool.Get(partitionNumber)
 
-        site := bucketSync.SitePool.Acquire(siteID)
-        defer bucketSync.SitePool.Release(siteID)
+        if partition == nil {
+            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
+            
+            return
+        }
+
+        site := partition.Sites().Acquire(siteID)
+        defer partition.Sites().Release(siteID)
 
         if site == nil {
             Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
@@ -65,9 +73,21 @@ func (bucketSync *BucketSyncHTTP) Attach(router *mux.Router) {
     router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys", func(w http.ResponseWriter, r *http.Request) {
         siteID := mux.Vars(r)["siteID"]
         bucketName := mux.Vars(r)["bucket"]
+        partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
+        partition := bucketSync.PartitionPool.Get(partitionNumber)
 
-        site := bucketSync.SitePool.Acquire(siteID)
-        defer bucketSync.SitePool.Release(siteID)
+        if partition == nil {
+            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
+            
+            return
+        }
+
+        site := partition.Sites().Acquire(siteID)
+        defer partition.Sites().Release(siteID)
 
         if site == nil {
             Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
@@ -161,9 +181,21 @@ func (bucketSync *BucketSyncHTTP) Attach(router *mux.Router) {
         // Get the hash of a node
         siteID := mux.Vars(r)["siteID"]
         bucketName := mux.Vars(r)["bucket"]
+        partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
+        partition := bucketSync.PartitionPool.Get(partitionNumber)
 
-        site := bucketSync.SitePool.Acquire(siteID)
-        defer bucketSync.SitePool.Release(siteID)
+        if partition == nil {
+            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
+            
+            return
+        }
+
+        site := partition.Sites().Acquire(siteID)
+        defer partition.Sites().Release(siteID)
 
         if site == nil {
             Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)

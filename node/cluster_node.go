@@ -45,6 +45,7 @@ type ClusterNodeConfig struct {
     CloudServer *CloudServer
     MerkleDepth uint8
     Capacity uint64
+    NoValidate bool
 }
 
 type ClusterNode struct {
@@ -73,6 +74,7 @@ type ClusterNode struct {
     emptyMu sync.Mutex
     relayConnectionsMu sync.Mutex
     hub *Hub
+    noValidate bool
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -91,6 +93,11 @@ func New(config ClusterNodeConfig) *ClusterNode {
         capacity: config.Capacity,
         partitionFactory: NewDefaultPartitionFactory(),
         partitionPool: NewDefaultPartitionPool(),
+        noValidate: config.NoValidate,
+    }
+
+    if clusterNode.noValidate {
+        Log.Criticalf("!!! Starting node with NoValidate set to true. This option should not be used in production as it allows connecting relays to determine their own ID based on an HTTP header. This is for use in testing only and should not be active in a production cluster !!!")
     }
 
     return clusterNode
@@ -312,6 +319,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
     profileEndpoint := &ProfilerEndpoint{ }
+    merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
 
     node.raftTransport.Attach(router)
     node.transferAgent.(*HTTPTransferAgent).Attach(router)
@@ -321,6 +329,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
     profileEndpoint.Attach(router)
+    merkleSyncEndpoint.Attach(router)
 
     startResult := make(chan error)
 
@@ -755,12 +764,16 @@ func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn, header http
         var err error
         relayID, err = node.hub.ExtractPeerID(conn.UnderlyingConn().(*tls.Conn))
 
-        if err != nil {
+        if err != nil && !node.noValidate {
             Log.Warningf("Cannot accept connection from relay because it provided an invalid client cert.")
 
             conn.Close()
 
             return
+        }
+
+        if node.noValidate && header.Get("X-WigWag-RelayID") != "" {
+            relayID = header.Get("X-WigWag-RelayID")
         }
     }
 
@@ -790,20 +803,20 @@ func (node *ClusterNode) AcceptRelayConnection(conn *websocket.Conn, header http
             Log.Infof("Local node (id = %d) accepting connection from relay %s which belongs to site %s", nodeID, relayID, siteID)
 
             // The local node owns this site database. It can accept the connection for this relay
-            node.hub.Accept(conn, partitionNumber, relayID, siteID)
+            node.hub.Accept(conn, partitionNumber, relayID, siteID, node.noValidate)
 
             return
         }
     }
 
     // Can only proxy wss -> ws
-    if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
-        Log.Warningf("Local node (id = %d) cannot accept proxied connection from relay %s because it does not own the partition to which its site, site %s, belongs", node.configController.ClusterController().LocalNodeID, relayID, siteID)
+    //if _, ok := conn.UnderlyingConn().(*tls.Conn); !ok {
+    //    Log.Warningf("Local node (id = %d) cannot accept proxied connection from relay %s because it does not own the partition to which its site, site %s, belongs", node.configController.ClusterController().LocalNodeID, relayID, siteID)
 
-        conn.Close()
+    //    conn.Close()
 
-        return
-    }
+    //    return
+    //}
 
     // The local node does not own the site database for this site. It should proxy the connection to one of the owners
     nodeID := owners[int(rand.Uint32() % uint32(len(owners)))]

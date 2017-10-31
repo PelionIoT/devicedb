@@ -87,6 +87,35 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
 
     var nTotal int = len(remainingNodes)
 
+    // If local node is included in remainingNodes it should be attempted first
+    if remainingNodes[agent.NodeClient.LocalNodeID()] {
+        nodeID := agent.NodeClient.LocalNodeID()
+        patch, err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch)
+
+        delete(remainingNodes, nodeID)
+
+        if err != nil {
+            Log.Errorf("Unable to execute batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
+
+            if err == EBucketDoesNotExist || err == ESiteDoesNotExist {
+                resultError = err
+            }
+
+            nFailed++
+        } else {
+            // passing in NQuorum() - 1 since one node was already successful in applying the update so
+            // we require one less node to achieve write quorum
+            nMerged, err := agent.merge(ctxDeadline, opID, remainingNodes, agent.NQuorum(nTotal) - 1, partitionNumber, siteID, bucket, patch, true)
+
+            if err == ENoQuorum {
+                // If a specific error occurred before this overrides ENoQuorum
+                err = resultError
+            }
+
+            return nTotal, nMerged + 1, err
+        }
+    }
+
     for nodeID, _ := range remainingNodes {
         patch, err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch)
 

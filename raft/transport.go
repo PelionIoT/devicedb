@@ -50,11 +50,18 @@ type TransportHub struct {
 }
 
 func NewTransportHub(localPeerID uint64) *TransportHub {
+    defaultTransport := http.DefaultTransport.(*http.Transport)
+    transport := &http.Transport{}
+    transport.MaxIdleConns = 0
+    transport.MaxIdleConnsPerHost = 1000
+    transport.IdleConnTimeout = defaultTransport.IdleConnTimeout
+
     hub := &TransportHub{
         localPeerID: localPeerID,
         peers: make(map[uint64]PeerAddress),
         httpClient: &http.Client{ 
             Timeout: time.Second * RequestTimeoutSeconds,
+            Transport: transport,
         },
     }
 
@@ -151,17 +158,19 @@ func (hub *TransportHub) Send(ctx context.Context, msg raftpb.Message, proxy boo
     defer resp.Body.Close()
     
     if resp.StatusCode != http.StatusOK {
+        errorMessage, err := ioutil.ReadAll(resp.Body)
+
         if resp.StatusCode == http.StatusForbidden {
             return ESenderUnknown
         }
-
-        errorMessage, err := ioutil.ReadAll(resp.Body)
         
         if err != nil {
             return err
         }
         
         return errors.New(fmt.Sprintf("Received error code from server: (%d) %s", resp.StatusCode, string(errorMessage)))
+    } else {
+        io.Copy(ioutil.Discard, resp.Body)
     }
 
     return nil

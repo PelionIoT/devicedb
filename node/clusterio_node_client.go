@@ -23,10 +23,16 @@ type NodeClient struct {
 }
 
 func NewNodeClient(localNode Node, configController ClusterConfigController) *NodeClient {
+    defaultTransport := http.DefaultTransport.(*http.Transport)
+    transport := &http.Transport{}
+    transport.MaxIdleConns = 0
+    transport.MaxIdleConnsPerHost = 1000
+    transport.IdleConnTimeout = defaultTransport.IdleConnTimeout
+
     return &NodeClient{
         configController: configController,
         localNode: localNode,
-        httpClient: &http.Client{ },
+        httpClient: &http.Client{ Transport: transport },
     }
 }
 
@@ -329,6 +335,10 @@ func (nodeClient *NodeClient) RelayStatus(ctx context.Context, nodeID uint64, si
     }
 
     return relayStatus, nil
+}
+
+func (nodeClient *NodeClient) LocalNodeID() uint64 {
+    return nodeClient.configController.ClusterController().LocalNodeID
 }
 
 func (nodeClient *NodeClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) (int, []byte, error) {
