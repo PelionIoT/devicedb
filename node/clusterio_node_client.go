@@ -12,6 +12,7 @@ import (
     . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/error"
+    . "devicedb/logging"
     . "devicedb/raft"
     . "devicedb/routes"
 )
@@ -98,6 +99,8 @@ func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partitio
 
         return nil
     default:
+        Log.Warningf("Merge request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return EStorage
     }
 }
@@ -158,6 +161,8 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
 
         return batchResult.Patch, nil
     default:
+        Log.Warningf("Batch request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return nil, EStorage
     }
 }
@@ -211,6 +216,8 @@ func (nodeClient *NodeClient) Get(ctx context.Context, nodeID uint64, partition 
         return nil, dbErr
     case 200:
     default:
+        Log.Warningf("Get request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return nil, EStorage
     }
 
@@ -280,6 +287,8 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
         return nil, dbErr
     case 200:
     default:
+        Log.Warningf("Get matches request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return nil, EStorage
     }
 
