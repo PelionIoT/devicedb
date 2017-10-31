@@ -5,4 +5,4 @@ package version
 // Increment x when you make incompatible API changes
 // Increment y when you add functionality in a backwards-compatible manner
 // Increment z when you make backwards-compatible bug fixes
-var DEVICEDB_VERSION = "1.0.1"
+var DEVICEDB_VERSION = "1.3.4"
