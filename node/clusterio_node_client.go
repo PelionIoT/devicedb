@@ -287,7 +287,7 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
         return nil, dbErr
     case 200:
     default:
-        Log.Warningf("Get matches request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+        Log.Warningf("Get matches request to node %d at %s:%d for partition %d at site %s and bucket %s received a %d status code", nodeID, nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket, status)
 
         return nil, EStorage
     }
