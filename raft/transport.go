@@ -50,17 +50,18 @@ type TransportHub struct {
 }
 
 func NewTransportHub(localPeerID uint64) *TransportHub {
-    transportPointer := http.DefaultTransport.(*http.Transport)
-    transport := *transportPointer
+    defaultTransport := http.DefaultTransport.(*http.Transport)
+    transport := &http.Transport{}
     transport.MaxIdleConns = 0
     transport.MaxIdleConnsPerHost = 1000
+    transport.IdleConnTimeout = defaultTransport.IdleConnTimeout
 
     hub := &TransportHub{
         localPeerID: localPeerID,
         peers: make(map[uint64]PeerAddress),
         httpClient: &http.Client{ 
             Timeout: time.Second * RequestTimeoutSeconds,
-            Transport: &transport,
+            Transport: transport,
         },
     }
 
