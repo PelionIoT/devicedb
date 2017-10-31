@@ -7,6 +7,7 @@ import (
     "fmt"
     "io/ioutil"
     "net/http"
+    "net/url"
 
     . "devicedb/bucket"
     . "devicedb/cluster"
@@ -192,7 +193,7 @@ func (nodeClient *NodeClient) Get(ctx context.Context, nodeID uint64, partition 
     var queryString string
 
     for i, key := range keys {
-        queryString += "key=" + string(key)
+        queryString += "key=" + url.QueryEscape(string(key))
 
         if i != len(keys) - 1 {
             queryString += "&"
@@ -263,7 +264,7 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
     var queryString string
 
     for i, key := range keys {
-        queryString += "prefix=" + string(key)
+        queryString += "prefix=" + url.QueryEscape(string(key))
 
         if i != len(keys) - 1 {
             queryString += "&"
@@ -287,7 +288,7 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
         return nil, dbErr
     case 200:
     default:
-        Log.Warningf("Get matches request %s to node %d at %s:%d for partition %d at site %s and bucket %s received a %d status code", fmt.Sprintf("http://%s:%d/partitions/%d/sites/%s/buckets/%s/keys?%s", nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket, queryString), nodeID, nodeAddress.Host, nodeAddress.Port, partition, siteID, bucket, status)
+        Log.Warningf("Get matches request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
 
         return nil, EStorage
     }
