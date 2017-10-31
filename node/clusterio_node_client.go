@@ -7,11 +7,13 @@ import (
     "fmt"
     "io/ioutil"
     "net/http"
+    "net/url"
 
     . "devicedb/bucket"
     . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/error"
+    . "devicedb/logging"
     . "devicedb/raft"
     . "devicedb/routes"
 )
@@ -98,6 +100,8 @@ func (nodeClient *NodeClient) Merge(ctx context.Context, nodeID uint64, partitio
 
         return nil
     default:
+        Log.Warningf("Merge request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return EStorage
     }
 }
@@ -158,6 +162,8 @@ func (nodeClient *NodeClient) Batch(ctx context.Context, nodeID uint64, partitio
 
         return batchResult.Patch, nil
     default:
+        Log.Warningf("Batch request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return nil, EStorage
     }
 }
@@ -187,7 +193,7 @@ func (nodeClient *NodeClient) Get(ctx context.Context, nodeID uint64, partition 
     var queryString string
 
     for i, key := range keys {
-        queryString += "key=" + string(key)
+        queryString += "key=" + url.QueryEscape(string(key))
 
         if i != len(keys) - 1 {
             queryString += "&"
@@ -211,6 +217,8 @@ func (nodeClient *NodeClient) Get(ctx context.Context, nodeID uint64, partition 
         return nil, dbErr
     case 200:
     default:
+        Log.Warningf("Get request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return nil, EStorage
     }
 
@@ -256,7 +264,7 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
     var queryString string
 
     for i, key := range keys {
-        queryString += "prefix=" + string(key)
+        queryString += "prefix=" + url.QueryEscape(string(key))
 
         if i != len(keys) - 1 {
             queryString += "&"
@@ -280,6 +288,8 @@ func (nodeClient *NodeClient) GetMatches(ctx context.Context, nodeID uint64, par
         return nil, dbErr
     case 200:
     default:
+        Log.Warningf("Get matches request to node %d for partition %d at site %s and bucket %s received a %d status code", nodeID, partition, siteID, bucket, status)
+
         return nil, EStorage
     }
 

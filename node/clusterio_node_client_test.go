@@ -681,6 +681,27 @@ var _ = Describe("ClusterioNodeClient", func() {
                 Expect(server.ReceivedRequests()).Should(HaveLen(1))
             })
 
+            Context("And one of the keys has a space in it", func() {
+                // This test case acts as a regression test to simulates a bug where the keys were not being URL encoded so
+                // there was a 400 being returned automatically by the framework for those calls
+                It("Should not return an error", func() {
+                    var entries []InternalEntry = []InternalEntry{
+                        InternalEntry{ Prefix: "", Key: "devicejs.core.resourceGroups.root/Study Room", Siblings: nil },
+                    }
+
+                    encodedEntries, err := json.Marshal(&entries)
+
+                    Expect(err).Should(Not(HaveOccurred()))
+
+                    server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedEntries))
+                    siblingSets, err := client.Get(context.TODO(), remoteNodeID, 50, "site1", "default", [][]byte{ []byte("devicejs.core.resourceGroups.root/Study Room") })
+
+                    Expect(siblingSets).Should(Equal([]*SiblingSet{ nil }))
+                    Expect(err).Should(Not(HaveOccurred()))
+                    Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                })
+            })
+
             Context("And ctx.Done() is closed before the http request responds", func() {
                 It("Should return a nil sibling set array and an error", func() {
                     var ctx context.Context
@@ -926,6 +947,33 @@ var _ = Describe("ClusterioNodeClient", func() {
                 server.AppendHandlers(ghttp.VerifyRequest("GET", "/partitions/50/sites/site1/buckets/default/keys", "prefix=a&prefix=b&prefix=c"))
                 client.GetMatches(context.TODO(), remoteNodeID, 50, "site1", "default", [][]byte{ []byte("a"), []byte("b"), []byte("c") })
                 Expect(server.ReceivedRequests()).Should(HaveLen(1))
+            })
+
+            Context("And one of the keys has a space in it", func() {
+                // This test case acts as a regression test to simulates a bug where the keys were not being URL encoded so
+                // there was a 400 being returned automatically by the framework for those calls
+                It("Should not return an error", func() {
+                    var entries []InternalEntry = []InternalEntry{
+                        InternalEntry{ Prefix: "devicejs.core.resourceGroups.root/Study Room", Key: "devicejs.core.resourceGroups.root/Study Room", Siblings: nil },
+                    }
+
+                    encodedEntries, err := json.Marshal(&entries)
+
+                    Expect(err).Should(Not(HaveOccurred()))
+
+                    server.AppendHandlers(ghttp.RespondWith(http.StatusOK, encodedEntries))
+                    iter, err := client.GetMatches(context.TODO(), remoteNodeID, 50, "site1", "default", [][]byte{ []byte("devicejs.core.resourceGroups.root/Study Room") })
+
+                    Expect(iter).Should(Not(BeNil()))
+                    Expect(err).Should(Not(HaveOccurred()))
+                    Expect(iter.Next()).Should(BeTrue())
+                    Expect(iter.Prefix()).Should(Equal([]byte("devicejs.core.resourceGroups.root/Study Room")))
+                    Expect(iter.Key()).Should(Equal([]byte("devicejs.core.resourceGroups.root/Study Room")))
+                    Expect(iter.Value()).Should(BeNil())
+
+                    Expect(iter.Next()).Should(BeFalse())
+                    Expect(server.ReceivedRequests()).Should(HaveLen(1))
+                })
             })
 
             Context("And ctx.Done() is closed before the http request responds", func() {
