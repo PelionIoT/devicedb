@@ -14,6 +14,7 @@ import (
     . "devicedb/error"
     . "devicedb/util"
     . "devicedb/transport"
+    ddbSync "devicedb/sync"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -30,13 +31,23 @@ func buffer(j string) *bytes.Buffer {
 var _ = Describe("Server", func() {
     var client *http.Client
     var server *Server
+    var hub *Hub
+    var syncController *SyncController
     stop := make(chan int)
     
     BeforeEach(func() {
+        _, clientTLS, err := loadCerts("WWRL000000")
+
+        Expect(err).Should(Not(HaveOccurred()))
+
+        syncController = NewSyncController(2, nil, ddbSync.NewPeriodicSyncScheduler(SYNC_PERIOD_MS), 1000)
+        hub = NewHub("", syncController, clientTLS)
+
         client = &http.Client{ Transport: &http.Transport{ DisableKeepAlives: true } }
         server, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + RandomString(),
             Port: 8080,
+            Hub: hub,
         })
         
         go func() {
@@ -308,6 +319,40 @@ var _ = Describe("Server", func() {
             Expect(siblingSets[1].Siblings[0]).Should(Equal("value2"))
             Expect(siblingSets[2].Siblings[0]).Should(Equal("value3"))
             Expect(resp.StatusCode).Should(Equal(http.StatusOK))
+        })
+
+        Describe("Regression test for bug with BroadcastUpdate where it would block if Connect had been called for a particular peer but it had not yet connected", func() {
+            It("should not hang on second batch call", func() {
+                updateBatch := NewUpdateBatch()
+                updateBatch.Put([]byte("key1"), []byte("value1"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                updateBatch.Put([]byte("key2"), []byte("value2"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                updateBatch.Put([]byte("key3"), []byte("value3"), NewDVV(NewDot("", 0), map[string]uint64{ }))
+                var transportUpdateBatch TransportUpdateBatch = make([]TransportUpdateOp, len(updateBatch.Batch().Ops()))
+                transportUpdateBatch.FromUpdateBatch(updateBatch)
+              
+                // This connects to nothing so it will fail and keep re-trying
+                Expect(hub.ConnectCloud("", "localhost", 34343, "", "localhost", 54545, true)).Should(Not(HaveOccurred()))
+
+                <-time.After(time.Second)
+
+                jsonBytes, _ := json.Marshal(transportUpdateBatch)
+           
+                responseReceived := make(chan int)
+
+                go func() {
+                    client.Post(url("/default/batch", server), "application/json", bytes.NewBuffer(jsonBytes))
+
+                    responseReceived <- 1
+                }()
+
+                select {
+                case <-responseReceived:
+                case <-time.After(time.Second):
+                    Fail("The request should not hang")
+                }
+
+                <-time.After(time.Second)
+            })
         })
     })
 })
