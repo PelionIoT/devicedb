@@ -991,7 +991,7 @@ func (server *Server) Start() error {
             
             return
         }
-    
+   
         if server.hub != nil {
             server.hub.BroadcastUpdate("", bucket, updatedSiblingSets, server.syncPushBroadcastLimit)
         }

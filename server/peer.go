@@ -1570,7 +1570,7 @@ func (s *SyncController) Start() {
     s.StartResponderSessions()
 }
 
-func (s *SyncController) BroadcastUpdate(peerID string, bucket string, update map[string]*SiblingSet, n uint64) {    
+func (s *SyncController) BroadcastUpdate(peerID string, bucket string, update map[string]*SiblingSet, n uint64) {
     s.mapMutex.RLock()
     defer s.mapMutex.RUnlock()
    
@@ -1588,7 +1588,9 @@ func (s *SyncController) BroadcastUpdate(peerID string, bucket string, update ma
        
         w := s.peers[peerID]
 
-        Log.Debugf("Push object at key %s in bucket %s to peer %s", key, bucket, peerID)
-        w <- msg
+        if w != nil {
+            Log.Debugf("Push object at key %s in bucket %s to peer %s", key, bucket, peerID)
+            w <- msg
+        }
     }
 }
