@@ -368,6 +368,7 @@ func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName 
     tlsConfig := *tlsBaseConfig
     tlsConfig.InsecureSkipVerify = noValidate
     tlsConfig.ServerName = historyServerName
+    tlsConfig.RootCAs = nil // ensures that this uses the default root CAs
     
     peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
 }
