@@ -185,6 +185,14 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     // occur
     node.transferAgent = NewDefaultHTTPTransferAgent(node.configController, node.partitionPool)
     node.clusterioAgent = clusterio.NewAgent(NewNodeClient(node, node.configController), NewPartitionResolver(node.configController))
+
+    if options.SyncPeriod < 1000 {
+        options.SyncPeriod = 1000
+    }
+
+    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
+    node.hub = NewHub("", syncController, nil)
+
     stateCoordinator.InitializeNodeState()
 
     bucketProxyFactory := &ddbSync.CloudBucketProxyFactory{
@@ -193,14 +201,6 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
         PartitionPool: node.partitionPool,
         ClusterIOAgent: node.clusterioAgent,
     }
-
-    if options.SyncPeriod < 1000 {
-        options.SyncPeriod = 1000
-    }
-
-    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
-
-    node.hub = NewHub("", syncController, nil)
 
     node.hub.SyncController().Start()
     serverStopResult := node.startNetworking()
