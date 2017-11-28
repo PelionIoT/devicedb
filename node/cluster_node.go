@@ -190,17 +190,16 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
         options.SyncPeriod = 1000
     }
 
-    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
-    node.hub = NewHub("", syncController, nil)
-
-    stateCoordinator.InitializeNodeState()
-
     bucketProxyFactory := &ddbSync.CloudBucketProxyFactory{
         Client: *node.interClusterClient,
         ClusterController: node.configController.ClusterController(),
         PartitionPool: node.partitionPool,
         ClusterIOAgent: node.clusterioAgent,
     }
+    syncController := NewSyncController(options.SyncMaxSessions, bucketProxyFactory, ddbSync.NewMultiSyncScheduler(time.Millisecond * time.Duration(options.SyncPeriod)), options.SyncPathLimit)
+    node.hub = NewHub("", syncController, nil)
+
+    stateCoordinator.InitializeNodeState()
 
     node.hub.SyncController().Start()
     serverStopResult := node.startNetworking()
