@@ -30,9 +30,12 @@ import (
     . "devicedb/bucket"
     . "devicedb/data"
     ddbBenchmark "devicedb/benchmarks"
+    "devicedb/routes"
 
     "github.com/olekukonko/tablewriter"
 )
+
+const defaultPort uint = 8080
 
 var templateConfig string =
 `# The db field specifies the directory where the database files reside on
@@ -274,6 +277,7 @@ Cluster Commands:
     get_matches   Get all entries in a site database whose keys match some prefix
     put           Put a value in a site database with a certain key
     delete        Delete an entry in a site database with a certain key
+    log_dump      Print the replicated log state of the specified node
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
 `
@@ -334,6 +338,7 @@ func main() {
     clusterPutCommand := flag.NewFlagSet("put", flag.ExitOnError)
     clusterDeleteCommand := flag.NewFlagSet("delete", flag.ExitOnError)
     clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
+    clusterLogDumpCommand := flag.NewFlagSet("log_dump", flag.ExitOnError)
 
     startConfigFile := startCommand.String("conf", "", "The config file for this server")
 
@@ -346,7 +351,7 @@ func main() {
     benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
 
     clusterStartHost := clusterStartCommand.String("host", "localhost", "HTTP The hostname or ip to listen on. This is the advertised host address for this node.")
-    clusterStartPort := clusterStartCommand.Uint("port", uint(55555), "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
+    clusterStartPort := clusterStartCommand.Uint("port", defaultPort, "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
     clusterStartRelayHost := clusterStartCommand.String("relay_host", "localhost", "HTTPS The hostname or ip to listen on for incoming relay connections.")
     clusterStartRelayPort := clusterStartCommand.Uint("relay_port", uint(443), "HTTPS This is the port used for incoming relay connections.")
     clusterStartTLSCertificate := clusterStartCommand.String("cert", "", "PEM encoded x509 certificate to be used by relay connections. (Required) (Ex: /path/to/certs/cert.pem)")
@@ -373,60 +378,60 @@ func main() {
     clusterBenchmarkSyncPeriod := clusterBenchmarkCommand.Uint("sync_period", 1000, "The sync period in milliseconds per relay")
 
     clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
-    clusterRemovePort := clusterRemoveCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRemovePort := clusterRemoveCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterRemoveNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that should be removed from the cluster. Defaults to the ID of the node being contacted.")
 
     clusterDecommissionHost := clusterDecommissionCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterDecommissionPort := clusterDecommissionCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterDecommissionPort := clusterDecommissionCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterDecommissionNodeID := clusterDecommissionCommand.Uint64("node", uint64(0), "The ID of the node that should be decommissioned from the cluster. Defaults to the ID of the node being contacted.")
 
     clusterReplaceHost := clusterReplaceCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterReplacePort := clusterReplaceCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterReplacePort := clusterReplaceCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterReplaceNodeID := clusterReplaceCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")
     clusterReplaceReplacementNodeID := clusterReplaceCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
 
     clusterOverviewHost := clusterOverviewCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to query the cluster state.")
-    clusterOverviewPort := clusterOverviewCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterOverviewPort := clusterOverviewCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
 
     clusterAddSiteHost := clusterAddSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the site.")
-    clusterAddSitePort := clusterAddSiteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterAddSitePort := clusterAddSiteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterAddSiteSiteID := clusterAddSiteCommand.String("site", "", "The ID of the site to add. (Required)")
 
     clusterRemoveSiteHost := clusterRemoveSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the site.")
-    clusterRemoveSitePort := clusterRemoveSiteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRemoveSitePort := clusterRemoveSiteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterRemoveSiteSiteID := clusterRemoveSiteCommand.String("site", "", "The ID of the site to remove. (Required)")
 
     clusterAddRelayHost := clusterAddRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the relay.")
-    clusterAddRelayPort := clusterAddRelayCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterAddRelayPort := clusterAddRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterAddRelayRelayID := clusterAddRelayCommand.String("relay", "", "The ID of the relay to add. (Required)")
 
     clusterRemoveRelayHost := clusterRemoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
-    clusterRemoveRelayPort := clusterRemoveRelayCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRemoveRelayPort := clusterRemoveRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterRemoveRelayRelayID := clusterRemoveRelayCommand.String("relay", "", "The ID of the relay to remove. (Required)")
 
     clusterMoveRelayHost := clusterMoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
-    clusterMoveRelayPort := clusterMoveRelayCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterMoveRelayPort := clusterMoveRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterMoveRelayRelayID := clusterMoveRelayCommand.String("relay", "", "The ID of the relay to move. (Required)")
     clusterMoveRelaySiteID := clusterMoveRelayCommand.String("site", "", "The ID of the site to move the relay to. If left blank the relay is removed from its current site.")
 
     clusterRelayStatusHost := clusterRelayStatusCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting the relay status.")
-    clusterRelayStatusPort := clusterRelayStatusCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterRelayStatusPort := clusterRelayStatusCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterRelayStatusRelayID := clusterRelayStatusCommand.String("relay", "", "The ID of the relay to query. (Required)")
 
     clusterGetHost := clusterGetCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting this key.")
-    clusterGetPort := clusterGetCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterGetPort := clusterGetCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterGetSiteID := clusterGetCommand.String("site", "", "The ID of the site. (Required)")
     clusterGetBucket := clusterGetCommand.String("bucket", "default", "The bucket to query in the site.")
     clusterGetKey := clusterGetCommand.String("key", "", "The key to get from the bucket. (Required)")
 
     clusterGetMatchesHost := clusterGetMatchesCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting these keys.")
-    clusterGetMatchesPort := clusterGetMatchesCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterGetMatchesPort := clusterGetMatchesCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterGetMatchesSiteID := clusterGetMatchesCommand.String("site", "", "The ID of the site. (Required)")
     clusterGetMatchesBucket := clusterGetMatchesCommand.String("bucket", "default", "The bucket to query in the site.")
     clusterGetMatchesPrefix := clusterGetMatchesCommand.String("prefix", "", "The prefix of keys to get from the bucket. (Required)")
 
     clusterPutHost := clusterPutCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
-    clusterPutPort := clusterPutCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterPutPort := clusterPutCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterPutSiteID := clusterPutCommand.String("site", "", "The ID of the site. (Required)")
     clusterPutBucket := clusterPutCommand.String("bucket", "default", "The bucket in the site where this key goes.")
     clusterPutKey := clusterPutCommand.String("key", "", "The key to update in the bucket. (Required)")
@@ -434,11 +439,14 @@ func main() {
     clusterPutContext := clusterPutCommand.String("context", "", "The causal context of this put operation")
 
     clusterDeleteHost := clusterDeleteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
-    clusterDeletePort := clusterDeleteCommand.Uint("port", uint(55555), "The port of the cluster member to contact.")
+    clusterDeletePort := clusterDeleteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterDeleteSiteID := clusterDeleteCommand.String("site", "", "The ID of the site. (Required)")
     clusterDeleteBucket := clusterDeleteCommand.String("bucket", "default", "The bucket in the site where this key goes.")
     clusterDeleteKey := clusterDeleteCommand.String("key", "", "The key to update in the bucket. (Required)")
     clusterDeleteContext := clusterDeleteCommand.String("context", "", "The causal context of this put operation")
+
+    clusterLogDumpHost := clusterLogDumpCommand.String("host", "localhost", "The hostname or ip of some cluster member whose raft state to print.")
+    clusterLogDumpPort := clusterLogDumpCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
 
     if len(os.Args) < 2 {
         fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
@@ -487,6 +495,8 @@ func main() {
             clusterPutCommand.Parse(os.Args[3:])
         case "delete":
             clusterDeleteCommand.Parse(os.Args[3:])
+        case "log_dump":
+            clusterLogDumpCommand.Parse(os.Args[3:])
         case "help":
             clusterHelpCommand.Parse(os.Args[3:])
         case "-help":
@@ -1234,6 +1244,21 @@ func main() {
         os.Exit(0)
     }
 
+    if clusterLogDumpCommand.Parsed() {
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterLogDumpHost, *clusterLogDumpPort) } })
+        logDump, err := apiClient.LogDump(context.TODO())
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to get raft dump: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        printLogDump(logDump)
+
+        os.Exit(0)
+    }
+
     if clusterBenchmarkCommand.Parsed() {
         internalAddresses := strings.Split(*clusterBenchmarkInternalAddresses, ",")
         externalAddresses := strings.Split(*clusterBenchmarkExternalAddresses, ",")
@@ -1318,6 +1343,8 @@ func main() {
             flagSet = clusterPutCommand
         case "delete":
             flagSet = clusterDeleteCommand
+        case "log_dump":
+            flagSet = clusterLogDumpCommand
         default:
             fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid cluster command.\n", os.Args[3])
             os.Exit(1)
@@ -1470,4 +1497,88 @@ func benchmarkWrites(benchmarkMagnitude int, server *Server) error {
     fmt.Printf("%d writes took %s or an average of %s per write or %d writes per second\n", benchmarkMagnitude, elapsed.String(), average.String(), batchesPerSecond)
     
     return nil
+}
+
+func printLogDump(logDump routes.LogDump) {
+    fmt.Fprintf(os.Stderr, "Base Snapshot:\n")
+    fmt.Fprintf(os.Stderr, "  Index: %d\n", logDump.BaseSnapshot.Index)
+    fmt.Fprintf(os.Stderr, "  State:\n")
+    fmt.Fprintf(os.Stderr, "    Cluster Settings:\n")
+    fmt.Fprintf(os.Stderr, "      Partitions: %v\n", logDump.BaseSnapshot.State.ClusterSettings.Partitions)
+    fmt.Fprintf(os.Stderr, "      Replication Factor: %v\n", logDump.BaseSnapshot.State.ClusterSettings.ReplicationFactor)
+    fmt.Fprintf(os.Stderr, "    Nodes:\n")
+    for _, nodeConfig := range logDump.BaseSnapshot.State.Nodes {
+    fmt.Fprintf(os.Stderr, "      %d:\n", nodeConfig.Address.NodeID)
+    fmt.Fprintf(os.Stderr, "        ID: %d\n", nodeConfig.Address.NodeID)
+    fmt.Fprintf(os.Stderr, "        Address:\n")
+    fmt.Fprintf(os.Stderr, "          Host: %s\n", nodeConfig.Address.Host)
+    fmt.Fprintf(os.Stderr, "          Port: %d\n", nodeConfig.Address.Port)
+    }
+    fmt.Fprintf(os.Stderr, "    Tokens:\n")
+    for token, owner := range logDump.BaseSnapshot.State.Tokens {
+    fmt.Fprintf(os.Stderr, "      %d: %d\n", token, owner)
+    }
+    fmt.Fprintf(os.Stderr, "Log Entries (%d):\n", len(logDump.Entries))
+    for _, entry := range logDump.Entries {
+    fmt.Fprintf(os.Stderr, "  %s\n", logEntryToString(entry))
+    }
+}
+
+func logEntryToString(logEntry routes.LogEntry) string {
+    commandType := "<unknown>"
+    commandDetails := ""
+    commandBody, err := cluster.DecodeClusterCommandBody(logEntry.Command)
+   
+    if err == nil {
+        switch logEntry.Command.Type {
+        case cluster.ClusterUpdateNode:
+            commandType = "UpdateNode"
+            updateNodeCommandBody := commandBody.(cluster.ClusterUpdateNodeBody)
+            commandDetails = fmt.Sprintf("Node ID: %d, Host: %s, Port: %d, Capacity: %d", updateNodeCommandBody.NodeID, updateNodeCommandBody.NodeConfig.Address.Host, updateNodeCommandBody.NodeConfig.Address.Port, updateNodeCommandBody.NodeConfig.Capacity)
+        case cluster.ClusterAddNode:
+            commandType = "AddNode"
+            addNodeCommandBody := commandBody.(cluster.ClusterAddNodeBody)
+            commandDetails = fmt.Sprintf("Node ID: %d, Host: %s, Port: %d, Capacity: %d", addNodeCommandBody.NodeID, addNodeCommandBody.NodeConfig.Address.Host, addNodeCommandBody.NodeConfig.Address.Port, addNodeCommandBody.NodeConfig.Capacity)
+        case cluster.ClusterRemoveNode:
+            commandType = "RemoveNode"
+            removeNodeCommandBody := commandBody.(cluster.ClusterRemoveNodeBody)
+            commandDetails = fmt.Sprintf("Node ID: %d, Replacement Node ID: %d", removeNodeCommandBody.NodeID, removeNodeCommandBody.ReplacementNodeID)
+        case cluster.ClusterTakePartitionReplica:
+            commandType = "TakePartitionReplica"
+            takePartitionReplicaCommandBody := commandBody.(cluster.ClusterTakePartitionReplicaBody)
+            commandDetails = fmt.Sprintf("Node ID: %d, Partition: %d, Replica: %d", takePartitionReplicaCommandBody.NodeID, takePartitionReplicaCommandBody.Partition, takePartitionReplicaCommandBody.Replica)
+        case cluster.ClusterSetReplicationFactor:
+            commandType = "SetReplicationFactor"
+            setReplicationFactorCommandBody := commandBody.(cluster.ClusterSetReplicationFactorBody)
+            commandDetails = fmt.Sprintf("Replication Factor: %d", setReplicationFactorCommandBody.ReplicationFactor)
+        case cluster.ClusterSetPartitionCount:
+            commandType = "SetPartitionCount"
+            setPartitionCountCommandBody := commandBody.(cluster.ClusterSetPartitionCountBody)
+            commandDetails = fmt.Sprintf("Partitions: %d", setPartitionCountCommandBody.Partitions)
+        case cluster.ClusterAddSite:
+            commandType = "AddSite"
+            addSiteCommandBody := commandBody.(cluster.ClusterAddSiteBody)
+            commandDetails = fmt.Sprintf("Site ID: %s", addSiteCommandBody.SiteID)
+        case cluster.ClusterRemoveSite:
+            commandType = "RemoveSite"
+            removeSiteCommandBody := commandBody.(cluster.ClusterRemoveSiteBody)
+            commandDetails = fmt.Sprintf("Site ID: %s", removeSiteCommandBody.SiteID)
+        case cluster.ClusterAddRelay:
+            commandType = "AddRelay"
+            addRelayCommandBody := commandBody.(cluster.ClusterAddRelayBody)
+            commandDetails = fmt.Sprintf("Relay ID: %s", addRelayCommandBody.RelayID)
+        case cluster.ClusterRemoveRelay:
+            commandType = "RemoveRelay"
+            removeRelayCommandBody := commandBody.(cluster.ClusterRemoveRelayBody)
+            commandDetails = fmt.Sprintf("Relay ID: %s", removeRelayCommandBody.RelayID)
+        case cluster.ClusterMoveRelay:
+            commandType = "MoveRelay"
+            moveRelayCommandBody := commandBody.(cluster.ClusterMoveRelayBody)
+            commandDetails = fmt.Sprintf("Relay ID: %s, Site ID: %s", moveRelayCommandBody.RelayID, moveRelayCommandBody.SiteID)
+        }
+    } else {
+        commandDetails = "<unable to read details>"
+    }
+
+    return fmt.Sprintf("%d: (%s) %s", logEntry.Index, commandType, commandDetails)
 }

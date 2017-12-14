@@ -38,4 +38,5 @@ type ClusterFacade interface {
     TokenAssignments() []uint64
     GetRelayStatus(ctx context.Context, relayID string) (RelayStatus, error)
     LocalGetRelayStatus(relayID string) (RelayStatus, error)
+    LocalLogDump() (LogDump, error)
 }

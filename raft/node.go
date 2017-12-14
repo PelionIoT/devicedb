@@ -96,6 +96,20 @@ func (raftNode *RaftNode) LastSnapshot() (raftpb.Snapshot, error) {
     return raftNode.config.Storage.Snapshot()
 }
 
+func (raftNode *RaftNode) CommittedEntries() ([]raftpb.Entry, error) {
+    firstIndex, err := raftNode.config.Storage.FirstIndex()
+
+    if err != nil {
+        return nil, err
+    }
+
+    if firstIndex == raftNode.lastCommittedIndex + 1 {
+        return []raftpb.Entry{}, nil
+    }
+
+    return raftNode.config.Storage.Entries(firstIndex, raftNode.lastCommittedIndex + 1, math.MaxUint64)
+}
+
 func (raftNode *RaftNode) Start() error {
     raftNode.stop = make(chan int)
     raftNode.isRunning = true
