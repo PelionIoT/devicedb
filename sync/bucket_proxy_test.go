@@ -12,6 +12,7 @@ import (
     . "devicedb/partition"
     . "devicedb/sync"
 
+    "github.com/coreos/etcd/raft/raftpb"
     "github.com/gorilla/mux"
     "strconv"
     "time"
@@ -192,6 +193,10 @@ func NewMockConfigController(clusterController *ClusterController) *MockConfigCo
     return &MockConfigController{
         clusterController: clusterController,
     }
+}
+
+func (configController *MockConfigController) LogDump() (raftpb.Snapshot, []raftpb.Entry, error) {
+    return raftpb.Snapshot{}, nil, nil
 }
 
 func (configController *MockConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) error {
