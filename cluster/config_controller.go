@@ -19,6 +19,7 @@ import (
 const ProposalRetryPeriodSeconds = 15
 
 type ClusterConfigController interface {
+    LogDump() (raftpb.Snapshot, []raftpb.Entry, error)
     AddNode(ctx context.Context, nodeConfig NodeConfig) error
     ReplaceNode(ctx context.Context, replacedNodeID uint64, replacementNodeID uint64) error
     RemoveNode(ctx context.Context, nodeID uint64) error
@@ -51,6 +52,13 @@ type ConfigController struct {
     pendingProposals map[uint64]func()
     proposalsCancelled bool
     onLocalUpdatesCB func([]ClusterStateDelta)
+    // entryLog serves as an
+    // easily accsessible record of what happened
+    // at this node to bring its state to what it
+    // is now. These fields are used by the log_dump
+    // and allow a developer to debug cluster state
+    // inconsistencies.
+    entryLog []raftpb.Entry
 }
 
 func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportHub, clusterController *ClusterController) *ConfigController {
@@ -60,7 +68,26 @@ func NewConfigController(raftNode *raft.RaftNode, raftTransport *raft.TransportH
         clusterController: clusterController,
         requestMap: NewRequestMap(),
         pendingProposals: make(map[uint64]func()),
+        entryLog: make([]raftpb.Entry, 0),
     }
+}
+
+func (cc *ConfigController) LogDump() (raftpb.Snapshot, []raftpb.Entry, error) {
+    var baseSnapshot raftpb.Snapshot
+
+    baseSnapshot, err := cc.raftNode.LastSnapshot()
+
+    if err != nil {
+        return raftpb.Snapshot{}, []raftpb.Entry{ }, err
+    }
+
+    entries, err := cc.raftNode.CommittedEntries()
+
+    if err != nil {
+        return raftpb.Snapshot{}, []raftpb.Entry{ }, err
+    }
+
+    return baseSnapshot, entries, nil
 }
 
 func (cc *ConfigController) CancelProposals() {

@@ -9,6 +9,8 @@ import (
     . "devicedb/node"
     . "devicedb/raft"
     . "devicedb/routes"
+
+    "github.com/coreos/etcd/raft/raftpb"
 )
 
 type MockConfigController struct {
@@ -21,6 +23,10 @@ func NewMockConfigController(clusterController *ClusterController) *MockConfigCo
     return &MockConfigController{
         clusterController: clusterController,
     }
+}
+
+func (configController *MockConfigController) LogDump() (raftpb.Snapshot, []raftpb.Entry, error) {
+    return raftpb.Snapshot{}, nil, nil
 }
 
 func (configController *MockConfigController) AddNode(ctx context.Context, nodeConfig NodeConfig) error {

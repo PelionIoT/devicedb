@@ -31,6 +31,8 @@ import (
     . "devicedb/util"
 
     "github.com/gorilla/websocket"
+    "github.com/coreos/etcd/raft"
+    "github.com/coreos/etcd/raft/raftpb"
 )
 
 const (
@@ -317,6 +319,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     relaysEndpoint := &RelaysEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
+    logDumEndpoint := &LogDumpEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     profileEndpoint := &ProfilerEndpoint{ }
     merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
 
@@ -327,6 +330,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     relaysEndpoint.Attach(router)
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
+    logDumEndpoint.Attach(router)
     profileEndpoint.Attach(router)
     merkleSyncEndpoint.Attach(router)
 
@@ -1078,4 +1082,79 @@ func (clusterFacade *ClusterNodeFacade) GetRelayStatus(ctx context.Context, rela
 
 func (clusterFacade *ClusterNodeFacade) LocalGetRelayStatus(relayID string) (RelayStatus, error) {
     return clusterFacade.node.RelayStatus(relayID)
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalLogDump() (LogDump, error) {
+    var logDump LogDump
+
+    baseSnapshot, entries, err := clusterFacade.node.configController.LogDump()
+
+    if err != nil {
+        Log.Errorf("Error while retrieving log dump: %v", err.Error())
+
+        return LogDump{}, err
+    }
+
+    if !raft.IsEmptySnap(baseSnapshot) {
+        var clusterState ClusterState
+
+        err = clusterState.Recover(baseSnapshot.Data)
+
+        if err != nil {
+            Log.Errorf("Error while parsing base cluster snapshot: %v", err.Error())
+
+            return LogDump{}, err
+        }
+
+        logDump.BaseSnapshot.Index = baseSnapshot.Metadata.Index
+        logDump.BaseSnapshot.State = clusterState
+    }
+
+    logDump.Entries = make([]LogEntry, 0, len(entries))
+
+    for _, entry := range entries {
+        var logEntry LogEntry
+
+        logEntry.Index = entry.Index
+
+        switch entry.Type {
+        case raftpb.EntryConfChange:
+            var confChange raftpb.ConfChange
+            var err error
+
+            if err := confChange.Unmarshal(entry.Data); err != nil {
+                Log.Errorf("Error while parsing committed entry: %v", err.Error())
+
+                return LogDump{}, err
+            }
+
+            clusterCommand, err := DecodeClusterCommand(confChange.Context)
+
+            if err != nil {
+                Log.Errorf("Error while parsing committed entry: %v", err.Error())
+
+                return LogDump{}, err
+            }
+
+            logEntry.Command = clusterCommand
+        case raftpb.EntryNormal:
+            if len(entry.Data) == 0 {
+                continue
+            }
+
+            clusterCommand, err := DecodeClusterCommand(entry.Data)
+
+            if err != nil {
+                Log.Errorf("Error while parsing committed entry: %v", err.Error())
+
+                return LogDump{}, err
+            }
+
+            logEntry.Command = clusterCommand
+        }
+
+        logDump.Entries = append(logDump.Entries, logEntry)
+    }
+
+    return logDump, nil
 }

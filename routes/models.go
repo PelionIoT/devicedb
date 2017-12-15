@@ -61,3 +61,19 @@ type BatchResult struct {
 type RelaySettingsPatch struct {
     Site string `json:"site"`
 }
+
+type LogSnapshot struct {
+    Index uint64
+    State ClusterState
+}
+
+type LogEntry struct {
+    Index uint64
+    Command ClusterCommand
+}
+
+type LogDump struct {
+    BaseSnapshot LogSnapshot
+    Entries []LogEntry
+    CurrentSnapshot LogSnapshot
+}

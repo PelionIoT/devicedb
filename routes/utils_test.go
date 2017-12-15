@@ -38,6 +38,8 @@ type MockClusterFacade struct {
     defaultGetMatchesResponseError error
     defaultLocalGetMatchesResponse SiblingSetIterator
     defaultLocalGetMatchesResponseError error
+    defaultLocalLogDumpResponse LogDump
+    defaultLocalLogDumpError error
     addNodeCB func(ctx context.Context, nodeConfig NodeConfig)
     replaceNodeCB func(ctx context.Context, nodeID uint64, replacementNodeID uint64)
     removeNodeCB func(ctx context.Context, nodeID uint64)
@@ -230,6 +232,11 @@ func (clusterFacade *MockClusterFacade) GetRelayStatus(ctx context.Context, rela
 
 func (clusterFacade *MockClusterFacade) LocalGetRelayStatus(relayID string) (RelayStatus, error) {
     return RelayStatus{}, nil
+}
+
+func (clusterFacade *MockClusterFacade) LocalLogDump() (LogDump, error) {
+    return clusterFacade.defaultLocalLogDumpResponse, clusterFacade.defaultLocalLogDumpError
+
 }
 
 type siblingSetIteratorEntry struct {

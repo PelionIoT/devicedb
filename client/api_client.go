@@ -242,6 +242,23 @@ func (client *APIClient) GetMatches(ctx context.Context, siteID string, bucket s
     return entryIterator, nil
 }
 
+func (client *APIClient) LogDump(ctx context.Context) (routes.LogDump, error) {
+    url := "/log_dump"
+    response, err := client.sendRequest(ctx, "GET", url, nil)
+
+    if err != nil {
+        return routes.LogDump{}, err
+    }
+
+    var logDump routes.LogDump
+
+    if err := json.Unmarshal(response, &logDump); err != nil {
+        return routes.LogDump{}, err
+    }
+
+    return logDump, nil
+}
+
 func (client *APIClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) ([]byte, error) {
     u := fmt.Sprintf("http://%s%s", client.nextServer(), endpointURL)
     request, err := http.NewRequest(httpVerb, u, bytes.NewReader(body))
