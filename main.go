@@ -253,6 +253,7 @@ Commands:
     conf       Generate a template config file for a relay server
     upgrade    Upgrade an old database to the latest format on a relay
     benchmark  Benchmark devicedb performance on a relay
+    compact    Compact underlying disk storage
     cluster    Manage a devicedb cloud cluster
     
 Use devicedb help <command> for more usage information about a command.
@@ -320,6 +321,7 @@ func main() {
     confCommand := flag.NewFlagSet("conf", flag.ExitOnError)
     upgradeCommand := flag.NewFlagSet("upgrade", flag.ExitOnError)
     benchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
+    compactCommand := flag.NewFlagSet("compact", flag.ExitOnError)
     helpCommand := flag.NewFlagSet("help", flag.ExitOnError)
     clusterStartCommand := flag.NewFlagSet("start", flag.ExitOnError)
     clusterBenchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
@@ -349,6 +351,8 @@ func main() {
     
     benchmarkDB := benchmarkCommand.String("db", "", "The directory to use for the benchark test scratch space")
     benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
+
+    compactDB := compactCommand.String("db", "", "The directory containing the database data to compact")
 
     clusterStartHost := clusterStartCommand.String("host", "localhost", "HTTP The hostname or ip to listen on. This is the advertised host address for this node.")
     clusterStartPort := clusterStartCommand.Uint("port", defaultPort, "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
@@ -514,6 +518,8 @@ func main() {
         upgradeCommand.Parse(os.Args[2:])
     case "benchmark":
         benchmarkCommand.Parse(os.Args[2:])
+    case "compact":
+        compactCommand.Parse(os.Args[2:])
     case "help":
         helpCommand.Parse(os.Args[2:])
     case "-help":
@@ -636,6 +642,31 @@ func main() {
             fmt.Fprintf(os.Stderr, "Error: Failed at writes benchmark: %v\n", err)
             os.Exit(1)
         }
+    }
+
+    if compactCommand.Parsed() {
+        if len(*compactDB) == 0 {
+            fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
+            os.Exit(1)
+        }
+
+        // compact here
+        storageDriver := storage.NewLevelDBStorageDriver(*compactDB, nil)
+
+        if err := storageDriver.Open(); err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to open storage: %v\n", err.Error())
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Compacting database...\n")
+
+        if err := storageDriver.Compact(); err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Compaction failed: %v\n", err.Error())
+            os.Exit(1)
+        }
+
+        fmt.Fprintf(os.Stderr, "Compacted database!\n")
+        os.Exit(0)
     }
 
     if helpCommand.Parsed() {

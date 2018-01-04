@@ -133,6 +133,10 @@ func (psd *PrefixedStorageDriver) Recover() error {
     return psd.storageDriver.Recover()
 }
 
+func (psd *PrefixedStorageDriver) Compact() error {
+    return psd.storageDriver.Compact()
+}
+
 func (psd *PrefixedStorageDriver) addPrefix(k []byte) []byte {
     result := make([]byte, 0, len(psd.prefix) + len(k))
         
@@ -242,6 +246,7 @@ type StorageDriver interface {
     Open() error
     Close() error
     Recover() error
+    Compact() error
     Get([][]byte) ([][]byte, error)
     GetMatches([][]byte) (StorageIterator, error)
     GetRange([]byte, []byte) (StorageIterator, error)
@@ -397,6 +402,20 @@ func (levelDriver *LevelDBStorageDriver) Recover() error {
     }
 
     levelDriver.db = db
+
+    return nil
+}
+
+func (levelDriver *LevelDBStorageDriver) Compact() error {
+    if levelDriver.db == nil {
+        return errors.New("Driver is closed")
+    }
+
+    err := levelDriver.db.CompactRange(util.Range{ })
+
+    if err != nil {
+        return err
+    }
 
     return nil
 }
