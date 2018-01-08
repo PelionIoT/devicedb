@@ -21,7 +21,7 @@ var _ = Describe("Historian", func() {
         storageEngine = MakeNewStorageDriver()
         storageEngine.Open()
         
-        historian = NewHistorian(storageEngine, 101)
+        historian = NewHistorian(storageEngine, 101, 0, 1000)
     })
     
     AfterEach(func() {

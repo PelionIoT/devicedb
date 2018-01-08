@@ -67,6 +67,8 @@ type ServerConfig struct {
     History *cloudAddress
     HistoryPurgeOnForward bool
     HistoryEventLimit uint64
+    HistoryEventFloor uint64
+    HistoryPurgeBatchSize int
     SyncExplorationPathLimit uint32
 }
 
@@ -137,6 +139,8 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     
     sc.HistoryPurgeOnForward = ysc.History.PurgeOnForward
     sc.HistoryEventLimit = ysc.History.EventLimit
+    sc.HistoryEventFloor = ysc.History.EventFloor
+    sc.HistoryPurgeBatchSize = ysc.History.PurgeBatchSize
     
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
     serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
@@ -219,8 +223,8 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     lwwBucket, _ := NewLWWBucket(nodeID, NewPrefixedStorageDriver([]byte{ lwwNodePrefix }, storageDriver), serverConfig.MerkleDepth)
     localBucket, _ := NewLocalBucket(nodeID, NewPrefixedStorageDriver([]byte{ localNodePrefix }, storageDriver), MerkleMinDepth)
     
-    server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ historianPrefix }, storageDriver), serverConfig.HistoryEventLimit)
-    server.alertsLog = NewHistorian(NewPrefixedStorageDriver([]byte{ alertsLogPrefix }, storageDriver), serverConfig.HistoryEventLimit)
+    server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ historianPrefix }, storageDriver), serverConfig.HistoryEventLimit, serverConfig.HistoryEventFloor, serverConfig.HistoryPurgeBatchSize)
+    server.alertsLog = NewHistorian(NewPrefixedStorageDriver([]byte{ alertsLogPrefix }, storageDriver), serverConfig.HistoryEventLimit, serverConfig.HistoryEventFloor, serverConfig.HistoryPurgeBatchSize)
     
     server.bucketList.AddBucket(defaultBucket)
     server.bucketList.AddBucket(lwwBucket)

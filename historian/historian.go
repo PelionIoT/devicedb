@@ -172,16 +172,28 @@ func (event *Event) prefixByDataSourceAndTime() []byte {
     
     return result
 }
-
+ 
 type Historian struct {
     storageDriver StorageDriver
     nextID uint64
     currentSize uint64
     logLock sync.Mutex
+    // event limit describes the maximum number of events
+    // allowed to be stored in the history log
+    // before old events must be purged.
     eventLimit uint64
+    // event floor describes the minimum number of events
+    // that must be remembered after log rotation occurs
+    eventFloor uint64
+    // when events are purged from the history log this
+    // value describes how many events are deleted
+    // per batch. In other words, if 100 events are
+    // being purged and the purge batch size is 20
+    // then 5 batches  will be applied to the data store.
+    purgeBatchSize int
 }
 
-func NewHistorian(storageDriver StorageDriver, eventLimit uint64) *Historian {
+func NewHistorian(storageDriver StorageDriver, eventLimit uint64, eventFloor uint64, purgeBatchSize int) *Historian {
     var nextID uint64
     var currentSize uint64
     
@@ -200,6 +212,8 @@ func NewHistorian(storageDriver StorageDriver, eventLimit uint64) *Historian {
         nextID: nextID + 1,
         currentSize: currentSize,
         eventLimit: eventLimit,
+        eventFloor: eventFloor,
+        purgeBatchSize: purgeBatchSize,
     }
     
     historian.RotateLog()
@@ -373,14 +387,34 @@ func (historian *Historian) purge(query *HistoryQuery) error {
     if err != nil {
         return err
     }
-    
+
+    var eventBatch []*Event
+
+    if historian.purgeBatchSize <= 0 {
+        eventBatch = make([]*Event, 1)
+    } else {
+        eventBatch = make([]*Event, historian.purgeBatchSize)
+    }
+
+    var currentBatchSize int = 0
+
     for eventIterator.Next() {
-        event := eventIterator.Event()
-        err := historian.purgeEvent(event)
+        eventBatch[currentBatchSize] = eventIterator.Event()
+        currentBatchSize++
+
+        if currentBatchSize < len(eventBatch) {
+            continue
+        }
+
+        // Precondition at this point: currentBatchSize == len(eventBatch)
+        err := historian.purgeEvents(eventBatch)
         
         if err != nil {
             return err
         }
+
+        // This needs to be reset since the next events belong to a new batch
+        currentBatchSize = 0
     }
     
     if eventIterator.Error() != nil {
@@ -388,36 +422,86 @@ func (historian *Historian) purge(query *HistoryQuery) error {
         
         return eventIterator.Error()
     }
+
+    // This needs to be called after the main loop exits since
+    // there might have been a partial batch at the end of the
+    // list of events that were iterated through. Since in the 
+    // loop above the batch only gets written once it is full
+    // there can be some leftover.
+    err = historian.purgeEvents(eventBatch[:currentBatchSize])
+
+    if err != nil {
+        return err
+    }
     
     return nil
 }
 
-func (historian *Historian) purgeEvent(event *Event) error {
+func (historian *Historian) purgeEvents(events []*Event) error {
     batch := NewBatch()
-    
-    batch.Delete(event.indexByTime())
-    batch.Delete(event.indexBySourceAndTime())
-    batch.Delete(event.indexByDataSourceAndTime())
-    batch.Delete(event.indexBySerial())
-    batch.Put(CURRENT_SIZE_COUNTER_PREFIX, timestampBytes(historian.currentSize - 1))
+   
+    for _, event := range events {
+        batch.Delete(event.indexByTime())
+        batch.Delete(event.indexBySourceAndTime())
+        batch.Delete(event.indexByDataSourceAndTime())
+        batch.Delete(event.indexBySerial())
+    }
+
+    batch.Put(CURRENT_SIZE_COUNTER_PREFIX, timestampBytes(historian.currentSize - uint64(len(events))))
     
     err := historian.storageDriver.Batch(batch)
     
     if err != nil {
-        Log.Errorf("Storage driver error in DeleteEvent(%v): %s", event, err.Error())
+        Log.Errorf("Storage driver error in purgeEvents(): %s", err.Error())
         
         return EStorage
     }
     
-    historian.currentSize -= 1
+    historian.currentSize -= uint64(len(events))
     
     return nil
 }
 
+// The behavior of log rotation is determined by the
+// relationship between eventLimit, eventFloor, and
+// purgeBatchSize. Log rotation occurs when the log
+// contains eventLimit events. Log rotation will
+// delete old events until there are eventFloor
+// events remaining in the log. Configuring these
+// two values can adjust the performance characteristics
+// of the history log and how aggressively disk space is
+// conserved. 
+// 
+// Here are some example configurations and
+// their performance characteristics:
+// 
+// eventLimit = 100000 eventFloor = 99999
+//   In this case the most events ever stored
+//   on disk will be 100000. However, after
+//   there are at least 99999 events written to
+//   the log every new log entry will require
+//   a log rotation operation to occur in order
+//   to keep the log size under the limit.
+// eventLimit = 200000 eventFloor = 100000
+//   In this case a purge operation only occurs
+//   once every 100000 writes instead of on every
+//   write.
+//
+// if eventFloor is greater than or equal to
+// eventLimit then eventFloor is ignored and
+// eventLimit is used as the event floor
 func (historian *Historian) RotateLog() error {
     if historian.eventLimit != 0 && historian.currentSize > historian.eventLimit {
         var minSerial uint64 = 0
-        err := historian.purge(&HistoryQuery{ MinSerial: &minSerial, Limit: int(historian.currentSize - historian.eventLimit) })
+        var err error
+
+        if historian.eventFloor < historian.eventLimit {
+            Log.Debugf("Purging oldest %d items from history log (currentSize=%d eventFloor=%d)", int(historian.currentSize - historian.eventFloor), historian.currentSize, historian.eventFloor)
+            err = historian.purge(&HistoryQuery{ MinSerial: &minSerial, Limit: int(historian.currentSize - historian.eventFloor) })
+        } else {
+            Log.Debugf("Purging oldest %d items from history log (currentSize=%d eventLimit=%d)", int(historian.currentSize - historian.eventLimit), historian.currentSize, historian.eventFloor)
+            err = historian.purge(&HistoryQuery{ MinSerial: &minSerial, Limit: int(historian.currentSize - historian.eventLimit) })
+        }
         
         if err != nil {
             return err

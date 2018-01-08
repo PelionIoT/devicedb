@@ -32,6 +32,8 @@ type YAMLServerConfig struct {
 type YAMLHistory struct {
     PurgeOnForward bool `yaml:"purgeOnForward"`
     EventLimit uint64 `yaml:"eventLimit"`
+    EventFloor uint64 `yaml:"eventFloor"`
+    PurgeBatchSize int `yaml:"purgeBatchSize"`
 }
 
 type YAMLPeer struct {
