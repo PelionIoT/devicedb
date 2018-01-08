@@ -31,6 +31,7 @@ import (
     . "devicedb/data"
     ddbBenchmark "devicedb/benchmarks"
     "devicedb/routes"
+    "devicedb/historian"
 
     "github.com/olekukonko/tablewriter"
 )
@@ -108,6 +109,24 @@ gcPurgeAge: 600000
 #    # before purging the oldest logged events. It is set to 0 by default
 #    # which means old events will never be purged from the log
 #    eventLimit: 1000
+#    # This setting controls the mimimum number of events that will be left
+#    # in the log after a purge is triggered. In this case, a log purge
+#    # is triggered when there are 1001 events stored in the history log
+#    # and the purge will delete all events until only the 500 most recent
+#    # events remain. If this value is greater than or equal to eventLimit
+#    # then it is ignored. This field defaults to 0 which means all events
+#    # will be purged from disk once the event limit is reached.
+#    eventFloor: 500
+#    # This field controls how many events are batched together for deletion
+#    # when purging a range of events from the log. If 10000 events need to
+#    # be purged and this field is set to 1000 then there will be 10 batches
+#    # applied to the underlying storage each contining 1000 delete operations.
+#    # It is a good idea to leave this value between 1000 and 10000. Too large
+#    # a number can cause large amounts of memory to be used. This field defaults
+#    # to 1 if left unspecified meaning events will not be batched and purges
+#    # of large ranges may take a very long time. If this value is negative
+#    # then it defaults to 1.
+#    purgeBatchSize: 1000
 
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
@@ -351,6 +370,11 @@ func main() {
     
     benchmarkDB := benchmarkCommand.String("db", "", "The directory to use for the benchark test scratch space")
     benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
+
+    benchmarkStress := benchmarkCommand.Bool("stress", false, "Perform test that continuously writes historical log events as fast as it can")
+    benchmarkHistoryEventFloor := benchmarkCommand.Uint64("event_floor", 400000, "Event floor for history log")
+    benchmarkHistoryEventLimit := benchmarkCommand.Uint64("event_limit", 500000, "Event limit for history log")
+    benchmarkHistoryPurgeBatchSize := benchmarkCommand.Int("purge_batch_size", 1000, "Purge batch size for history log")
 
     compactDB := compactCommand.String("db", "", "The directory containing the database data to compact")
 
@@ -613,12 +637,25 @@ func main() {
             os.Exit(1)
         }
         
-        SetLoggingLevel("error")
+        SetLoggingLevel("debug")
         serverConfig.DBFile = *benchmarkDB
+        serverConfig.HistoryEventLimit = *benchmarkHistoryEventLimit
+        serverConfig.HistoryEventFloor = *benchmarkHistoryEventFloor
+        serverConfig.HistoryPurgeBatchSize = *benchmarkHistoryPurgeBatchSize
         server, err = NewServer(serverConfig)
         
         if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to initialize test databas: %v\n", err)
+            fmt.Fprintf(os.Stderr, "Error: Unable to initialize test database: %v\n", err)
+            os.Exit(1)
+        }
+
+        if *benchmarkStress {
+            fmt.Fprintf(os.Stderr, "Start stressing disk by writing to the history log indefinitely...\n")
+
+            err = benchmarkHistoryStress(server)
+
+            fmt.Fprintf(os.Stderr, "Error: While running history stress benchmark: %v\n", err.Error())
+
             os.Exit(1)
         }
         
@@ -1528,6 +1565,42 @@ func benchmarkWrites(benchmarkMagnitude int, server *Server) error {
     fmt.Printf("%d writes took %s or an average of %s per write or %d writes per second\n", benchmarkMagnitude, elapsed.String(), average.String(), batchesPerSecond)
     
     return nil
+}
+
+func benchmarkHistoryStress(server *Server) error {
+    var stop chan int = make(chan int)
+
+    // Every 10 seconds it should print out how many 
+    go func() {
+        for {
+            select {
+            case <-time.After(time.Second * 10):
+            case <-stop:
+                return
+            }
+
+            fmt.Fprintf(os.Stderr, "%d events are currently recorded to the history log. Latest serial: %d\n", server.History().LogSize(), server.History().LogSerial())
+        }
+    }()
+
+    defer func() {
+        // close this to make sure the above goroutine exits when this function exits
+        close(stop)
+    }()
+
+    for {
+        var nextEvent historian.Event
+
+        nextEvent.Timestamp = NanoToMilli(uint64(time.Now().UnixNano()))
+        nextEvent.SourceID = "source"
+        nextEvent.Type = "testevent"
+        nextEvent.Data = "testeventdata"
+        nextEvent.Groups = []string{ "A" }
+
+        if err := server.History().LogEvent(&nextEvent); err != nil {
+            return err
+        }
+    }
 }
 
 func printLogDump(logDump routes.LogDump) {
