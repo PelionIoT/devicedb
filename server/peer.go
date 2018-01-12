@@ -171,7 +171,7 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
                 connection.SetWriteDeadline(time.Now().Add(time.Second * WRITE_WAIT_SECONDS))
 
                 if !ok {
-                    connection.WriteMessage(websocket.CloseMessage, []byte{})
+                    peer.connection.Close()
                     peer.csLock.Unlock()
                     return
                 }
@@ -203,7 +203,6 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
     go func() {
         defer close(peer.doneChan)
 
-        connection.SetReadDeadline(time.Now().Add(time.Second * PONG_WAIT_SECONDS))
         connection.SetPongHandler(func(encodedPingTime string) error {
             var pingTime time.Time
 
@@ -214,7 +213,7 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
                 Log.Infof("Received pong from peer %s", peer.id)
             }
 
-            connection.SetReadDeadline(time.Now().Add(time.Second * PONG_WAIT_SECONDS));
+            connection.SetReadDeadline(time.Now().Add(time.Second * PONG_WAIT_SECONDS))
 
             return nil
         })
@@ -222,7 +221,15 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
         for {
             var nextRawMessage rawSyncMessageWrapper
             var nextMessage SyncMessageWrapper
-            
+
+            // The pong handler is invoked in the same goroutine as ReadJSON (ReadJSON calls NextReader which calls advanceFrame which will invoke the pong handler
+            // if it receives a pong frame). If the pong handler is invoked it will call SetReadDeadline in the same goroutine. In case a pong is never received
+            // to reset the read deadline it it necessary to set the read deadline before every call to ReadJSON(). There was a bug where connections that were broken
+            // were never receiving any data but kept attempting writes. This was because the read deadline was met by receiving a data frame right before the connection
+            // broke and then no pong was ever received to again set the read deadline for the next call to ReadJSON() so ReadJSON() just hung so the broken connections
+            // were never cleaned up.
+            connection.SetReadDeadline(time.Now().Add(time.Second * PONG_WAIT_SECONDS))
+
             err := connection.ReadJSON(&nextRawMessage)
             
             if err != nil {
