@@ -32,7 +32,7 @@ func (garbageCollector *GarbageCollector) Start() {
                 return
             case <-time.After(garbageCollector.gcInterval):
                 for _, bucket := range garbageCollector.buckets.All() {
-                    Log.Infof("Performing garbage collection sweep on %s bucket", bucket.Name)
+                    Log.Infof("Performing garbage collection sweep on %s bucket", bucket.Name())
                     bucket.GarbageCollect(garbageCollector.gcPurgeAge)
                 }
             }
