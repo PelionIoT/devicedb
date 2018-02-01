@@ -15,16 +15,36 @@ import (
 )
 
 type Client interface {
+    // Execute a batch update in DeviceDB. The context is bound to the
+    // request. The bucket should be the name of the devicedb bucket to
+    // which this update should be applied.
     Batch(ctx context.Context, bucket string, batch client.Batch) error
+    // Get the value of one or more keys in devicedb. The bucket shold be
+    // the name of the devicedb bucket to which this update should be applied.
+    // The keys array describes which keys should be retrieved. If no error
+    // occurs this function will return an array of values corresponding
+    // to the keys that were requested. The results array will mirror the
+    // keys array. In other words, the ith value in the result is the value
+    // for key i. If a key does not exist the value will be nil.
     Get(ctx context.Context, bucket string, keys []string) ([]*client.Entry, error)
+    // Get keys matching one or more prefixes. The keys array represents
+    // a list of prefixes to query. The resulting iterator will iterate
+    // through database values whose key matches one of the specified
+    // prefixes
     GetMatches(ctx context.Context, bucket string, keys []string) (EntryIterator, error)
 }
 
 type Config struct {
+    // The server URI is the base URI for the devicedb server
+    // An example of this is https://localhost:9000
     ServerURI string
+    // Provide a TLS config if you are connecting to a TLS
+    // enabled devicedb relay server. You will need to provide
+    // the relay CA and server name (the relay ID)
     TLSConfig *tls.Config
 }
 
+// Create a new DeviceDB client
 func New(config Config) Client {
     return &HTTPClient{
         server: config.ServerURI,

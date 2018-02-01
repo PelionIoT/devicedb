@@ -10,10 +10,24 @@ import (
 )
 
 type EntryIterator interface {
+	// Move to the next result. Returns
+	// false if there is an error or if
+	// there are no more results to iterate
+	// through. If there is an error, the
+	// Error() function will return the
+	// error that occurred
 	Next() bool
+	// Return the prefix that matches
+	// the key for the current result
 	Prefix() string
+	// Return the key for the current
+	// result
 	Key() string
+	// Return the value for the
+	// current result
 	Entry() client.Entry
+	// Return the error that occurred
+	// while iterating
 	Error() error
 }
 
