@@ -3,6 +3,7 @@ package client_relay
 import (
     "bytes"    
     "context"
+    "crypto/tls"
     "encoding/json"
     "errors"
     "fmt"
@@ -21,12 +22,13 @@ type Client interface {
 
 type Config struct {
     ServerURI string
+    TLSConfig *tls.Config
 }
 
 func New(config Config) Client {
     return &HTTPClient{
         server: config.ServerURI,
-        httpClient: &http.Client{ },
+        httpClient: &http.Client{ Transport: &http.Transport{ TLSClientConfig: config.TLSConfig } },
     }
 }
 
