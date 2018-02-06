@@ -1203,6 +1203,7 @@ func (s *SyncController) removePeer(peerID string) {
     s.mapMutex.Lock()
     
     if _, ok := s.peers[peerID]; !ok {
+        s.mapMutex.Unlock()
         return
     }
     
@@ -1374,11 +1375,18 @@ func (s *SyncController) removeInitiatorSession(initiatorSession *SyncSession) {
 }
 
 func (s *SyncController) sendAbort(peerID string, sessionID uint, direction uint) {
-    s.peers[peerID] <- &SyncMessageWrapper{
-        SessionID: sessionID,
-        MessageType: SYNC_ABORT,
-        MessageBody: &Abort{ },
-        Direction: direction,
+    s.mapMutex.RLock()
+    defer s.mapMutex.RUnlock()
+
+    w := s.peers[peerID]
+    
+    if w != nil {
+        w <- &SyncMessageWrapper{
+            SessionID: sessionID,
+            MessageType: SYNC_ABORT,
+            MessageBody: &Abort{ },
+            Direction: direction,
+        }
     }
 }
 
