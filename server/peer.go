@@ -146,7 +146,7 @@ func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan
             
             Log.Debugf("Cancelled connection retry sequence for %s", peer.id)
             
-            closeWSConnection(conn)
+            closeWSConnection(conn, websocket.CloseNormalClosure)
             
             return nil, nil, errors.New("Peer closed")
         }
@@ -171,7 +171,7 @@ func (peer *Peer) establishChannels() (chan *SyncMessageWrapper, chan *SyncMessa
                 connection.SetWriteDeadline(time.Now().Add(time.Second * WRITE_WAIT_SECONDS))
 
                 if !ok {
-                    peer.connection.Close()
+                    connection.Close()
                     peer.csLock.Unlock()
                     return
                 }
@@ -506,7 +506,7 @@ func (peer *Peer) pushAlert(hubID string, event *Event) error {
     return nil
 }
 
-func closeWSConnection(conn *websocket.Conn) {
+func closeWSConnection(conn *websocket.Conn, closeCode int) {
     done := make(chan bool)
     
     go func() {
@@ -521,7 +521,7 @@ func closeWSConnection(conn *websocket.Conn) {
         }
     }()
             
-    err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+    err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, ""))
         
     if err != nil {
         return
@@ -582,7 +582,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
             if !noValidate {
                 Log.Warningf("Unable to accept peer connection: %v", err)
                 
-                closeWSConnection(connection)
+                closeWSConnection(connection, websocket.CloseNormalClosure)
                 
                 return err
             }
@@ -597,7 +597,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
         if peerID == "" {
             Log.Warningf("Unable to accept peer connection")
 
-            closeWSConnection(connection)
+            closeWSConnection(connection, websocket.CloseNormalClosure)
 
             return errors.New("Relay id not known")
         }
@@ -610,7 +610,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
             if !hub.register(peer) {
                 Log.Warningf("Rejected peer connection from %s because that peer is already connected", peerID)
                 
-                closeWSConnection(connection)
+                closeWSConnection(connection, websocket.CloseTryAgainLater)
                 
                 return
             }
@@ -620,7 +620,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
             if err != nil {
                 Log.Errorf("Unable to accept peer connection from %s: %v. Closing connection and unregistering peer", peerID, err)
 
-                closeWSConnection(connection)
+                closeWSConnection(connection, websocket.CloseNormalClosure)
 
                 hub.unregister(peer)
                 
@@ -750,6 +750,7 @@ func (hub *Hub) Connect(peerID, host string, port int) error {
             }
             
             Log.Infof("Disconnected from peer %s. Reconnecting...", peer.id)
+            <-time.After(time.Second)
         }
         
         hub.unregister(peer)
