@@ -26,6 +26,7 @@ type Bucket interface {
     Forget(keys [][]byte) error
     Batch(batch *UpdateBatch) (map[string]*SiblingSet, error)
     Merge(siblingSets map[string]*SiblingSet) error
+    Watch(func(map[string]Row))
     LockWrites()
     UnlockWrites()
     LockReads()

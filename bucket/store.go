@@ -8,6 +8,8 @@ import (
     "time"
     "errors"
     "sort"
+    "sync"
+    "sync/atomic"
 
     . "devicedb/storage"
     . "devicedb/error"
@@ -20,6 +22,8 @@ import (
 )
 
 const MAX_SORTING_KEY_LENGTH = 255
+const StorageFormatVersion = "1"
+const UpgradeFormatBatchSize = 100
 
 var MASTER_MERKLE_TREE_PREFIX = []byte{ 0 }
 var PARTITION_MERKLE_LEAF_PREFIX = []byte{ 1 }
@@ -109,6 +113,10 @@ type Store struct {
     readsTryLock RWTryLock
     merkleLock *MultiLock
     conflictResolver ConflictResolver
+    storageFormatVersion string
+    nextRowID uint64
+    watcherLock sync.Mutex
+    watchers []func(map[string]Row)
 }
 
 func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkleDepth uint8, conflictResolver ConflictResolver) error {
@@ -122,25 +130,44 @@ func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkl
     store.merkleLock = NewMultiLock()
     store.conflictResolver = conflictResolver
     store.merkleTree, _ = NewMerkleTree(merkleDepth)
+    store.watchers = make([]func(map[string]Row), 0)
     
     var err error
-    dbMerkleDepth, err := store.getStoreMetadata()
+    dbMerkleDepth, storageFormatVersion, err := store.getStoreMetadata()
     
     if err != nil {
         Log.Errorf("Error retrieving database metadata for node %s: %v", nodeID, err)
         
         return err
     }
+
+    store.storageFormatVersion = storageFormatVersion
     
-    if dbMerkleDepth != merkleDepth {
-        Log.Debugf("Initializing node %s rebuilding merkle leafs with depth %d", nodeID, merkleDepth)
-        
-        err = store.RebuildMerkleLeafs()
-        
-        if err != nil {
-            Log.Errorf("Error rebuilding merkle leafs for node %s: %v", nodeID, err)
+    if dbMerkleDepth != merkleDepth || storageFormatVersion != StorageFormatVersion {
+        if dbMerkleDepth != merkleDepth {
+            Log.Debugf("Initializing node %s rebuilding merkle leafs with depth %d", nodeID, merkleDepth)
             
-            return err
+            err = store.RebuildMerkleLeafs()
+            
+            if err != nil {
+                Log.Errorf("Error rebuilding merkle leafs for node %s: %v", nodeID, err)
+                
+                return err
+            }
+        }
+
+        if storageFormatVersion != StorageFormatVersion {
+            Log.Debugf("Initializing node %s. It is using an older storage format. Its keys need to be updated to the new storage format...", nodeID)
+
+            err = store.UpgradeStorageFormat()
+
+            if err != nil {
+                Log.Errorf("Error while upgrading the storage format for node %s: %v", nodeID, err)
+
+                return err
+            }
+
+            Log.Debugf("Upgrade to the latest storage format was successful. Now at storage format %s", StorageFormatVersion)
         }
         
         err = store.RecordMetadata()
@@ -150,6 +177,14 @@ func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkl
             
             return err
         }
+    }
+
+    err = store.calculateNextRowID()
+
+    if err != nil {
+        Log.Errorf("Error attempting to determine what the next row ID should be at node %s: %v", nodeID, err)
+
+        return err
     }
     
     err = store.initializeMerkleTree()
@@ -200,24 +235,53 @@ func (store *Store) initializeMerkleTree() error {
     return nil
 }
 
-func (store *Store) getStoreMetadata() (uint8, error) {
-    values, err := store.storageDriver.Get([][]byte{ encodeMetadataKey([]byte("merkleDepth")) })
+func (store *Store) calculateNextRowID() error {
+    iter, err := store.GetAll()
+
+    if err != nil {
+        return err
+    }
+
+    store.nextRowID = 0
+    defer iter.Release()
+
+    for iter.Next() {
+        if iter.LocalVersion() >= store.nextRowID {
+            store.nextRowID = iter.LocalVersion() + 1
+        }
+    }
+
+    Log.Infof("Next row ID = %d", store.nextRowID)
+
+    return iter.Error()
+}
+
+func (store *Store) getStoreMetadata() (uint8, string, error) {
+    values, err := store.storageDriver.Get([][]byte{ encodeMetadataKey([]byte("merkleDepth")), encodeMetadataKey([]byte("storageFormatVersion")) })
     
     if err != nil {
-        return 0, err
+        return 0, "", err
     }
     
-    if values[0] == nil || len(values[0]) == 0 {
-        return 0, nil
+    var merkleDepth uint8
+    var storageFormatVersion string = "0"
+
+    if values[0] != nil {
+        merkleDepth = uint8(values[0][0])
     }
-    
-    return uint8(values[0][0]), nil
+
+    if values[1] != nil {
+        storageFormatVersion = string(values[1])
+    }
+
+    return merkleDepth, storageFormatVersion, nil
 }
 
 func (store *Store) RecordMetadata() error {
     batch := NewBatch()
     
     batch.Put(encodeMetadataKey([]byte("merkleDepth")), []byte{ byte(store.merkleTree.Depth()) })
+    batch.Put(encodeMetadataKey([]byte("storageFormatVersion")), []byte(StorageFormatVersion))
     
     err := store.storageDriver.Batch(batch)
     
@@ -262,7 +326,7 @@ func (store *Store) RebuildMerkleLeafs() error {
         return err
     }
     
-    siblingSetIterator := NewBasicSiblingSetIterator(iter)
+    siblingSetIterator := NewBasicSiblingSetIterator(iter, store.storageFormatVersion)
     
     defer siblingSetIterator.Release()
     
@@ -305,6 +369,58 @@ func (store *Store) RebuildMerkleLeafs() error {
     return siblingSetIterator.Error()
 }
 
+func (store *Store) UpgradeStorageFormat() error {
+    iter, err := store.GetAll()
+
+    if err != nil {
+        Log.Errorf("Unable to create iterator to upgrade storage format: %v", err.Error())
+
+        return err
+    }
+
+    store.nextRowID = 0
+    defer iter.Release()
+
+    batchSize := 0
+    batch := NewBatch()
+
+    for iter.Next() {
+        key := iter.Key()
+        value := iter.Value()
+        row := &Row{ LocalVersion: store.nextRowID, Siblings: value }
+
+        store.nextRowID++
+
+        batch.Put(encodePartitionDataKey(key), row.Encode())
+        batchSize++
+
+        if batchSize == UpgradeFormatBatchSize {
+            if err := store.storageDriver.Batch(batch); err != nil {
+                return err
+            }
+
+            batch = NewBatch()
+            batchSize = 0
+        }
+    }
+
+    if batchSize > 0 {
+        if err := store.storageDriver.Batch(batch); err != nil {
+            return err
+        }
+    }
+
+    if iter.Error() != nil {
+        Log.Errorf("Unable to iterate through store to upgrade storage format: %v", err.Error())
+
+        return iter.Error()
+    }
+
+    store.storageFormatVersion = StorageFormatVersion
+
+    return nil
+}
+
 func (store *Store) MerkleTree() *MerkleTree {
     return store.merkleTree
 }
@@ -319,7 +435,7 @@ func (store *Store) GarbageCollect(tombstonePurgeAge uint64) error {
     }
     
     now := NanoToMilli(uint64(time.Now().UnixNano()))
-    siblingSetIterator := NewBasicSiblingSetIterator(iter)
+    siblingSetIterator := NewBasicSiblingSetIterator(iter, store.storageFormatVersion)
     defer siblingSetIterator.Release()
     
     if tombstonePurgeAge > now {
@@ -434,9 +550,9 @@ func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
             continue
         }
         
-        var siblingSet SiblingSet
+        var row Row
         
-        err := siblingSet.Decode(values[i])
+        err := row.Decode(values[i], store.storageFormatVersion)
         
         if err != nil {
             Log.Errorf("Storage driver error in Get(%v): %s", keys, err.Error())
@@ -444,7 +560,7 @@ func (store *Store) Get(keys [][]byte) ([]*SiblingSet, error) {
             return nil, EStorage
         }
         
-        siblingSetList[i] = &siblingSet
+        siblingSetList[i] = row.Siblings
     }
     
     return siblingSetList, nil
@@ -490,7 +606,7 @@ func (store *Store) GetMatches(keys [][]byte) (SiblingSetIterator, error) {
         return nil, EStorage
     }
     
-    return NewBasicSiblingSetIterator(iter), nil
+    return NewBasicSiblingSetIterator(iter, store.storageFormatVersion), nil
 }
 
 func (store *Store) GetAll() (SiblingSetIterator, error) {
@@ -508,7 +624,7 @@ func (store *Store) GetAll() (SiblingSetIterator, error) {
         return nil, EStorage
     }
     
-    return NewBasicSiblingSetIterator(iter), nil
+    return NewBasicSiblingSetIterator(iter, store.storageFormatVersion), nil
 }
 
 func (store *Store) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
@@ -533,7 +649,7 @@ func (store *Store) GetSyncChildren(nodeID uint32) (SiblingSetIterator, error) {
         return nil, EStorage
     }
 
-    return NewMerkleChildrenIterator(iter, store.storageDriver), nil
+    return NewMerkleChildrenIterator(iter, store.storageDriver, store.storageFormatVersion), nil
 }
 
 func (store *Store) Forget(keys [][]byte) error {
@@ -606,14 +722,14 @@ func (store *Store) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     }
     
     for i := 0; i < len(keys); i += 1 {
-        var siblingSet SiblingSet
+        var row Row
         key := decodePartitionDataKey(keys[i])
         siblingSetBytes := values[0]
         
         if siblingSetBytes == nil {
             siblingSetMap[string(key)] = NewSiblingSet(map[*Sibling]bool{ })
         } else {
-            err := siblingSet.Decode(siblingSetBytes)
+            err := row.Decode(siblingSetBytes, store.storageFormatVersion)
             
             if err != nil {
                 Log.Warningf("Could not decode sibling set in updateInit(%v): %s", keys, err.Error())
@@ -621,7 +737,7 @@ func (store *Store) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
                 return nil, EStorage
             }
             
-            siblingSetMap[string(key)] = &siblingSet
+            siblingSetMap[string(key)] = row.Siblings
         }
         
         values = values[1:]
@@ -645,11 +761,18 @@ func (store *Store) batch(update *Update, merkleTree *MerkleTree) *Batch {
     }
     
     // WRITE PARTITION OBJECTS
+    // atomically increment nextRowID by the amount of new IDs we need (one per key) to allocate enough IDs
+    // for this batch update.
+    nextRowID := atomic.AddUint64(&store.nextRowID, uint64(update.Size())) - uint64(update.Size())
+
     for diff := range update.Iter() {
         key := []byte(diff.Key())
         siblingSet := diff.NewSiblingSet()
+        row := &Row{ LocalVersion: nextRowID, Siblings: siblingSet }
+
+        nextRowID++
         
-        batch.Put(encodePartitionDataKey(key), siblingSet.Encode())
+        batch.Put(encodePartitionDataKey(key), row.Encode())
     }
 
     return batch
@@ -815,6 +938,28 @@ func (store *Store) Merge(siblingSets map[string]*SiblingSet) error {
     }
     
     return nil
+}
+
+func (store *Store) Watch(keys [][]byte, prefixes [][]byte, localVersion uint64, cb func(map[string]Row)) {
+    store.addWatcher(keys, prefixes, localVersion, cb)
+}
+
+func (store *Store) addWatcher(keys [][]byte, prefixes [][]byte, localVersion uint64, cb func(map[string]Row)) {
+    store.watcherLock.Lock()
+
+    
+    store.watchers = append(store.watchers, cb)
+    store.watcherLock.Unlock()
+}
+
+func (store *Store) notifyWatchers(update map[string]Row) {
+    store.watcherLock.Lock()
+
+    for _, watcher := range store.watchers {
+        watcher(update)
+    }
+
+    store.watcherLock.Unlock()
 }
 
 func (store *Store) sortedLockKeys(keys [][]byte) ([]string, []string) {
@@ -1004,10 +1149,12 @@ type MerkleChildrenIterator struct {
     parseError error
     currentKey []byte
     currentValue *SiblingSet
+    storageFormatVersion string
+    currentLocalVersion uint64
 }
 
-func NewMerkleChildrenIterator(iter StorageIterator, storageDriver StorageDriver) *MerkleChildrenIterator {
-    return &MerkleChildrenIterator{ iter, storageDriver, nil, nil, nil }
+func NewMerkleChildrenIterator(iter StorageIterator, storageDriver StorageDriver, storageFormatVersion string) *MerkleChildrenIterator {
+    return &MerkleChildrenIterator{ iter, storageDriver, nil, nil, nil, storageFormatVersion, 0 }
     // not actually the prefix for all keys in the range, but it will be a consistent length
     // prefix := encodePartitionMerkleLeafKey(nodeID, []byte{ })
 }
@@ -1015,6 +1162,7 @@ func NewMerkleChildrenIterator(iter StorageIterator, storageDriver StorageDriver
 func (mIterator *MerkleChildrenIterator) Next() bool {
     mIterator.currentKey = nil
     mIterator.currentValue = nil
+    mIterator.currentLocalVersion = 0
     
     if !mIterator.dbIterator.Next() {
         if mIterator.dbIterator.Error() != nil {
@@ -1048,9 +1196,9 @@ func (mIterator *MerkleChildrenIterator) Next() bool {
     
     value := values[0]
 
-    var siblingSet SiblingSet
+    var row Row
     
-    mIterator.parseError = siblingSet.Decode(value)
+    mIterator.parseError = row.Decode(value, mIterator.storageFormatVersion)
     
     if mIterator.parseError != nil {
         Log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", key, value, mIterator.parseError.Error())
@@ -1061,7 +1209,8 @@ func (mIterator *MerkleChildrenIterator) Next() bool {
     }
     
     mIterator.currentKey = key
-    mIterator.currentValue = &siblingSet
+    mIterator.currentValue = row.Siblings
+    mIterator.currentLocalVersion = row.LocalVersion
     
     return true
 }
@@ -1076,6 +1225,10 @@ func (mIterator *MerkleChildrenIterator) Key() []byte {
 
 func (mIterator *MerkleChildrenIterator) Value() *SiblingSet {
     return mIterator.currentValue
+}
+
+func (mIterator *MerkleChildrenIterator) LocalVersion() uint64 {
+    return mIterator.currentLocalVersion
 }
 
 func (mIterator *MerkleChildrenIterator) Release() {
@@ -1099,15 +1252,18 @@ type BasicSiblingSetIterator struct {
     parseError error
     currentKey []byte
     currentValue *SiblingSet
+    storageFormatVersion string
+    currentLocalVersion uint64    
 }
 
-func NewBasicSiblingSetIterator(dbIterator StorageIterator) *BasicSiblingSetIterator {
-    return &BasicSiblingSetIterator{ dbIterator, nil, nil, nil }
+func NewBasicSiblingSetIterator(dbIterator StorageIterator, storageFormatVersion string) *BasicSiblingSetIterator {
+    return &BasicSiblingSetIterator{ dbIterator, nil, nil, nil, storageFormatVersion, 0 }
 }
 
 func (ssIterator *BasicSiblingSetIterator) Next() bool {
     ssIterator.currentKey = nil
     ssIterator.currentValue = nil
+    ssIterator.currentLocalVersion = 0
     
     if !ssIterator.dbIterator.Next() {
         if ssIterator.dbIterator.Error() != nil {
@@ -1117,9 +1273,9 @@ func (ssIterator *BasicSiblingSetIterator) Next() bool {
         return false
     }
 
-    var siblingSet SiblingSet
+    var row Row    
     
-    ssIterator.parseError = siblingSet.Decode(ssIterator.dbIterator.Value())
+    ssIterator.parseError = row.Decode(ssIterator.dbIterator.Value(), ssIterator.storageFormatVersion)
     
     if ssIterator.parseError != nil {
         Log.Errorf("Storage driver error in Next() key = %v, value = %v: %s", ssIterator.dbIterator.Key(), ssIterator.dbIterator.Value(), ssIterator.parseError.Error())
@@ -1130,7 +1286,8 @@ func (ssIterator *BasicSiblingSetIterator) Next() bool {
     }
     
     ssIterator.currentKey = ssIterator.dbIterator.Key()
-    ssIterator.currentValue = &siblingSet
+    ssIterator.currentValue = row.Siblings
+    ssIterator.currentLocalVersion = row.LocalVersion
     
     return true
 }
@@ -1149,6 +1306,10 @@ func (ssIterator *BasicSiblingSetIterator) Key() []byte {
 
 func (ssIterator *BasicSiblingSetIterator) Value() *SiblingSet {
     return ssIterator.currentValue
+}
+
+func (ssIterator *BasicSiblingSetIterator) LocalVersion() uint64 {
+    return ssIterator.currentLocalVersion
 }
 
 func (ssIterator *BasicSiblingSetIterator) Release() {
