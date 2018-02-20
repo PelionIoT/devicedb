@@ -5,6 +5,7 @@ import (
 )
 
 type Row struct {
+    Key string `json:"key"`
     LocalVersion uint64 `json:"localVersion"`
     Siblings *SiblingSet `json:"siblings"`
 }

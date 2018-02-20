@@ -2,6 +2,7 @@
 package bucket
 
 import (
+    "context"
     "io"
     "encoding/json"
     "encoding/binary"
@@ -115,8 +116,8 @@ type Store struct {
     conflictResolver ConflictResolver
     storageFormatVersion string
     nextRowID uint64
+    monitor *Monitor
     watcherLock sync.Mutex
-    watchers []func(map[string]Row)
 }
 
 func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkleDepth uint8, conflictResolver ConflictResolver) error {
@@ -130,7 +131,6 @@ func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkl
     store.merkleLock = NewMultiLock()
     store.conflictResolver = conflictResolver
     store.merkleTree, _ = NewMerkleTree(merkleDepth)
-    store.watchers = make([]func(map[string]Row), 0)
     
     var err error
     dbMerkleDepth, storageFormatVersion, err := store.getStoreMetadata()
@@ -193,6 +193,12 @@ func (store *Store) Initialize(nodeID string, storageDriver StorageDriver, merkl
         Log.Errorf("Error initializing node %s: %v", nodeID, err)
         
         return err
+    }
+
+    if store.nextRowID == 0 {
+        store.monitor = NewMonitor(0)
+    } else {
+        store.monitor = NewMonitor(store.nextRowID - 1)
     }
     
     return nil
@@ -746,9 +752,10 @@ func (store *Store) updateInit(keys [][]byte) (map[string]*SiblingSet, error) {
     return siblingSetMap, nil
 }
 
-func (store *Store) batch(update *Update, merkleTree *MerkleTree) *Batch {
+func (store *Store) batch(update *Update, merkleTree *MerkleTree) (*Batch, []Row) {
     _, leafNodes := merkleTree.Update(update)
     batch := NewBatch()
+    updatedRows := make([]Row, 0, update.Size())
 
     // WRITE PARTITION MERKLE LEAFS
     for leafID, _ := range leafNodes {
@@ -768,14 +775,15 @@ func (store *Store) batch(update *Update, merkleTree *MerkleTree) *Batch {
     for diff := range update.Iter() {
         key := []byte(diff.Key())
         siblingSet := diff.NewSiblingSet()
-        row := &Row{ LocalVersion: nextRowID, Siblings: siblingSet }
+        row := &Row{ Key: diff.Key(), LocalVersion: nextRowID, Siblings: siblingSet }
+        updatedRows = append(updatedRows, *row)
 
         nextRowID++
         
         batch.Put(encodePartitionDataKey(key), row.Encode())
     }
 
-    return batch
+    return batch, updatedRows
 }
 
 func (store *Store) updateToSibling(o Op, c *DVV, oldestTombstone *Sibling) *Sibling {
@@ -857,15 +865,19 @@ func (store *Store) Batch(batch *UpdateBatch) (map[string]*SiblingSet, error) {
         update.AddDiff(key, siblingSet, updatedSiblingSet)
     }
     
-    err = store.storageDriver.Batch(store.batch(update, merkleTree))
+    storageBatch, updatedRows := store.batch(update, merkleTree)
+    err = store.storageDriver.Batch(storageBatch)
     
     if err != nil {
         Log.Errorf("Storage driver error in Batch(%v): %s", batch, err.Error())
 
+        store.discardIDRange(updatedRows)
         store.merkleTree.UndoUpdate(update)
         
         return nil, EStorage
     }
+
+    store.notifyWatchers(updatedRows)
     
     return siblingSets, nil
 }
@@ -926,40 +938,57 @@ func (store *Store) Merge(siblingSets map[string]*SiblingSet) error {
     }
 
     if update.Size() != 0 {
-        err := store.storageDriver.Batch(store.batch(update, merkleTree))
+        batch, updatedRows := store.batch(update, merkleTree)
+        err := store.storageDriver.Batch(batch)
 
         if err != nil {
             Log.Errorf("Storage driver error in Merge(%v): %s", siblingSets, err.Error())
 
+            store.discardIDRange(updatedRows)
             store.merkleTree.UndoUpdate(update)
 
             return EStorage
         }
+
+        store.notifyWatchers(updatedRows)
     }
     
     return nil
 }
 
-func (store *Store) Watch(keys [][]byte, prefixes [][]byte, localVersion uint64, cb func(map[string]Row)) {
-    store.addWatcher(keys, prefixes, localVersion, cb)
+func (store *Store) Watch(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row) {
+    store.addWatcher(ctx, keys, prefixes, localVersion, ch)
 }
 
-func (store *Store) addWatcher(keys [][]byte, prefixes [][]byte, localVersion uint64, cb func(map[string]Row)) {
+func (store *Store) addWatcher(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row) {
     store.watcherLock.Lock()
+    defer store.watcherLock.Unlock()
 
+    // TODO need to iterate through all relevant keys
+    // send those to channel
     
-    store.watchers = append(store.watchers, cb)
-    store.watcherLock.Unlock()
+    store.monitor.AddListener(ctx, keys, prefixes, ch)
 }
 
-func (store *Store) notifyWatchers(update map[string]Row) {
+func (store *Store) notifyWatchers(updatedRows []Row) {
     store.watcherLock.Lock()
+    defer store.watcherLock.Unlock()    
 
-    for _, watcher := range store.watchers {
-        watcher(update)
+    // submit update to watcher collection
+    for _, update := range updatedRows {
+        store.monitor.Notify(update)
+    }
+}
+
+func (store *Store) discardIDRange(updatedRows []Row) {
+    store.watcherLock.Lock()
+    defer store.watcherLock.Unlock()
+
+    if len(updatedRows) == 0 {
+        return
     }
 
-    store.watcherLock.Unlock()
+    store.monitor.DiscardIDRange(updatedRows[0].LocalVersion, updatedRows[len(updatedRows) - 1].LocalVersion)
 }
 
 func (store *Store) sortedLockKeys(keys [][]byte) ([]string, []string) {

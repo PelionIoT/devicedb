@@ -19,6 +19,7 @@ import (
 
     . "devicedb/bucket"
     . "devicedb/bucket/builtin"
+    . "devicedb/data"
     . "devicedb/merkle"
     . "devicedb/shared"
     . "devicedb/storage"
@@ -337,6 +338,47 @@ func (server *Server) Start() error {
         w.Header().Set("Content-Type", "text/plain; charset=utf8")
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, hex.EncodeToString(hashBytes[:]))
+    }).Methods("GET")
+
+    r.HandleFunc("/{bucket}/watch", func(w http.ResponseWriter, r *http.Request) {
+        bucket := mux.Vars(r)["bucket"]
+
+        if !server.bucketList.HasBucket(bucket) {
+            Log.Warningf("GET /{bucket}/watch: Invalid bucket")
+            
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusNotFound)
+            io.WriteString(w, string(EInvalidBucket.JSON()) + "\n")
+            
+            return
+        }
+
+        var ch chan Row = make(chan Row)
+        server.bucketList.Get(bucket).Watch(r.Context(), [][]byte{ }, [][]byte{ []byte("") }, 0, ch)
+
+        flusher, _ := w.(http.Flusher)
+
+        w.Header().Set("Content-Type", "text/event-stream")
+        w.Header().Set("Cache-Control", "no-cache")
+        w.Header().Set("Connection", "keep-alive")
+
+        for update := range ch {
+            encodedUpdate, err := json.Marshal(update)
+
+            if err != nil {
+                Log.Errorf("Encountered an error while encoding an update to JSON: %v", err)
+                break
+            }
+
+            _, err = fmt.Fprintf(w, "data: %s\n\n", string(encodedUpdate))
+
+            flusher.Flush()
+            
+            if err != nil {
+                Log.Errorf("Encountered an error while writing an update to the event stream for a watcher: %v", err)
+                break
+            }
+        }
     }).Methods("GET")
     
     r.HandleFunc("/{bucket}/values", func(w http.ResponseWriter, r *http.Request) {

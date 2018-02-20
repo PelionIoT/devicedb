@@ -1,6 +1,7 @@
 package bucket
 
 import (
+    "context"
     "errors"
 
     . "devicedb/data"
@@ -26,7 +27,7 @@ type Bucket interface {
     Forget(keys [][]byte) error
     Batch(batch *UpdateBatch) (map[string]*SiblingSet, error)
     Merge(siblingSets map[string]*SiblingSet) error
-    Watch(func(map[string]Row))
+    Watch(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row)
     LockWrites()
     UnlockWrites()
     LockReads()
