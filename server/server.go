@@ -341,6 +341,44 @@ func (server *Server) Start() error {
     }).Methods("GET")
 
     r.HandleFunc("/{bucket}/watch", func(w http.ResponseWriter, r *http.Request) {
+        query := r.URL.Query()
+        
+        var keys [][]byte = make([][]byte, 0)
+        var prefixes [][]byte = make([][]byte, 0)
+        var lastSerial uint64
+    
+        if qKeys, ok := query["key"]; ok {
+            keys = make([][]byte, len(qKeys))
+
+            for i, key := range qKeys {
+                keys[i] = []byte(key)
+            }
+        }
+
+        if qPrefixes, ok := query["prefix"]; ok {
+            prefixes = make([][]byte, len(qPrefixes))
+
+            for i, prefix := range qPrefixes {
+                prefixes[i] = []byte(prefix)
+            }
+        }
+
+        if qLastSerials, ok := query["lastSerial"]; ok {
+            ls, err := strconv.ParseUint(qLastSerials[0], 10, 64)
+
+            if err != nil {
+                Log.Warningf("GET /{bucket}/watch: Invalid lastSerial specified")
+
+                w.Header().Set("Content-Type", "application/json; charset=utf8")
+                w.WriteHeader(http.StatusBadRequest)
+                io.WriteString(w, string(EInvalidKey.JSON()) + "\n")
+                
+                return
+            }
+
+            lastSerial = ls
+        }
+
         bucket := mux.Vars(r)["bucket"]
 
         if !server.bucketList.HasBucket(bucket) {
@@ -354,7 +392,7 @@ func (server *Server) Start() error {
         }
 
         var ch chan Row = make(chan Row)
-        server.bucketList.Get(bucket).Watch(r.Context(), [][]byte{ }, [][]byte{ []byte("") }, 0, ch)
+        go server.bucketList.Get(bucket).Watch(r.Context(), keys, prefixes, lastSerial, ch)
 
         flusher, _ := w.(http.Flusher)
 
@@ -362,12 +400,32 @@ func (server *Server) Start() error {
         w.Header().Set("Cache-Control", "no-cache")
         w.Header().Set("Connection", "keep-alive")
 
+        // It is important not to break out of this loop early
+        // If the channel is not read until it is closed it will
+        // block future upates
         for update := range ch {
-            encodedUpdate, err := json.Marshal(update)
+            // This is a marker intended to indicate
+            // the end of the initial query to find
+            // any missed updates based on the lastSerial
+            // field
+            if update.Key == "" {
+                fmt.Fprintf(w, "data: \n\n")
+                flusher.Flush()
+                continue
+            }
+
+            var transportUpdate TransportRow
+            
+            if err := transportUpdate.FromRow(&update); err != nil {
+                Log.Errorf("Encountered an error while converting an update to its transport format: %v", err)
+                continue
+            }
+
+            encodedUpdate, err := json.Marshal(transportUpdate)
 
             if err != nil {
                 Log.Errorf("Encountered an error while encoding an update to JSON: %v", err)
-                break
+                continue
             }
 
             _, err = fmt.Fprintf(w, "data: %s\n\n", string(encodedUpdate))
@@ -376,7 +434,7 @@ func (server *Server) Start() error {
             
             if err != nil {
                 Log.Errorf("Encountered an error while writing an update to the event stream for a watcher: %v", err)
-                break
+                continue
             }
         }
     }).Methods("GET")
@@ -1127,7 +1185,7 @@ func (server *Server) Start() error {
     
     server.httpServer = &http.Server{
         Handler: r,
-        WriteTimeout: 15 * time.Second,
+        WriteTimeout: 0,
         ReadTimeout: 15 * time.Second,
     }
     

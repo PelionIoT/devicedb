@@ -960,14 +960,94 @@ func (store *Store) Watch(ctx context.Context, keys [][]byte, prefixes [][]byte,
     store.addWatcher(ctx, keys, prefixes, localVersion, ch)
 }
 
-func (store *Store) addWatcher(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row) {
+func (store *Store) addWatcher(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row) error {
     store.watcherLock.Lock()
     defer store.watcherLock.Unlock()
 
-    // TODO need to iterate through all relevant keys
-    // send those to channel
+    keysCopy := make([][]byte, len(keys))
+
+    for i := 0; i < len(keys); i += 1 {
+        keysCopy[i] = encodePartitionDataKey(keys[i])
+    }
+    
+    // use storage driver
+    values, err := store.storageDriver.Get(keysCopy)
+    
+    if err != nil {
+        Log.Errorf("Storage driver error in addWatcher(): %s", err.Error())
+        
+        close(ch)
+
+        return EStorage
+    }
+    
+    for i := 0; i < len(keys); i += 1 {
+        if values[i] == nil {
+            continue
+        }
+        
+        var row Row
+        
+        err := row.Decode(values[i], store.storageFormatVersion)
+        
+        if err != nil {
+            Log.Errorf("Storage driver error in addWatcher(): %s", err.Error())
+            
+            close(ch)
+
+            return EStorage
+        }
+
+        if row.LocalVersion > localVersion {
+            ch <- row
+        }
+    }
+
+    prefixesCopy := make([][]byte, len(prefixes))
+
+    for i := 0; i < len(prefixes); i += 1 {
+        prefixesCopy[i] = encodePartitionDataKey(prefixes[i])
+    }
+    
+    iter, err := store.storageDriver.GetMatches(prefixesCopy)
+    
+    if err != nil {
+        Log.Errorf("Storage driver error in addWatcher(): %s", err.Error())
+            
+        close(ch)
+
+        return EStorage
+    }
+    
+    ssIter := NewBasicSiblingSetIterator(iter, store.storageFormatVersion)
+
+    for ssIter.Next() {
+        if ssIter.LocalVersion() <= localVersion {
+            continue
+        }
+
+        var row Row
+        
+        row.Key = string(ssIter.Key())
+        row.LocalVersion = ssIter.LocalVersion()
+        row.Siblings = ssIter.Value()
+
+        ch <- row
+    }
+
+    if ssIter.Error() != nil {
+        Log.Errorf("Storage driver error in addWatcher(): %s", err.Error())
+
+        close(ch)
+
+        return EStorage
+    }
+
+    ch <- Row{}
     
     store.monitor.AddListener(ctx, keys, prefixes, ch)
+
+    return nil
 }
 
 func (store *Store) notifyWatchers(updatedRows []Row) {
