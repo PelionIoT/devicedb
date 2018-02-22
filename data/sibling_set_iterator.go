@@ -5,6 +5,7 @@ type SiblingSetIterator interface {
     Prefix() []byte
     Key() []byte
     Value() *SiblingSet
+    LocalVersion() uint64
     Release()
     Error() error
 }

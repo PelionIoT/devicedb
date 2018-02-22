@@ -155,6 +155,10 @@ func (dummyBucket *DummyBucket) GetAll() (SiblingSetIterator, error) {
     return nil, nil
 }
 
+func (dummyBucket *DummyBucket) Watch(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row) {
+
+}
+
 func (dummyBucket *DummyBucket) LockReads() {
 }
 

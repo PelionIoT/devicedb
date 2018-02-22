@@ -104,6 +104,10 @@ func (iter *SiblingSetMergeIterator) Value() *SiblingSet {
     return iter.readMerger.Get(iter.keys[iter.currentPrefixIndex][iter.currentKeyIndex])
 }
 
+func (iter *SiblingSetMergeIterator) LocalVersion() uint64 {
+    return 0
+}
+
 func (iter *SiblingSetMergeIterator) Release() {
 }
 

@@ -55,8 +55,15 @@ func (siblingSet *SiblingSet) Sync(otherSiblingSet *SiblingSet) *SiblingSet {
         newSiblingSet.Add(mySibling)
         
         for theirSibling, _ := range otherSiblingSet.siblings {
-            if mySibling.Clock().HappenedBefore(theirSibling.Clock()) || mySibling.Clock().Equals(theirSibling.Clock()) {
+            if mySibling.Clock().HappenedBefore(theirSibling.Clock()) {
                 newSiblingSet.Delete(mySibling)
+            } else if mySibling.Clock().Equals(theirSibling.Clock()) {
+                // decide which one to keep. they may have the same clock
+                // but different values if the key was garbage collected
+                // at some node at some point
+                if mySibling.Compare(theirSibling) <= 0 {
+                    newSiblingSet.Delete(mySibling)
+                }
             }
         }
     }
@@ -67,11 +74,60 @@ func (siblingSet *SiblingSet) Sync(otherSiblingSet *SiblingSet) *SiblingSet {
         for mySibling, _ := range siblingSet.siblings {
             if theirSibling.Clock().HappenedBefore(mySibling.Clock()) {
                 newSiblingSet.Delete(theirSibling)
+            } else if theirSibling.Clock().Equals(mySibling.Clock()) {
+                // decide which one to keep. they may have the same clock
+                // but different values if the key was garbage collected
+                // at some node at some point
+                if theirSibling.Compare(mySibling) < 0 {
+                    newSiblingSet.Delete(theirSibling)
+                }
             }
         }
     }
     
     return newSiblingSet
+}
+
+func (siblingSet *SiblingSet) MergeSync(otherSiblingSet *SiblingSet, replica string) *SiblingSet {
+    // CLD-434 
+    // Situation:
+    //   A replica has forgotten the causal history (garbage collection or data wipe)
+    //   of a certain key. It may receive a new update
+    //   request for that key after it has been forgotten
+    //   which starts its causal history fresh. If it syncs
+    //   with a node after this that holds the old causal history
+    //   for this key then the new update gets overwritten. This
+    //   is most prominent with garbage collected keys where
+    //   an old tombstone will come back and overwrite the new
+    //   value for the key which to the client looks like the value
+    //   they just wrote disappeared.
+    otherMaxReplicaDot := otherSiblingSet.JoinOne(replica)
+    myMaxReplicaDot := siblingSet.JoinOne(replica)
+    newSiblingSet := NewSiblingSet(map[*Sibling]bool{ })
+    maxReplicaDot := otherMaxReplicaDot
+    
+    for mySibling, _ := range siblingSet.siblings {
+        newSiblingSet.Add(mySibling)
+
+        if myMaxReplicaDot < otherMaxReplicaDot {
+            // Since the other sibling set indicates there were events at
+            // replica node that aren't known by the replica itself then
+            // the replica must have forgotten about the history of this 
+            // key at some point due to garbage collection or a data wipe
+            // to prevent updates from being lost we will generate new siblings
+            // with the same values
+            for theirSibling, _ := range otherSiblingSet.siblings {
+                if mySibling.Clock().HappenedBefore(theirSibling.Clock()) && mySibling.Clock().MaxDot(replica) < theirSibling.Clock().MaxDot(replica) && mySibling.Clock().MaxDot(replica) != 0 {
+                    // mySibling will be overwritten by theirSibling, so replace it with a new sibling
+                    newSiblingSet.Delete(mySibling)
+                    newSiblingSet.Add(NewSibling(NewDVV(NewDot(replica, maxReplicaDot + 1), mySibling.Clock().Context()), mySibling.Value(), mySibling.Timestamp()))
+                    maxReplicaDot++
+                }
+            }
+        }
+    }
+
+    return newSiblingSet.Sync(otherSiblingSet)
 }
 
 func (siblingSet *SiblingSet) Diff(otherSiblingSet *SiblingSet) *SiblingSet {
@@ -104,6 +160,20 @@ func (siblingSet *SiblingSet) Join() map[string]uint64 {
     }
     
     return collectiveClock
+}
+
+func (siblingSet *SiblingSet) JoinOne(replica string) uint64 {
+    var s uint64
+    
+    for sibling, _ := range siblingSet.siblings {
+        maxDot := sibling.Clock().MaxDot(replica)
+        
+        if s < maxDot {
+            s = maxDot
+        }
+    }
+    
+    return s
 }
 
 func (siblingSet *SiblingSet) Discard(clock *DVV) *SiblingSet {

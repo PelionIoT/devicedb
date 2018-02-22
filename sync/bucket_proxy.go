@@ -215,6 +215,10 @@ func (iter *CloudResponderMerkleNodeIterator) Value() *SiblingSet {
     return iter.MerkleKeys.Keys[iter.CurrentIndex].Value
 }
 
+func (iter *CloudResponderMerkleNodeIterator) LocalVersion() uint64 {
+    return 0
+}
+
 func (iter *CloudResponderMerkleNodeIterator) Release() {
 }
 

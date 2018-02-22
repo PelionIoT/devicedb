@@ -10,6 +10,40 @@ import (
     . "devicedb/logging"
 )
 
+type TransportRow struct {
+    Key string `json:"key"`
+    LocalVersion uint64 `json:"serial"`
+    Context string `json:"context"`
+    Siblings []string `json:"siblings"`
+}
+
+func (tr *TransportRow) FromRow(row *Row) error {
+    if row == nil || row.Siblings == nil {
+        return nil
+    }
+
+    context, err := EncodeContext(row.Siblings.Join())
+
+    if err != nil {
+        Log.Warningf("Unable to encode context: %v", err)
+
+        return EInvalidContext
+    }
+
+    tr.LocalVersion = row.LocalVersion
+    tr.Key = row.Key
+    tr.Context = context
+    tr.Siblings = make([]string, 0, row.Siblings.Size())
+
+    for sibling := range row.Siblings.Iter() {
+        if !sibling.IsTombstone() {
+            tr.Siblings = append(tr.Siblings, string(sibling.Value()))
+        }
+    }
+
+    return nil
+}
+
 type TransportSiblingSet struct {
     Siblings []string `json:"siblings"`
     Context string `json:"context"`

@@ -236,6 +236,10 @@ func (bucket *MockBucket) GetAll() (SiblingSetIterator, error) {
     return nil, nil
 }
 
+func (bucket *MockBucket) Watch(ctx context.Context, keys [][]byte, prefixes [][]byte, localVersion uint64, ch chan Row) {
+
+}
+
 func (bucket *MockBucket) LockReads() {
 }
 
