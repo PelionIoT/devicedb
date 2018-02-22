@@ -104,6 +104,51 @@ var _ = Describe("Client", func() {
         server.Stop()
         <-stop
     })
+
+    Describe("Watcher", func() {
+        It("Should work", func() {
+            ctx, cancel := context.WithCancel(context.Background())
+            updates, errors := client.Watch(ctx, "default", []string{ "a" }, []string{ }, 0)
+
+            go func() {
+                for {
+                    select {
+                    case <-time.After(time.Second):
+                    case <-ctx.Done():
+                        return
+                    }
+
+                    batch := clientlib.NewBatch()
+                    batch.Put("a", "b", "")
+                    client.Batch(ctx, "default", *batch)
+                }              
+            }()
+
+            go func() {
+                <-time.After(time.Second * 10)
+                cancel()
+            }()
+
+            for {
+                select {
+                case update, ok := <-updates:
+                    if !ok {
+                        return
+                    }
+
+                    fmt.Printf("Update received: Key: %s, Serial: %d Empty: %v\n", update.Key, update.Serial, update.IsEmpty())
+                case err, ok := <-errors:
+                    if !ok {
+                        return
+                    }
+
+                    fmt.Printf("Error received: %v\n", err)
+                }
+            }
+            
+            fmt.Printf("Watcher closed\n")            
+        })
+    })
     
     Describe("CRUD", func() {
         It("Should work", func() {

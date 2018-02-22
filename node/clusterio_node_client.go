@@ -421,6 +421,10 @@ func (iter *internalEntrySiblingSetIterator) Value() *SiblingSet {
     return iter.entries[iter.currentEntry].Siblings
 }
 
+func (iter *internalEntrySiblingSetIterator) LocalVersion() uint64 {
+    return 0
+}
+
 func (iter *internalEntrySiblingSetIterator) Release() {
 }
 

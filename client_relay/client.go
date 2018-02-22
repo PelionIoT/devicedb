@@ -10,6 +10,8 @@ import (
     "io"
     "io/ioutil"
     "net/http"
+    "net/url"
+    "time"
     "devicedb/client"
     "devicedb/transport"
 )
@@ -32,6 +34,19 @@ type Client interface {
     // through database values whose key matches one of the specified
     // prefixes
     GetMatches(ctx context.Context, bucket string, keys []string) (EntryIterator, error)
+    // Watch for updates to a set of keys or keys matching certain prefixes
+    // lastSerial specifies the serial number of the last received update.
+    // The update channel that is returned by this function will stream relevant
+    // updates to a consumer. If a disconnection happens from the server
+    // then this client will push an error to the error channel and attempt
+    // to form a new connection until it is successful. If the consumer supplies
+    // a context that is cancellable they can cancel the context which will
+    // cause both the update and error channels to close. These channels will
+    // not close until the context is cancelled even during disconnections
+    // from the server. The client must consume all messages from the update
+    // and error channels until they are closed to prevent blocking of the watcher 
+    // goroutine.
+    Watch(ctx context.Context, bucket string, keys []string, prefixes []string, lastSerial uint64) (chan Update, chan error)
 }
 
 type Config struct {
@@ -42,19 +57,31 @@ type Config struct {
     // enabled devicedb relay server. You will need to provide
     // the relay CA and server name (the relay ID)
     TLSConfig *tls.Config
+    // When a watcher is established by a call to Watch()
+    // disconnections may occur while the watcher is still
+    // up. This field determines how often the watcher
+    // will try to reconnect until a new connection can be
+    // established.
+    WatchReconnectTimeout time.Duration
 }
 
 // Create a new DeviceDB client
 func New(config Config) Client {
+    if config.WatchReconnectTimeout == 0 {
+        config.WatchReconnectTimeout = time.Second
+    }
+
     return &HTTPClient{
         server: config.ServerURI,
         httpClient: &http.Client{ Transport: &http.Transport{ TLSClientConfig: config.TLSConfig } },
+        watchReconnectTimeout: config.WatchReconnectTimeout,
     }
 }
 
 type HTTPClient struct {
     server string
     httpClient *http.Client
+    watchReconnectTimeout time.Duration
 }
 
 func (c *HTTPClient) Batch(ctx context.Context, bucket string, batch client.Batch) error {
@@ -138,6 +165,125 @@ func (c *HTTPClient) GetMatches(ctx context.Context, bucket string, keys []strin
     }
 
     return &StreamedEntryIterator{ reader: respBody }, nil
+}
+
+func (c *HTTPClient) Watch(ctx context.Context, bucket string, keys []string, prefixes []string, lastSerial uint64) (chan Update, chan error) {
+    var query url.Values = url.Values{}
+
+    for _, key := range keys {
+        query.Add("key", key)
+    }
+
+    for _, prefix := range prefixes {
+        query.Add("prefix", prefix)
+    }
+
+    updates := make(chan Update)
+    errorsChan := make(chan error)
+
+    go func() {
+        defer func() {
+            close(updates)
+            close(errorsChan)
+        }()
+
+        for {
+            reqCtx, cancel := context.WithCancel(ctx)
+            url := fmt.Sprintf("/%s/watch?%s&lastSerial=%d", bucket, query.Encode(), lastSerial)
+            respBody, err := c.sendRequest(reqCtx, "GET", url, nil)
+
+            if err == nil {
+                // establish new iterator and stream updates
+                var streamingMissedUpdates bool = true
+                var highestMissedSerial uint64
+                updateIterator := &StreamedUpdateIterator{ reader: respBody }                
+
+                // stream updates until the response stream
+                // is interrupted or an error occurs
+                for updateIterator.Next() {
+                    update := updateIterator.Update()
+
+                    // the first chunk of updates are sent
+                    // out of order (non-increasing serials)
+                    // An empty update marks the end of the
+                    // initial chunk of updates which are
+                    // this client catching up with any missed
+                    // updates and the start of receiving
+                    // updates with increasing serial numbers
+                    if streamingMissedUpdates {
+                        if update.IsEmpty() {
+                            // marks end of missed updates
+                            streamingMissedUpdates = false
+
+                            if lastSerial < highestMissedSerial {
+                                lastSerial = highestMissedSerial
+                            }
+
+                            // Sends an empty update simply to let
+                            // client know about a new stable serial
+                            update.LastStableSerial = lastSerial
+                            updates <- update
+
+                            continue
+                        }
+
+                        if highestMissedSerial < update.Serial {
+                            highestMissedSerial = update.Serial
+                        }
+                    }
+
+                    // All received updates should have a serial number greater than
+                    // the lastSerial provided with the exception of an update with
+                    // a serial number of 0
+                    if update.Serial <= lastSerial && (lastSerial != 0 || update.Serial != 0) {
+                        errorsChan <- errors.New("Protocol error")
+                        cancel()
+                        break
+                    } else if !streamingMissedUpdates {
+                        lastSerial = update.Serial
+                    }
+
+                    // the last stable serial for an update
+                    // sent to a consumer is the last serial number
+                    // associated with some received update such that
+                    // no future update in the future will have a serial
+                    // number lower than that.
+                    update.LastStableSerial = lastSerial
+                    updates <- update
+                }
+
+                if updateIterator.Error() != nil {
+                    // Only report the error if the context
+                    // wasn't canceled. We don't want to send
+                    // 'context canceled' errors
+                    select {
+                    case <-ctx.Done():
+                    default:
+                        errorsChan <- updateIterator.Error()
+                    }
+                }
+            } else {
+                // Only report the error if the context
+                // wasn't canceled. We don't want to send
+                // 'context canceled' errors
+                select {
+                case <-ctx.Done():
+                default:
+                    errorsChan <- err
+                }
+            }
+            
+            // stop if the watcher was cancelled or try
+            // to re-establish the connection in a moment
+            select {
+            case <-ctx.Done():
+                return
+            case <-time.After(c.watchReconnectTimeout):
+            }
+        }
+    }()
+
+    return updates, errorsChan
 }
 
 func (c *HTTPClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) (io.ReadCloser, error) {
