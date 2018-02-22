@@ -790,9 +790,9 @@ func (store *Store) Merge(siblingSets map[string]*SiblingSet) error {
         if mySiblingSet == nil {
             mySiblingSet = NewSiblingSet(map[*Sibling]bool{ })
         }
-        
-        updatedSiblingSet := siblingSet.Sync(mySiblingSet)
-        
+
+        updatedSiblingSet := mySiblingSet.MergeSync(siblingSet, store.nodeID)
+
         for sibling := range updatedSiblingSet.Iter() {
             if !mySiblingSet.Has(sibling) {
                 updatedSiblingSet = store.conflictResolver.ResolveConflicts(updatedSiblingSet)

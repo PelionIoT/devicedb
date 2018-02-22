@@ -39,6 +39,28 @@ func (sibling *Sibling) Hash() Hash {
     return NewHash(sibling.Value()).Xor(sibling.Clock().Hash())
 }
 
+// provides an ordering between siblings in order to break
+// ties and decide which one to keep when two siblings have
+// the same clock value. Favors keeping a value instead of a
+// tombstone.
+func (sibling *Sibling) Compare(otherSibling *Sibling) int {
+    if sibling.IsTombstone() && !otherSibling.IsTombstone() {
+        return -1
+    } else if !sibling.IsTombstone() && otherSibling.IsTombstone() {
+        return 1
+    } else if sibling.IsTombstone() && otherSibling.IsTombstone() {
+        if sibling.Timestamp() < otherSibling.Timestamp() {
+            return -1
+        } else if sibling.Timestamp() > otherSibling.Timestamp() {
+            return 1
+        } else {
+            return 0
+        }
+    } else {
+        return bytes.Compare(sibling.Value(), otherSibling.Value())
+    }
+}
+
 func (sibling *Sibling) MarshalBinary() ([]byte, error) {
     var encoding bytes.Buffer
     encoder := gob.NewEncoder(&encoding)

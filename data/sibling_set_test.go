@@ -39,6 +39,99 @@ var _ = Describe("SiblingSet", func() {
             Expect(siblingSet1.Sync(siblingSet2)).Should(Equal(syncedSet))
             Expect(siblingSet2.Sync(siblingSet1)).Should(Equal(syncedSet))
         })
+
+        It("Should resolve the situation where two siblings have the same clock but different values", func() {
+            sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+            sibling2 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v2"), 0)
+            
+            siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+            })
+
+            siblingSet2 := NewSiblingSet(map[*Sibling]bool{
+                sibling2: true,
+            })
+            
+            Expect(siblingSet1.Sync(siblingSet2)).Should(Equal(siblingSet2.Sync(siblingSet1)))
+            Expect(sibling1.Compare(sibling2)).Should(Equal(-1))
+            Expect(siblingSet1.Sync(siblingSet2)).Should(Equal(NewSiblingSet(map[*Sibling]bool{
+                sibling2: true,
+            })))            
+        })
+    })
+
+    Describe("#MergeSync", func() {
+        It("should return a new sibling set that removes obsolete siblings by combining two sibling sets", func() {
+            sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ "r2": 5, "r3": 2 }), []byte("v1"), 0)
+            sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r2": 4, "r3": 3 }), []byte("v2"), 0)
+            sibling3 := NewSibling(NewDVV(NewDot("r2", 6), map[string]uint64{ }), []byte("v3"), 0)
+            
+            siblingSet1 := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+                sibling2: true, // makes v5 obsolete
+                sibling3: true,
+            })
+            
+            sibling4 := NewSibling(NewDVV(NewDot("r2", 7), map[string]uint64{ "r2": 6 }), []byte("v4"), 0)
+            sibling5 := NewSibling(NewDVV(NewDot("r3", 1), map[string]uint64{ }), []byte("v5"), 0)
+            
+            siblingSet2 := NewSiblingSet(map[*Sibling]bool{
+                sibling4: true, // makes v3 obsolete
+                sibling5: true,
+            })
+            
+            syncedSet := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+                sibling2: true,
+                sibling4: true,
+            })
+            
+            Expect(siblingSet1.MergeSync(siblingSet2, "r1")).Should(Equal(syncedSet))
+            Expect(siblingSet2.MergeSync(siblingSet1, "r1")).Should(Equal(syncedSet))
+        })
+
+        It("Should generate a new event", func() {
+            sibling1 := NewSibling(NewDVV(NewDot("r1", 1), map[string]uint64{ }), []byte("v1"), 0)
+            sibling2 := NewSibling(NewDVV(NewDot("r1", 2), map[string]uint64{ "r1": 1 }), []byte("v2"), 0)
+            
+            siblingSetR1 := NewSiblingSet(map[*Sibling]bool{
+                sibling1: true,
+            })
+
+            siblingSetR2 := NewSiblingSet(map[*Sibling]bool{
+                sibling2: true,
+            })
+            
+            syncedSet1 := siblingSetR1.MergeSync(siblingSetR2, "r1")
+            syncedSet2 := siblingSetR2.MergeSync(siblingSetR1, "r1")
+            syncedSet3 := siblingSetR1.MergeSync(siblingSetR2, "r2")
+            syncedSet4 := siblingSetR2.MergeSync(siblingSetR1, "r2")
+            
+            var m map[string]*Sibling = make(map[string]*Sibling)
+
+            for sibling := range syncedSet1.Iter() {
+                if _, ok := m[string(sibling.Value())]; ok {
+                    Fail("Duplicate version")
+                }
+
+                m[string(sibling.Value())] = sibling
+            }
+
+            Expect(m["v1"]).Should(Equal(NewSibling(NewDVV(NewDot("r1", 3), map[string]uint64{ }), []byte("v1"), 0)))
+            Expect(m["v2"]).Should(Equal(sibling2))
+            Expect(len(m)).Should(Equal(2))
+            
+            Expect(syncedSet3).Should(Equal(NewSiblingSet(map[*Sibling]bool{
+                sibling2: true,
+            })))
+            Expect(syncedSet4).Should(Equal(syncedSet3))
+            Expect(syncedSet2).Should(Equal(syncedSet3))
+
+            Expect(syncedSet1.MergeSync(syncedSet3, "r1")).Should(Equal(syncedSet1))
+            Expect(syncedSet3.MergeSync(syncedSet1, "r1")).Should(Equal(syncedSet1))
+            Expect(syncedSet1.MergeSync(syncedSet3, "r2")).Should(Equal(syncedSet1))
+            Expect(syncedSet3.MergeSync(syncedSet1, "r2")).Should(Equal(syncedSet1))
+        })
     })
 
     Describe("#Diff", func() {
