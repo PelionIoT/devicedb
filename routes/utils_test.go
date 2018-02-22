@@ -295,6 +295,10 @@ func (iter *MemorySiblingSetIterator) Value() *SiblingSet {
     return iter.nextEntry.Value
 }
 
+func (iter *MemorySiblingSetIterator) LocalVersion() uint64 {
+    return 0
+}
+
 func (iter *MemorySiblingSetIterator) Release() {
 }
 
