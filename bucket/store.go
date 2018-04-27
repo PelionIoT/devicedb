@@ -106,6 +106,7 @@ func encodeMetadataKey(k []byte) []byte {
 }
 
 type Store struct {
+    nextRowID uint64    
     nodeID string
     storageDriver StorageDriver
     merkleTree *MerkleTree
@@ -115,7 +116,6 @@ type Store struct {
     merkleLock *MultiLock
     conflictResolver ConflictResolver
     storageFormatVersion string
-    nextRowID uint64
     monitor *Monitor
     watcherLock sync.Mutex
 }
