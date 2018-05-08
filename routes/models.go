@@ -77,3 +77,7 @@ type LogDump struct {
     Entries []LogEntry
     CurrentSnapshot LogSnapshot
 }
+
+type Snapshot struct {
+    Path string `json:"path"`
+}

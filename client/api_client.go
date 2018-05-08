@@ -259,6 +259,23 @@ func (client *APIClient) LogDump(ctx context.Context) (routes.LogDump, error) {
     return logDump, nil
 }
 
+func (client *APIClient) Snapshot(ctx context.Context) (routes.Snapshot, error) {
+    url := "/snapshot"
+    response, err := client.sendRequest(ctx, "POST", url, nil)
+
+    if err != nil {
+        return routes.Snapshot{}, err
+    }
+
+    var snapshot routes.Snapshot
+
+    if err := json.Unmarshal(response, &snapshot); err != nil {
+        return routes.Snapshot{}, err
+    }
+
+    return snapshot, nil
+}
+
 func (client *APIClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) ([]byte, error) {
     u := fmt.Sprintf("http://%s%s", client.nextServer(), endpointURL)
     request, err := http.NewRequest(httpVerb, u, bytes.NewReader(body))

@@ -22,6 +22,11 @@ const (
     BACKWARD = iota
 )
 
+var (
+    SnapshotBatchSize = 1000
+    SnapshotBatchMaxBytes = 5 * 1024 * 1024 // 5 MB
+)
+
 type Op struct {
     OpType int `json:"type"`
     OpKey []byte `json:"key"`
@@ -209,6 +214,10 @@ func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
     return psd.storageDriver.Batch(newBatch)
 }
 
+func (psd *PrefixedStorageDriver) Snapshot(snapshotDirectory string) error {
+    return psd.storageDriver.Snapshot(snapshotDirectory)
+}
+
 type PrefixedIterator struct {
     prefix []byte
     iterator StorageIterator
@@ -252,6 +261,7 @@ type StorageDriver interface {
     GetRange([]byte, []byte) (StorageIterator, error)
     GetRanges([][2][]byte, int) (StorageIterator, error)
     Batch(*Batch) error
+    Snapshot(snapshotDirectory string) error
 }
 
 type LevelDBIterator struct {
@@ -585,4 +595,84 @@ func (levelDriver *LevelDBStorageDriver) Batch(batch *Batch) error {
     }
     
     return levelDriver.db.Write(b, nil)
+}
+
+func (levelDriver *LevelDBStorageDriver) Snapshot(snapshotDirectory string) error {
+    if levelDriver.db == nil {
+        return errors.New("Driver is closed")
+    }
+    
+    snapshotDB, err := leveldb.OpenFile(snapshotDirectory, &opt.Options{ })
+    
+    if err != nil {
+        Log.Errorf("Can't create snapshot because %s could not be opened for writing: %v", snapshotDirectory, err)
+        
+        return err
+    }
+
+    snapshot, err := levelDriver.db.GetSnapshot()
+
+    defer snapshot.Release()
+    
+    if err != nil {
+        Log.Errorf("Can't create snapshot because a read snapshot could not be obtained from underlying level driver: %v", err)
+
+        return err
+    }
+    
+    iter := snapshot.NewIterator(&util.Range{}, &opt.ReadOptions{ DontFillCache: true })
+
+    defer iter.Release()
+
+    var batch *leveldb.Batch = &leveldb.Batch{}
+    var batchSizeBytes int
+    var totalKeys uint64
+
+    Log.Debugf("Iterating through database to create a snapshot at %s", snapshotDirectory)
+
+    for iter.Next() {
+        totalKeys++
+        batch.Put(iter.Key(), iter.Value())
+        batchSizeBytes += len(iter.Key()) + len(iter.Value())
+        
+        if batchSizeBytes >= SnapshotBatchMaxBytes || batch.Len() >= SnapshotBatchSize {
+            Log.Debugf("Writing next snapshot chunk (batch.Len() = %d, batchSizeBytes = %d, totalKeys = %d)", batch.Len(), batchSizeBytes, totalKeys)
+
+            if err := snapshotDB.Write(batch, &opt.WriteOptions{ Sync: true }); err != nil {
+                Log.Errorf("Can't create snapshot because there was a problem writing the next chunk to snapshot: %v", err)
+
+                return err
+            }
+
+            batchSizeBytes = 0
+            batch.Reset()
+        }
+    }
+
+    if iter.Error() != nil {
+        Log.Errorf("Can't create snapshot because there was an iterator error: %v", iter.Error())
+
+        return iter.Error()
+    }
+
+    // Write the rest of the records in one last batch
+    if batch.Len() > 0 {
+        Log.Debugf("Writing next snapshot chunk (batch.Len() = %d, batchSizeBytes = %d, totalKeys = %d)", batch.Len(), batchSizeBytes, totalKeys)
+
+        if err := snapshotDB.Write(batch, &opt.WriteOptions{ Sync: true }); err != nil {
+            Log.Errorf("Can't create snapshot because there was a problem writing the next chunk to snapshot: %v", err)
+
+            return err
+        }
+    }
+
+    if err := snapshotDB.Close(); err != nil {
+        Log.Errorf("Can't create snapshot because there was an error while closing the snapshot database at %s: %v", snapshotDirectory, err)
+
+        return err
+    }
+
+    Log.Debugf("Created snapshot at %s", snapshotDirectory)    
+
+    return nil
 }

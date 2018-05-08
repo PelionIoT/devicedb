@@ -9,6 +9,7 @@ import (
     "io"
     "math/rand"
     "net/http"
+    "path"
     "sync"
     "time"
 
@@ -77,6 +78,7 @@ type ClusterNode struct {
     relayConnectionsMu sync.Mutex
     hub *Hub
     noValidate bool
+    snapshotsDirectory string
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -144,6 +146,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.shutdown = make(chan int)
     node.joinedCluster = make(chan int, 1)
     node.leftCluster = make(chan int, 1)
+    node.snapshotsDirectory = options.SnapshotDirectory
 
     if err := node.openStorageDriver(); err != nil {
         return err
@@ -320,6 +323,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
     logDumEndpoint := &LogDumpEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
+    snapshotEndpoint := &SnapshotEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     profileEndpoint := &ProfilerEndpoint{ }
     merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
 
@@ -331,6 +335,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
     logDumEndpoint.Attach(router)
+    snapshotEndpoint.Attach(router)
     profileEndpoint.Attach(router)
     merkleSyncEndpoint.Attach(router)
 
@@ -1157,4 +1162,30 @@ func (clusterFacade *ClusterNodeFacade) LocalLogDump() (LogDump, error) {
     }
 
     return logDump, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) LocalSnapshot() (Snapshot, error) {
+    snapshotDir := clusterFacade.node.snapshotsDirectory
+
+    if snapshotDir == "" {
+        Log.Warningf("Cannot take snapshot because no snapshot directory is configured")
+
+        return Snapshot{}, ESnapshotsNotEnabled
+    }
+    
+    snapshotDir = path.Join(snapshotDir, fmt.Sprintf("snapshot-%d-%s", clusterFacade.LocalNodeID(), time.Now().Format(time.RFC3339)))
+
+    Log.Infof("Creating a snapshot of node storage at %s...", snapshotDir)
+
+    if err := clusterFacade.node.storageDriver.Snapshot(snapshotDir); err != nil {
+        Log.Errorf("Unable to create a snapshot of node storage at %s: %v", snapshotDir, err)
+
+        return Snapshot{}, err
+    }
+
+    Log.Infof("Successfully created a snapshot of node storage at %s", snapshotDir)
+
+    return Snapshot{
+        Path: snapshotDir,
+    }, nil
 }
