@@ -32,9 +32,9 @@ Write to /var/devicedb/backups/snapshot-1111
 
 **Restore**
 Create three nodes where snapshot contents are mounted under /var/devicedb/data
-$ devicedb cluster start -store /var/devicedb/data -restore -host devicedb-0.devicedb
-$ devicedb cluster start -store /var/devicedb/data -restore -host devicedb-1.devicedb -join devicedb-0.devicedb
-$ devicedb cluster start -store /var/devicedb/data -restore -host devicedb-2.devicedb -join devicedb-0.devicedb
+$ devicedb cluster start -store /var/devicedb/data -snapshot /var/devicedb/snapshot -host devicedb-0.devicedb
+$ devicedb cluster start -store /var/devicedb/data -snapshot /var/devicedb/snapshot -host devicedb-1.devicedb -join devicedb-0.devicedb
+$ devicedb cluster start -store /var/devicedb/data -snapshot /var/devicedb/snapshot -host devicedb-2.devicedb -join devicedb-0.devicedb
 
 Cluster State
 - relays
@@ -43,12 +43,8 @@ Cluster State
 - token assignments
 - holders ???
 
--restore flag
-Nodes use the node ID stored in their snapshot
-Forget raft history stored in their snapshot
+-snapshot flag
 Seed node
-- put snapshotted cluster state as "Restore State" command in the raft log as the very first command
+- It creates a new cluster which includes an initial cluster state setting obtained from the snapshot
 Other nodes
-- on join, they see the Set State command and receive
-
-Add RestoreState to cluster state which contains token assignments
+- 

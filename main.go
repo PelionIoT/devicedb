@@ -398,7 +398,6 @@ func main() {
     clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
     clusterStartLogLevel := clusterStartCommand.String("log_level", "info", "The log level configures how detailed the output produced by devicedb is. Must be one of { critical, error, warning, notice, info, debug }")
     clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It only applies to TLS enabled servers and should only be used for testing.")
-    clusterStartRestore := clusterStartCommand.Bool("restore", false, "Use this flag if you are restoring a node from a snapshot")
     clusterStartSnapshotDirectory := clusterStartCommand.String("snapshot_store", "", "To enable snapshots set this to some directory where database snapshots can be stored")
 
     clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
@@ -871,7 +870,6 @@ func main() {
         startOptions.SyncMaxSessions = *clusterStartSyncMaxSessions
         startOptions.SyncPathLimit = uint32(*clusterStartSyncPathLimit)
         startOptions.SyncPeriod = *clusterStartSyncPeriod
-        startOptions.Restore = *clusterStartRestore
         startOptions.SnapshotDirectory = *clusterStartSnapshotDirectory
         SetLoggingLevel(*clusterStartLogLevel)
 
@@ -1640,7 +1638,7 @@ func benchmarkHistoryStress(server *Server) error {
 }
 
 func printSnapshot(snapshot routes.Snapshot) {
-    fmt.Fprintf(os.Stderr, "Snapshot created at %s\n", snapshot.Path)
+    fmt.Fprintf(os.Stderr, "Snapshot request accepted (uuid = %s). Node state snapshots are being created.\n", snapshot.UUID)
 }
 
 func printLogDump(logDump routes.LogDump) {
@@ -1719,6 +1717,10 @@ func logEntryToString(logEntry routes.LogEntry) string {
             commandType = "MoveRelay"
             moveRelayCommandBody := commandBody.(cluster.ClusterMoveRelayBody)
             commandDetails = fmt.Sprintf("Relay ID: %s, Site ID: %s", moveRelayCommandBody.RelayID, moveRelayCommandBody.SiteID)
+        case cluster.ClusterSnapshot:
+            commandType = "ClusterSnapshot"
+            clusterSnapshotCommandBody := commandBody.(cluster.ClusterSnapshotBody)
+            commandDetails = fmt.Sprintf("UUID: %s", clusterSnapshotCommandBody.UUID)
         }
     } else {
         commandDetails = "<unable to read details>"

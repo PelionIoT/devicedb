@@ -59,7 +59,7 @@ var _ = Describe("Snapshot", func() {
 
                 It("Should respond with a body that is the JSON encoded snapshot returned by LocalSnapshot()", func() {
                     clusterFacade.defaultLocalSnapshotResponse = Snapshot{
-						Path: "/var/data/snapshot",
+						UUID: "abc",
                     }
 
                     req, err := http.NewRequest("POST", "/snapshot", nil)

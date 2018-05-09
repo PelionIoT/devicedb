@@ -15,7 +15,7 @@ type SnapshotEndpoint struct {
 
 func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
     router.HandleFunc("/snapshot", func(w http.ResponseWriter, r *http.Request) {
-        snapshot, err := snapshotEndpoint.ClusterFacade.LocalSnapshot()
+        snapshot, err := snapshotEndpoint.ClusterFacade.ClusterSnapshot(r.Context())
 
         if err != nil {
             Log.Warningf("POST /snapshot: %v", err)

@@ -79,5 +79,5 @@ type LogDump struct {
 }
 
 type Snapshot struct {
-    Path string `json:"path"`
+    UUID string `json:"uuid"`
 }

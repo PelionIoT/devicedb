@@ -219,9 +219,9 @@ var _ = Describe("StorageEngine", func() {
                 batch.Put([]byte(fmt.Sprintf("key%05d", i)), []byte(fmt.Sprintf("value%05d", i)))
             }
 
-            largeValue1 := make([]byte, SnapshotBatchMaxBytes / 2)
-            largeValue2 := make([]byte, SnapshotBatchMaxBytes / 2)
-            largeValue3 := make([]byte, SnapshotBatchMaxBytes / 2)
+            largeValue1 := make([]byte, CopyBatchMaxBytes / 2)
+            largeValue2 := make([]byte, CopyBatchMaxBytes / 2)
+            largeValue3 := make([]byte, CopyBatchMaxBytes / 2)
 
             batch.Put([]byte("large1"), largeValue1)
             batch.Put([]byte("large2"), largeValue2)
@@ -230,7 +230,11 @@ var _ = Describe("StorageEngine", func() {
             Expect(storageDriver.Batch(batch)).Should(Succeed())
 
             snapshotDirectory := "/tmp/testsnapshot-"+RandomString()
-            Expect(storageDriver.Snapshot(snapshotDirectory)).Should(Succeed())
+            snapshotMetaPrefix := []byte("metadata")
+            snapshotMeta := map[string]string{
+                "ID": "AAA",
+            }
+            Expect(storageDriver.Snapshot(snapshotDirectory, snapshotMetaPrefix, snapshotMeta)).Should(Succeed())
 
             snapshot := NewLevelDBStorageDriver(snapshotDirectory, nil)
 
@@ -245,6 +249,30 @@ var _ = Describe("StorageEngine", func() {
                 largeValue1,
                 largeValue2,
                 largeValue3,
+            }))
+
+            Expect(snapshot.Get([][]byte{ []byte("metadataID") })).Should(Equal([][]byte{
+                []byte("AAA"),
+            }))
+
+            restore := newStorageDriver()
+            
+            defer restore.Close()
+            Expect(restore.Open()).Should(Succeed())
+            Expect(restore.Restore(snapshot)).Should(Succeed())
+
+            for i := 0; i < keyCount; i += 1 {
+                Expect(restore.Get([][]byte{ []byte(fmt.Sprintf("key%05d", i)) })).Should(Equal([][]byte{ []byte(fmt.Sprintf("value%05d", i)) }))
+            }
+
+            Expect(restore.Get([][]byte{ []byte("large1"), []byte("large2"), []byte("large3") })).Should(Equal([][]byte{
+                largeValue1,
+                largeValue2,
+                largeValue3,
+            }))
+
+            Expect(restore.Get([][]byte{ []byte("metadataID") })).Should(Equal([][]byte{
+                []byte("AAA"),
             }))
         })
     })

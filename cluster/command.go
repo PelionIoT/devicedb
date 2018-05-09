@@ -83,6 +83,7 @@ const (
     ClusterAddRelay ClusterCommandType = iota
     ClusterRemoveRelay ClusterCommandType = iota
     ClusterMoveRelay ClusterCommandType = iota
+    ClusterSnapshot ClusterCommandType = iota
 )
 
 type ClusterCommand struct {
@@ -140,6 +141,10 @@ type ClusterRemoveRelayBody struct {
 type ClusterMoveRelayBody struct {
     RelayID string
     SiteID string
+}
+
+type ClusterSnapshotBody struct {
+    UUID string
 }
 
 func EncodeClusterCommand(command ClusterCommand) ([]byte, error) {
@@ -214,6 +219,10 @@ func CreateClusterCommand(commandType ClusterCommandType, body interface{}) (Clu
         }
     case ClusterMoveRelay:
         if _, ok := body.(ClusterMoveRelayBody); !ok {
+            return ClusterCommand{}, ECouldNotParseCommand
+        }
+    case ClusterSnapshot:
+        if _, ok := body.(ClusterSnapshotBody); !ok {
             return ClusterCommand{}, ECouldNotParseCommand
         }
     default:
@@ -317,6 +326,14 @@ func DecodeClusterCommandBody(command ClusterCommand) (interface{}, error) {
         return body, nil
     case ClusterMoveRelay:
         var body ClusterMoveRelayBody
+
+        if err := json.Unmarshal(command.Data, &body); err != nil {
+            break
+        }
+
+        return body, nil
+    case ClusterSnapshot:
+        var body ClusterSnapshotBody
 
         if err := json.Unmarshal(command.Data, &body); err != nil {
             break

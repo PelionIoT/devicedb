@@ -235,6 +235,9 @@ func (configController *MockConfigController) notifyClusterCommand(ctx context.C
 func (configController *MockConfigController) OnLocalUpdates(cb func(deltas []ClusterStateDelta)) {
 }
 
+func (configController *MockConfigController) OnClusterSnapshot(cb func(snapshotIndex uint64, snapshotId string)) {
+}
+
 func (configController *MockConfigController) ClusterController() *ClusterController {
     return configController.clusterController
 }

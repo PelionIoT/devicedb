@@ -84,6 +84,9 @@ func (clusterController *ClusterController) Step(clusterCommand ClusterCommand) 
         err = clusterController.RemoveRelay(body.(ClusterRemoveRelayBody))
     case ClusterMoveRelay:
         err = clusterController.MoveRelay(body.(ClusterMoveRelayBody))
+    case ClusterSnapshot:
+        // Do nothing
+        err = nil
     default:
         return nil, ENoSuchCommand
     }

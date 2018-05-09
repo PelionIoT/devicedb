@@ -174,6 +174,10 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
         stateCoordinator.ProcessClusterUpdates(deltas)
     })
 
+    node.configController.OnClusterSnapshot(func(snapshotIndex uint64, snapshotId string) {
+        node.localSnapshot(snapshotIndex, snapshotId)
+    })
+
     node.configController.Start()
     defer node.Stop()
 
@@ -911,6 +915,30 @@ func (node *ClusterNode) RelayStatus(relayID string) (RelayStatus, error) {
     return status, nil
 }
 
+func (node *ClusterNode) localSnapshot(snapshotIndex uint64, snapshotId string) error {
+    Log.Infof("Local node (id = %d) taking a snapshot of its storage state for a consistent cluster snapshot (id = %s)", node.ID(), snapshotId)
+
+    snapshotDir := node.snapshotsDirectory
+
+    if snapshotDir == "" {
+        Log.Warningf("Cannot take snapshot because no snapshot directory is configured")
+
+        return ESnapshotsNotEnabled
+    }
+    
+    snapshotDir = path.Join(snapshotDir, fmt.Sprintf("snapshot-%s-%d", snapshotId, node.ID()))
+
+    if err := node.storageDriver.Snapshot(snapshotDir, nil, nil); err != nil {
+        Log.Errorf("Unable to create a snapshot of node storage at %s: %v", snapshotDir, err)
+
+        return err
+    }
+
+    Log.Infof("Local node (id = %d) created a snapshot of its local state (id = %s) at %s", node.ID(), snapshotId, snapshotDir)
+
+    return nil
+}
+
 type ClusterNodeFacade struct {
     node *ClusterNode
 }
@@ -1164,28 +1192,16 @@ func (clusterFacade *ClusterNodeFacade) LocalLogDump() (LogDump, error) {
     return logDump, nil
 }
 
-func (clusterFacade *ClusterNodeFacade) LocalSnapshot() (Snapshot, error) {
-    snapshotDir := clusterFacade.node.snapshotsDirectory
+func (clusterFacade *ClusterNodeFacade) ClusterSnapshot(ctx context.Context) (Snapshot, error) {
+    snapshotId, err := UUID()
 
-    if snapshotDir == "" {
-        Log.Warningf("Cannot take snapshot because no snapshot directory is configured")
-
-        return Snapshot{}, ESnapshotsNotEnabled
-    }
-    
-    snapshotDir = path.Join(snapshotDir, fmt.Sprintf("snapshot-%d-%s", clusterFacade.LocalNodeID(), time.Now().Format(time.RFC3339)))
-
-    Log.Infof("Creating a snapshot of node storage at %s...", snapshotDir)
-
-    if err := clusterFacade.node.storageDriver.Snapshot(snapshotDir); err != nil {
-        Log.Errorf("Unable to create a snapshot of node storage at %s: %v", snapshotDir, err)
-
+    if err != nil {
         return Snapshot{}, err
     }
 
-    Log.Infof("Successfully created a snapshot of node storage at %s", snapshotDir)
+    if err := clusterFacade.node.configController.ClusterCommand(ctx, ClusterSnapshotBody{ UUID: snapshotId }); err != nil {
+        return Snapshot{}, err
+    }
 
-    return Snapshot{
-        Path: snapshotDir,
-    }, nil
+    return Snapshot{UUID: snapshotId}, nil
 }

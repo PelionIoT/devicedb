@@ -17,7 +17,6 @@ type NodeInitializationOptions struct {
     SyncMaxSessions uint
     SyncPathLimit uint32
     SyncPeriod uint
-    Restore bool
     SnapshotDirectory string
 }
 

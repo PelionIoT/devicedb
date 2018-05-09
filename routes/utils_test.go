@@ -240,7 +240,7 @@ func (clusterFacade *MockClusterFacade) LocalLogDump() (LogDump, error) {
     return clusterFacade.defaultLocalLogDumpResponse, clusterFacade.defaultLocalLogDumpError
 }
 
-func (clusterFacade *MockClusterFacade) LocalSnapshot() (Snapshot, error) {
+func (clusterFacade *MockClusterFacade) ClusterSnapshot(ctx context.Context) (Snapshot, error) {
     return clusterFacade.defaultLocalSnapshotResponse, clusterFacade.defaultLocalSnapshotError
 }
 
