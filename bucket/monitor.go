@@ -148,7 +148,9 @@ func (monitor *Monitor) flushUpdates() {
 }
 
 func (monitor *Monitor) sendUpdate(update data.Row) {
-    Log.Debugf("Monitor notifying listeners of update %d to key %s", update.LocalVersion, update.Key)
+    if len(monitor.listeners) > 0 {
+        Log.Debugf("Monitor notifying listeners of update %d to key %s", update.LocalVersion, update.Key)
+    }
     
     for l, _ := range monitor.listeners {
         if l.isListeningFor(update) {
