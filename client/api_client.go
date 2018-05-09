@@ -304,6 +304,16 @@ func (client *APIClient) sendRequestRaw(ctx context.Context, httpVerb string, en
         return nil, err
     }
 
+    if resp.StatusCode != http.StatusOK {
+        errorMessage, err := ioutil.ReadAll(resp.Body)
+        
+        if err != nil {
+            return nil, err
+        }
+       
+        return nil, &ErrorStatusCode{ Message: string(errorMessage), StatusCode: resp.StatusCode }
+    }
+
     return resp.Body, nil
 }
 

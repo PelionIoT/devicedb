@@ -1389,9 +1389,9 @@ func main() {
         written, err := io.Copy(os.Stdout, snapshot)
         snapshot.Close()
 
-        if err == io.EOF {
+        if err == nil || err == io.EOF {
             fmt.Fprintf(os.Stderr, "Downloaded %d bytes successfully\n", written)
-            
+
             os.Exit(0)
         }
 
