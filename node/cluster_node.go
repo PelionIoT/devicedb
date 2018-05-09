@@ -9,7 +9,6 @@ import (
     "io"
     "math/rand"
     "net/http"
-    "path"
     "sync"
     "time"
 
@@ -39,7 +38,10 @@ import (
 const (
     RaftStoreStoragePrefix = iota
     SiteStoreStoragePrefix = iota
+    SnapshotMetadataPrefix = iota
 )
+
+const SnapshotUUIDKey string = "UUID"
 
 const ClusterJoinRetryTimeout = 5
 
@@ -79,6 +81,7 @@ type ClusterNode struct {
     hub *Hub
     noValidate bool
     snapshotsDirectory string
+    snapshotter *Snapshotter
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -156,6 +159,12 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
 
     if err != nil {
         return err
+    }
+
+    node.snapshotter = &Snapshotter{
+        nodeID: nodeID,
+        snapshotsDirectory: node.snapshotsDirectory,
+        storageDriver: node.storageDriver,
     }
 
     Log.Infof("Local node (id = %d) starting up...", nodeID)
@@ -916,27 +925,7 @@ func (node *ClusterNode) RelayStatus(relayID string) (RelayStatus, error) {
 }
 
 func (node *ClusterNode) localSnapshot(snapshotIndex uint64, snapshotId string) error {
-    Log.Infof("Local node (id = %d) taking a snapshot of its storage state for a consistent cluster snapshot (id = %s)", node.ID(), snapshotId)
-
-    snapshotDir := node.snapshotsDirectory
-
-    if snapshotDir == "" {
-        Log.Warningf("Cannot take snapshot because no snapshot directory is configured")
-
-        return ESnapshotsNotEnabled
-    }
-    
-    snapshotDir = path.Join(snapshotDir, fmt.Sprintf("snapshot-%s-%d", snapshotId, node.ID()))
-
-    if err := node.storageDriver.Snapshot(snapshotDir, nil, nil); err != nil {
-        Log.Errorf("Unable to create a snapshot of node storage at %s: %v", snapshotDir, err)
-
-        return err
-    }
-
-    Log.Infof("Local node (id = %d) created a snapshot of its local state (id = %s) at %s", node.ID(), snapshotId, snapshotDir)
-
-    return nil
+    return node.snapshotter.Snapshot(snapshotIndex, snapshotId)
 }
 
 type ClusterNodeFacade struct {
@@ -1204,4 +1193,12 @@ func (clusterFacade *ClusterNodeFacade) ClusterSnapshot(ctx context.Context) (Sn
     }
 
     return Snapshot{UUID: snapshotId}, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) CheckLocalSnapshotStatus(snapshotId string) error {
+    return clusterFacade.node.snapshotter.CheckSnapshotStatus(snapshotId)
+}
+
+func (clusterFacade *ClusterNodeFacade) WriteLocalSnapshot(snapshotId string, w io.Writer) error {
+    return clusterFacade.node.snapshotter.WriteSnapshot(snapshotId, w)
 }

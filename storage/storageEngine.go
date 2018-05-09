@@ -222,6 +222,10 @@ func (psd *PrefixedStorageDriver) Snapshot(snapshotDirectory string, metadataPre
     return psd.storageDriver.Snapshot(snapshotDirectory, metadataPrefix, metadata)
 }
 
+func (psd *PrefixedStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
+    return psd.storageDriver.OpenSnapshot(snapshotDirectory)
+}
+
 func (psd *PrefixedStorageDriver) Restore(storageDriver StorageDriver) error {
     return psd.storageDriver.Restore(storageDriver)
 }
@@ -270,6 +274,7 @@ type StorageDriver interface {
     GetRanges([][2][]byte, int) (StorageIterator, error)
     Batch(*Batch) error
     Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error
+    OpenSnapshot(snapshotDirectory string) (StorageDriver, error)
     Restore(storageDriver StorageDriver) error
 }
 
@@ -705,6 +710,16 @@ func levelCopy(dest *leveldb.DB, src *leveldb.DB) error {
     }
 
     return nil
+}
+
+func (levelDriver *LevelDBStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
+    snapshotDB := NewLevelDBStorageDriver(snapshotDirectory, &opt.Options{ ErrorIfMissing: true, ReadOnly: true })
+
+    if err := snapshotDB.Open(); err != nil {
+        return nil, err
+    }
+
+    return snapshotDB, nil
 }
 
 func (levelDriver *LevelDBStorageDriver) Restore(storageDriver StorageDriver) error {

@@ -5,6 +5,7 @@ import (
     "context"
     "encoding/json"
     "fmt"
+    "io"
     "io/ioutil"
     "net/http"
 
@@ -274,6 +275,36 @@ func (client *APIClient) Snapshot(ctx context.Context) (routes.Snapshot, error) 
     }
 
     return snapshot, nil
+}
+
+func (client *APIClient) DownloadSnapshot(ctx context.Context, uuid string) (io.ReadCloser, error) {
+    url := "/snapshot/" + uuid + ".tar"
+    response, err := client.sendRequestRaw(ctx, "GET", url, nil)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return response, nil
+}
+
+func (client *APIClient) sendRequestRaw(ctx context.Context, httpVerb string, endpointURL string, body []byte) (io.ReadCloser, error) {
+    u := fmt.Sprintf("http://%s%s", client.nextServer(), endpointURL)
+    request, err := http.NewRequest(httpVerb, u, bytes.NewReader(body))
+
+    if err != nil {
+        return nil, err
+    }
+
+    request = request.WithContext(ctx)
+
+    resp, err := client.httpClient.Do(request)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return resp.Body, nil
 }
 
 func (client *APIClient) sendRequest(ctx context.Context, httpVerb string, endpointURL string, body []byte) ([]byte, error) {

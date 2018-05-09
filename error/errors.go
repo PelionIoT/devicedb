@@ -49,6 +49,9 @@ const (
     eNO_SUCH_BUCKET = iota
     eNO_QUORUM = iota
     eOPERATION_LOCKED = iota
+    eSNAPSHOT_IN_PROGRESS = iota
+    eSNAPSHOT_OPEN_FAILED = iota
+    eSNAPSHOT_READ_FAILED = iota
 )
 
 var (
@@ -77,6 +80,9 @@ var (
     EBucketDoesNotExist    = DBerror{ "The site does not contain the specified bucket.", eNO_SUCH_BUCKET }
     ENoQuorum              = DBerror{ "The database operation was not able to achieve participation from the necessary number of replicas.", eNO_QUORUM }
     EOperationLocked       = DBerror{ "The attempted operation is currently locked on the partition that the specified data belongs to.", eOPERATION_LOCKED }
+    ESnapshotInProgress    = DBerror{ "The specified snapshot is still in progress", eSNAPSHOT_IN_PROGRESS }
+    ESnapshotOpenFailed    = DBerror{ "The snapshot could not be opened.", eSNAPSHOT_OPEN_FAILED }
+    ESnapshotReadFailed    = DBerror{ "The snapshot could be opened, but it appears to be incomplete or invalid.", eSNAPSHOT_READ_FAILED }
 )
 
 func DBErrorFromJSON(encodedError []byte) (DBerror, error) {

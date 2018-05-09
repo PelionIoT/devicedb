@@ -3,6 +3,7 @@ package routes_test
 import (
     "context"
     "github.com/gorilla/websocket"
+    "io"
     "net/http"
 
     . "devicedb/bucket"
@@ -242,6 +243,14 @@ func (clusterFacade *MockClusterFacade) LocalLogDump() (LogDump, error) {
 
 func (clusterFacade *MockClusterFacade) ClusterSnapshot(ctx context.Context) (Snapshot, error) {
     return clusterFacade.defaultLocalSnapshotResponse, clusterFacade.defaultLocalSnapshotError
+}
+
+func (clusterFacade *MockClusterFacade) CheckLocalSnapshotStatus(snapshotId string) error {
+    return nil
+}
+
+func (clusterFacade *MockClusterFacade) WriteLocalSnapshot(snapshotId string, w io.Writer) error {
+    return nil
 }
 
 type siblingSetIteratorEntry struct {

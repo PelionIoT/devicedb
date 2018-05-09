@@ -11,6 +11,7 @@ import (
     "time"
     "sync"
     "context"
+    "io"
     "io/ioutil"
     "crypto/tls"
     "crypto/x509"
@@ -282,23 +283,24 @@ var clusterUsage string =
 `Usage: devicedb cluster <cluster_command> <arguments>
 
 Cluster Commands:
-    start         Start a devicedb cloud node
-    remove        Force a node to be removed from the cluster
-    decommission  Migrate data away from a node then remove it from the cluster
-    replace       Replace a dead node with a new node
-    overview      Show an overview of the nodes in the cluster
-    add_site      Add a site to the cluster
-    remove_site   Remove a site from the cluster
-    add_relay     Add a relay to the cluster
-    remove_relay  Remove a relay from the cluster
-    move_relay    Move a relay to a site
-    relay_status  Get the connection and site membership status of a relay
-    get           Get an entry in a site database with a certain key
-    get_matches   Get all entries in a site database whose keys match some prefix
-    put           Put a value in a site database with a certain key
-    delete        Delete an entry in a site database with a certain key
-    log_dump      Print the replicated log state of the specified node
-    snapshot      Tell a node to take a snapshot of its state and record it to its snapshot directory
+    start              Start a devicedb cloud node
+    remove             Force a node to be removed from the cluster
+    decommission       Migrate data away from a node then remove it from the cluster
+    replace            Replace a dead node with a new node
+    overview           Show an overview of the nodes in the cluster
+    add_site           Add a site to the cluster
+    remove_site        Remove a site from the cluster
+    add_relay          Add a relay to the cluster
+    remove_relay       Remove a relay from the cluster
+    move_relay         Move a relay to a site
+    relay_status       Get the connection and site membership status of a relay
+    get                Get an entry in a site database with a certain key
+    get_matches        Get all entries in a site database whose keys match some prefix
+    put                Put a value in a site database with a certain key
+    delete             Delete an entry in a site database with a certain key
+    log_dump           Print the replicated log state of the specified node
+    snapshot           Tell the cluster to create a consistent snapshot
+    download_snapshot  Download a piece of the cluster snapshot from a particular node
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
 `
@@ -362,6 +364,7 @@ func main() {
     clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
     clusterLogDumpCommand := flag.NewFlagSet("log_dump", flag.ExitOnError)
     clusterSnapshotCommand := flag.NewFlagSet("snapshot", flag.ExitOnError)
+    clusterDownloadSnapshotCommand := flag.NewFlagSet("download_snapshot", flag.ExitOnError)
 
     startConfigFile := startCommand.String("conf", "", "The config file for this server")
 
@@ -482,6 +485,10 @@ func main() {
     clusterSnapshotHost := clusterSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member that should take a snapshot.")
     clusterSnapshotPort := clusterSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
 
+    clusterDownloadSnapshotHost := clusterDownloadSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to download a snapshot from.")
+    clusterDownloadSnapshotPort := clusterDownloadSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+    clusterDownloadSnapshotSnapshotId := clusterDownloadSnapshotCommand.String("uuid", "", "The UUID of the snapshot to download")
+
     if len(os.Args) < 2 {
         fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
         fmt.Fprintf(os.Stderr, "%s", usage)
@@ -533,6 +540,8 @@ func main() {
             clusterLogDumpCommand.Parse(os.Args[3:])
         case "snapshot":
             clusterSnapshotCommand.Parse(os.Args[3:])
+        case "download_snapshot":
+            clusterDownloadSnapshotCommand.Parse(os.Args[3:])
         case "help":
             clusterHelpCommand.Parse(os.Args[3:])
         case "-help":
@@ -1359,6 +1368,34 @@ func main() {
         printSnapshot(snapshot)
 
         os.Exit(0)
+    }
+
+    if clusterDownloadSnapshotCommand.Parsed() {
+        if *clusterDownloadSnapshotSnapshotId == "" {
+            fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
+
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterDownloadSnapshotHost, *clusterDownloadSnapshotPort) } })
+        snapshot, err := apiClient.DownloadSnapshot(context.TODO(), *clusterDownloadSnapshotSnapshotId)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to download snapshot: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        written, err := io.Copy(os.Stdout, snapshot)
+        snapshot.Close()
+
+        if err == io.EOF {
+            fmt.Fprintf(os.Stderr, "Downloaded %d bytes successfully\n", written)
+            
+            os.Exit(0)
+        }
+
+        os.Exit(1)
     }
 
     if clusterBenchmarkCommand.Parsed() {
