@@ -72,6 +72,10 @@ func (server *CloudServer) Router() *mux.Router {
     return server.router
 }
 
+func (server *CloudServer) IsHTTPOnly() bool {
+    return server.externalHost == ""
+}
+
 func (server *CloudServer) Start() error {
     server.stop = make(chan int)
 
@@ -102,19 +106,24 @@ func (server *CloudServer) Start() error {
     }
 
     server.listener = listener
-    relayListener, err = tls.Listen("tcp", server.ExternalHost() + ":" + strconv.Itoa(server.ExternalPort()), server.relayTLSConfig)
 
-    if err != nil {
-        Log.Errorf("Error setting up relay listener on port %d: %v", server.ExternalPort(), err.Error())
+    if !server.IsHTTPOnly() {
+        relayListener, err = tls.Listen("tcp", server.ExternalHost() + ":" + strconv.Itoa(server.ExternalPort()), server.relayTLSConfig)
+
+        if err != nil {
+            Log.Errorf("Error setting up relay listener on port %d: %v", server.ExternalPort(), err.Error())
+            
+            server.Stop()
+            
+            return err
+        }
         
-        server.Stop()
-        
-        return err
+        server.relayListener = relayListener
+
+        Log.Infof("Listening external (%s:%d), internal (%s:%d)", server.ExternalHost(), server.ExternalPort(), server.InternalHost(), server.InternalPort())
+    } else {
+        Log.Infof("Listening (HTTP Only) (%s:%d)", server.InternalHost(), server.InternalPort())
     }
-    
-    server.relayListener = relayListener
-
-    Log.Infof("Listening external (%s:%d), internal (%s:%d)", server.ExternalHost(), server.ExternalPort(), server.InternalHost(), server.InternalPort())
 
     var wg sync.WaitGroup
     wg.Add(2)
@@ -125,11 +134,13 @@ func (server *CloudServer) Start() error {
         wg.Done()
     }()
 
-    go func() {
-        err = server.relayHTTPServer.Serve(server.relayListener)
-        server.Stop() // to ensure all other listeners shutdown
-        wg.Done()
-    }()
+    if !server.IsHTTPOnly() {
+        go func() {
+            err = server.relayHTTPServer.Serve(server.relayListener)
+            server.Stop() // to ensure all other listeners shutdown
+            wg.Done()
+        }()
+    }
 
     wg.Wait()
 

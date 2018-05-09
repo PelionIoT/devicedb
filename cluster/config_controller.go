@@ -25,6 +25,7 @@ type ClusterConfigController interface {
     RemoveNode(ctx context.Context, nodeID uint64) error
     ClusterCommand(ctx context.Context, commandBody interface{}) error
     OnLocalUpdates(cb func(deltas []ClusterStateDelta))
+    OnClusterSnapshot(cb func(snapshotIndex uint64, snapshotId string))
     ClusterController() *ClusterController
     Start() error
     Stop()
@@ -52,6 +53,7 @@ type ConfigController struct {
     pendingProposals map[uint64]func()
     proposalsCancelled bool
     onLocalUpdatesCB func([]ClusterStateDelta)
+    onClusterSnapshotCB func(uint64, string)
     // entryLog serves as an
     // easily accsessible record of what happened
     // at this node to bring its state to what it
@@ -248,6 +250,8 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
         command.Type = ClusterRemoveRelay
     case ClusterMoveRelayBody:
         command.Type = ClusterMoveRelay
+    case ClusterSnapshotBody:
+        command.Type = ClusterSnapshot
     default:
         return ENoSuchCommand
     }
@@ -309,6 +313,10 @@ func (cc *ConfigController) ClusterCommand(ctx context.Context, commandBody inte
 
 func (cc *ConfigController) OnLocalUpdates(cb func(deltas []ClusterStateDelta)) {
     cc.onLocalUpdatesCB = cb
+}
+
+func (cc *ConfigController) OnClusterSnapshot(cb func(snapshotIndex uint64, snapshotId string)) {
+    cc.onClusterSnapshotCB = cb
 }
 
 func (cc *ConfigController) Start() error {
@@ -432,6 +440,19 @@ func (cc *ConfigController) Start() error {
                 cc.raftTransport.AddPeer(clusterCommandBody.(ClusterAddNodeBody).NodeConfig.Address)
             case ClusterRemoveNode:
                 cc.raftTransport.RemovePeer(raft.PeerAddress{ NodeID: clusterCommandBody.(ClusterRemoveNodeBody).NodeID })
+            }
+        }
+
+        if clusterCommand.Type == ClusterSnapshot {
+            body, _ := DecodeClusterCommandBody(clusterCommand)
+            snapshotMeta := body.(ClusterSnapshotBody)
+
+            if replayDone {            
+                if cc.onClusterSnapshotCB != nil {
+                    if cc.clusterController.LocalNodeIsInCluster() {
+                        cc.onClusterSnapshotCB(entry.Index, snapshotMeta.UUID)
+                    }
+                }
             }
         }
 

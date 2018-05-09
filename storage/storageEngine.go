@@ -22,6 +22,11 @@ const (
     BACKWARD = iota
 )
 
+var (
+    CopyBatchSize = 1000
+    CopyBatchMaxBytes = 5 * 1024 * 1024 // 5 MB
+)
+
 type Op struct {
     OpType int `json:"type"`
     OpKey []byte `json:"key"`
@@ -73,6 +78,10 @@ type Batch struct {
 
 func NewBatch() *Batch {
     return &Batch{ make(map[string]Op) }
+}
+
+func (batch *Batch) Size() int {
+    return len(batch.BatchOps)
 }
 
 func (batch *Batch) Put(key []byte, value []byte) *Batch {
@@ -209,6 +218,18 @@ func (psd *PrefixedStorageDriver) Batch(batch *Batch) error {
     return psd.storageDriver.Batch(newBatch)
 }
 
+func (psd *PrefixedStorageDriver) Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error {
+    return psd.storageDriver.Snapshot(snapshotDirectory, metadataPrefix, metadata)
+}
+
+func (psd *PrefixedStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
+    return psd.storageDriver.OpenSnapshot(snapshotDirectory)
+}
+
+func (psd *PrefixedStorageDriver) Restore(storageDriver StorageDriver) error {
+    return psd.storageDriver.Restore(storageDriver)
+}
+
 type PrefixedIterator struct {
     prefix []byte
     iterator StorageIterator
@@ -252,6 +273,9 @@ type StorageDriver interface {
     GetRange([]byte, []byte) (StorageIterator, error)
     GetRanges([][2][]byte, int) (StorageIterator, error)
     Batch(*Batch) error
+    Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error
+    OpenSnapshot(snapshotDirectory string) (StorageDriver, error)
+    Restore(storageDriver StorageDriver) error
 }
 
 type LevelDBIterator struct {
@@ -585,4 +609,137 @@ func (levelDriver *LevelDBStorageDriver) Batch(batch *Batch) error {
     }
     
     return levelDriver.db.Write(b, nil)
+}
+
+
+func (levelDriver *LevelDBStorageDriver) Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error {
+    if levelDriver.db == nil {
+        return errors.New("Driver is closed")
+    }
+    
+    snapshotDB, err := leveldb.OpenFile(snapshotDirectory, &opt.Options{ })
+    
+    if err != nil {
+        Log.Errorf("Can't create snapshot because %s could not be opened for writing: %v", snapshotDirectory, err)
+        
+        return err
+    }
+
+    Log.Debugf("Copying database contents to snapshot at %s", snapshotDirectory)
+
+    if err := levelCopy(snapshotDB, levelDriver.db); err != nil {
+        Log.Errorf("Can't create snapshot because there was an error while copying the keys: %v", err)
+
+        return err
+    }
+
+    var metaBatch *leveldb.Batch = &leveldb.Batch{}
+
+    Log.Debugf("Recording snapshot metadata: %v", metadata)
+
+    // Now write the snapshot metadata
+    for metaKey, metaValue := range metadata {
+        var key []byte = make([]byte, len(metadataPrefix) + len([]byte(metaKey)))
+
+        copy(key, metadataPrefix)
+        copy(key[len(metadataPrefix):], []byte(metaKey))
+
+        metaBatch.Put(key, []byte(metaValue))
+    }
+
+    if err := snapshotDB.Write(metaBatch, &opt.WriteOptions{ Sync: true }); err != nil {
+        Log.Errorf("Can't create snapshot because there was a problem recording the snapshot metadata: %v", err)
+
+        return err
+    }
+
+    if err := snapshotDB.Close(); err != nil {
+        Log.Errorf("Can't create snapshot because there was an error while closing the snapshot database at %s: %v", snapshotDirectory, err)
+
+        return err
+    }
+
+    Log.Debugf("Created snapshot at %s", snapshotDirectory)    
+
+    return nil
+}
+
+func levelCopy(dest *leveldb.DB, src *leveldb.DB) error {
+    iter := src.NewIterator(&util.Range{}, &opt.ReadOptions{ DontFillCache: true })
+
+    defer iter.Release()
+
+    var batch *leveldb.Batch = &leveldb.Batch{}
+    var batchSizeBytes int
+    var totalKeys uint64
+
+    for iter.Next() {
+        totalKeys++
+        batch.Put(iter.Key(), iter.Value())
+        batchSizeBytes += len(iter.Key()) + len(iter.Value())
+        
+        if batchSizeBytes >= CopyBatchMaxBytes || batch.Len() >= CopyBatchSize {
+            Log.Debugf("Writing next copy chunk (batch.Len() = %d, batchSizeBytes = %d, totalKeys = %d)", batch.Len(), batchSizeBytes, totalKeys)
+
+            if err := dest.Write(batch, &opt.WriteOptions{ Sync: true }); err != nil {
+                Log.Errorf("Can't create copy because there was a problem writing the next chunk to destination: %v", err)
+
+                return err
+            }
+
+            batchSizeBytes = 0
+            batch.Reset()
+        }
+    }
+
+    if iter.Error() != nil {
+        Log.Errorf("Can't create copy because there was an iterator error: %v", iter.Error())
+
+        return iter.Error()
+    }
+
+    // Write the rest of the records in one last batch
+    if batch.Len() > 0 {
+        Log.Debugf("Writing next copy chunk (batch.Len() = %d, batchSizeBytes = %d, totalKeys = %d)", batch.Len(), batchSizeBytes, totalKeys)
+
+        if err := dest.Write(batch, &opt.WriteOptions{ Sync: true }); err != nil {
+            Log.Errorf("Can't create copy because there was a problem writing the next chunk to destination: %v", err)
+
+            return err
+        }
+    }
+
+    return nil
+}
+
+func (levelDriver *LevelDBStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
+    snapshotDB := NewLevelDBStorageDriver(snapshotDirectory, &opt.Options{ ErrorIfMissing: true, ReadOnly: true })
+
+    if err := snapshotDB.Open(); err != nil {
+        return nil, err
+    }
+
+    return snapshotDB, nil
+}
+
+func (levelDriver *LevelDBStorageDriver) Restore(storageDriver StorageDriver) error {
+    Log.Debugf("Restoring storage state from snapshot...")
+
+    if otherLevelDriver, ok := storageDriver.(*LevelDBStorageDriver); ok {
+        return levelDriver.restoreLevel(otherLevelDriver)
+    }
+
+    return errors.New("Snapshot source format not supported")
+}
+
+func (levelDriver *LevelDBStorageDriver) restoreLevel(otherLevelDriver *LevelDBStorageDriver) error {
+    if err := levelCopy(levelDriver.db, otherLevelDriver.db); err != nil {
+        Log.Errorf("Unable to copy snapshot data to primary node storage: %v", err)
+
+        return err
+    }
+
+    Log.Debugf("Copied snapshot data to node storage successfully")
+
+    return nil
 }

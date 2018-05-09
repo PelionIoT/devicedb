@@ -38,7 +38,10 @@ import (
 const (
     RaftStoreStoragePrefix = iota
     SiteStoreStoragePrefix = iota
+    SnapshotMetadataPrefix = iota
 )
+
+const SnapshotUUIDKey string = "UUID"
 
 const ClusterJoinRetryTimeout = 5
 
@@ -77,6 +80,8 @@ type ClusterNode struct {
     relayConnectionsMu sync.Mutex
     hub *Hub
     noValidate bool
+    snapshotsDirectory string
+    snapshotter *Snapshotter
 }
 
 func New(config ClusterNodeConfig) *ClusterNode {
@@ -144,6 +149,7 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     node.shutdown = make(chan int)
     node.joinedCluster = make(chan int, 1)
     node.leftCluster = make(chan int, 1)
+    node.snapshotsDirectory = options.SnapshotDirectory
 
     if err := node.openStorageDriver(); err != nil {
         return err
@@ -153,6 +159,12 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
 
     if err != nil {
         return err
+    }
+
+    node.snapshotter = &Snapshotter{
+        nodeID: nodeID,
+        snapshotsDirectory: node.snapshotsDirectory,
+        storageDriver: node.storageDriver,
     }
 
     Log.Infof("Local node (id = %d) starting up...", nodeID)
@@ -169,6 +181,10 @@ func (node *ClusterNode) Start(options NodeInitializationOptions) error {
     stateCoordinator := NewClusterNodeStateCoordinator(&NodeCoordinatorFacade{ node: node }, nil)
     node.configController.OnLocalUpdates(func(deltas []ClusterStateDelta) {
         stateCoordinator.ProcessClusterUpdates(deltas)
+    })
+
+    node.configController.OnClusterSnapshot(func(snapshotIndex uint64, snapshotId string) {
+        node.localSnapshot(snapshotIndex, snapshotId)
     })
 
     node.configController.Start()
@@ -320,6 +336,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint := &SitesEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     syncEndpoint := &SyncEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node }, Upgrader: websocket.Upgrader{ ReadBufferSize: 1024, WriteBufferSize: 1024 } }
     logDumEndpoint := &LogDumpEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
+    snapshotEndpoint := &SnapshotEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     profileEndpoint := &ProfilerEndpoint{ }
     merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
 
@@ -331,6 +348,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
     logDumEndpoint.Attach(router)
+    snapshotEndpoint.Attach(router)
     profileEndpoint.Attach(router)
     merkleSyncEndpoint.Attach(router)
 
@@ -906,6 +924,10 @@ func (node *ClusterNode) RelayStatus(relayID string) (RelayStatus, error) {
     return status, nil
 }
 
+func (node *ClusterNode) localSnapshot(snapshotIndex uint64, snapshotId string) error {
+    return node.snapshotter.Snapshot(snapshotIndex, snapshotId)
+}
+
 type ClusterNodeFacade struct {
     node *ClusterNode
 }
@@ -1157,4 +1179,26 @@ func (clusterFacade *ClusterNodeFacade) LocalLogDump() (LogDump, error) {
     }
 
     return logDump, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) ClusterSnapshot(ctx context.Context) (Snapshot, error) {
+    snapshotId, err := UUID()
+
+    if err != nil {
+        return Snapshot{}, err
+    }
+
+    if err := clusterFacade.node.configController.ClusterCommand(ctx, ClusterSnapshotBody{ UUID: snapshotId }); err != nil {
+        return Snapshot{}, err
+    }
+
+    return Snapshot{UUID: snapshotId}, nil
+}
+
+func (clusterFacade *ClusterNodeFacade) CheckLocalSnapshotStatus(snapshotId string) error {
+    return clusterFacade.node.snapshotter.CheckSnapshotStatus(snapshotId)
+}
+
+func (clusterFacade *ClusterNodeFacade) WriteLocalSnapshot(snapshotId string, w io.Writer) error {
+    return clusterFacade.node.snapshotter.WriteSnapshot(snapshotId, w)
 }

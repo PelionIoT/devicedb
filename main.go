@@ -11,6 +11,7 @@ import (
     "time"
     "sync"
     "context"
+    "io"
     "io/ioutil"
     "crypto/tls"
     "crypto/x509"
@@ -282,22 +283,24 @@ var clusterUsage string =
 `Usage: devicedb cluster <cluster_command> <arguments>
 
 Cluster Commands:
-    start         Start a devicedb cloud node
-    remove        Force a node to be removed from the cluster
-    decommission  Migrate data away from a node then remove it from the cluster
-    replace       Replace a dead node with a new node
-    overview      Show an overview of the nodes in the cluster
-    add_site      Add a site to the cluster
-    remove_site   Remove a site from the cluster
-    add_relay     Add a relay to the cluster
-    remove_relay  Remove a relay from the cluster
-    move_relay    Move a relay to a site
-    relay_status  Get the connection and site membership status of a relay
-    get           Get an entry in a site database with a certain key
-    get_matches   Get all entries in a site database whose keys match some prefix
-    put           Put a value in a site database with a certain key
-    delete        Delete an entry in a site database with a certain key
-    log_dump      Print the replicated log state of the specified node
+    start              Start a devicedb cloud node
+    remove             Force a node to be removed from the cluster
+    decommission       Migrate data away from a node then remove it from the cluster
+    replace            Replace a dead node with a new node
+    overview           Show an overview of the nodes in the cluster
+    add_site           Add a site to the cluster
+    remove_site        Remove a site from the cluster
+    add_relay          Add a relay to the cluster
+    remove_relay       Remove a relay from the cluster
+    move_relay         Move a relay to a site
+    relay_status       Get the connection and site membership status of a relay
+    get                Get an entry in a site database with a certain key
+    get_matches        Get all entries in a site database whose keys match some prefix
+    put                Put a value in a site database with a certain key
+    delete             Delete an entry in a site database with a certain key
+    log_dump           Print the replicated log state of the specified node
+    snapshot           Tell the cluster to create a consistent snapshot
+    download_snapshot  Download a piece of the cluster snapshot from a particular node
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
 `
@@ -360,6 +363,8 @@ func main() {
     clusterDeleteCommand := flag.NewFlagSet("delete", flag.ExitOnError)
     clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
     clusterLogDumpCommand := flag.NewFlagSet("log_dump", flag.ExitOnError)
+    clusterSnapshotCommand := flag.NewFlagSet("snapshot", flag.ExitOnError)
+    clusterDownloadSnapshotCommand := flag.NewFlagSet("download_snapshot", flag.ExitOnError)
 
     startConfigFile := startCommand.String("conf", "", "The config file for this server")
 
@@ -380,11 +385,11 @@ func main() {
 
     clusterStartHost := clusterStartCommand.String("host", "localhost", "HTTP The hostname or ip to listen on. This is the advertised host address for this node.")
     clusterStartPort := clusterStartCommand.Uint("port", defaultPort, "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
-    clusterStartRelayHost := clusterStartCommand.String("relay_host", "localhost", "HTTPS The hostname or ip to listen on for incoming relay connections.")
-    clusterStartRelayPort := clusterStartCommand.Uint("relay_port", uint(443), "HTTPS This is the port used for incoming relay connections.")
-    clusterStartTLSCertificate := clusterStartCommand.String("cert", "", "PEM encoded x509 certificate to be used by relay connections. (Required) (Ex: /path/to/certs/cert.pem)")
-    clusterStartTLSKey := clusterStartCommand.String("key", "", "PEM encoded x509 key corresponding to the specified 'cert'. (Required) (Ex: /path/to/certs/key.pem)")
-    clusterStartTLSRelayCA := clusterStartCommand.String("relay_ca", "", "PEM encoded x509 certificate authority used to validate relay client certs for incoming relay connections. (Required) (Ex: /path/to/certs/relays.ca.pem)")
+    clusterStartRelayHost := clusterStartCommand.String("relay_host", "localhost", "HTTPS The hostname or ip to listen on for incoming relay connections. Applies only if TLS is terminated by devicedb itself")
+    clusterStartRelayPort := clusterStartCommand.Uint("relay_port", uint(443), "HTTPS This is the port used for incoming relay connections. Applies only if TLS is terminated by devicedb itself.")
+    clusterStartTLSCertificate := clusterStartCommand.String("cert", "", "PEM encoded x509 certificate to be used by relay connections. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/cert.pem)")
+    clusterStartTLSKey := clusterStartCommand.String("key", "", "PEM encoded x509 key corresponding to the specified 'cert'. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/key.pem)")
+    clusterStartTLSRelayCA := clusterStartCommand.String("relay_ca", "", "PEM encoded x509 certificate authority used to validate relay client certs for incoming relay connections. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/relays.ca.pem)")
     clusterStartPartitions := clusterStartCommand.Uint64("partitions", uint64(cluster.DefaultPartitionCount), "The number of hash space partitions in the cluster. Must be a power of 2. (Only specified when starting a new cluster)")
     clusterStartReplicationFactor := clusterStartCommand.Uint64("replication_factor", uint64(3), "The number of replcas required for every database key. (Only specified when starting a new cluster)")
     clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
@@ -395,7 +400,8 @@ func main() {
     clusterStartSyncPathLimit := clusterStartCommand.Uint("sync_path_limit", 10, "The number of exploration paths to allow in a sync session.")
     clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
     clusterStartLogLevel := clusterStartCommand.String("log_level", "info", "The log level configures how detailed the output produced by devicedb is. Must be one of { critical, error, warning, notice, info, debug }")
-    clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It should only be used for testing.")
+    clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It only applies to TLS enabled servers and should only be used for testing.")
+    clusterStartSnapshotDirectory := clusterStartCommand.String("snapshot_store", "", "To enable snapshots set this to some directory where database snapshots can be stored")
 
     clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
     clusterBenchmarkInternalAddresses := clusterBenchmarkCommand.String("internal_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
@@ -476,6 +482,13 @@ func main() {
     clusterLogDumpHost := clusterLogDumpCommand.String("host", "localhost", "The hostname or ip of some cluster member whose raft state to print.")
     clusterLogDumpPort := clusterLogDumpCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
 
+    clusterSnapshotHost := clusterSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member that should take a snapshot.")
+    clusterSnapshotPort := clusterSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+
+    clusterDownloadSnapshotHost := clusterDownloadSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to download a snapshot from.")
+    clusterDownloadSnapshotPort := clusterDownloadSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+    clusterDownloadSnapshotSnapshotId := clusterDownloadSnapshotCommand.String("uuid", "", "The UUID of the snapshot to download")
+
     if len(os.Args) < 2 {
         fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
         fmt.Fprintf(os.Stderr, "%s", usage)
@@ -525,6 +538,10 @@ func main() {
             clusterDeleteCommand.Parse(os.Args[3:])
         case "log_dump":
             clusterLogDumpCommand.Parse(os.Args[3:])
+        case "snapshot":
+            clusterSnapshotCommand.Parse(os.Args[3:])
+        case "download_snapshot":
+            clusterDownloadSnapshotCommand.Parse(os.Args[3:])
         case "help":
             clusterHelpCommand.Parse(os.Args[3:])
         case "-help":
@@ -765,56 +782,56 @@ func main() {
             os.Exit(1)
         }
 
-        if *clusterStartTLSCertificate == "" {
-            fmt.Fprintf(os.Stderr, "Error: -cert must be specified\n")
-            os.Exit(1)
-        }
+        var certificate []byte
+        var key []byte
+        var rootCAs *x509.CertPool
+        var cert tls.Certificate
+        var httpOnly bool
+        var err error
 
-        if *clusterStartTLSKey == "" {
-            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterStartTLSRelayCA  == "" {
-            fmt.Fprintf(os.Stderr, "Error: -relay_ca must be specified\n")
-            os.Exit(1)
-        }
-
-        certificate, err := ioutil.ReadFile(*clusterStartTLSCertificate)
+        if *clusterStartTLSCertificate == "" && *clusterStartTLSKey == "" && *clusterStartTLSRelayCA == "" {
+            // http only mode
+            httpOnly = true
+        } else if *clusterStartTLSCertificate != "" && *clusterStartTLSKey != "" && *clusterStartTLSRelayCA != "" {
+            // https mode
+            certificate, err = ioutil.ReadFile(*clusterStartTLSCertificate)
         
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Could not the TLS certificate from %s: %v\n", *clusterStartTLSCertificate, err.Error())
-            os.Exit(1)
-        }
+            if err != nil {
+                fmt.Fprintf(os.Stderr, "Error: Could not load the TLS certificate from %s: %v\n", *clusterStartTLSCertificate, err.Error())
+                os.Exit(1)
+            }
 
-        key, err := ioutil.ReadFile(*clusterStartTLSKey)
+            key, err = ioutil.ReadFile(*clusterStartTLSKey)
         
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Could not the TLS key from %s: %v\n", *clusterStartTLSKey, err.Error())
-            os.Exit(1)
-        }
+            if err != nil {
+                fmt.Fprintf(os.Stderr, "Error: Could not load the TLS key from %s: %v\n", *clusterStartTLSKey, err.Error())
+                os.Exit(1)
+            }
 
-        relayCA, err := ioutil.ReadFile(*clusterStartTLSRelayCA)
+            relayCA, err := ioutil.ReadFile(*clusterStartTLSRelayCA)
         
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Could not the TLS Relay CA from %s: %v\n", *clusterStartTLSRelayCA, err.Error())
-            os.Exit(1)
-        }
+            if err != nil {
+                fmt.Fprintf(os.Stderr, "Error: Could not load the TLS Relay CA from %s: %v\n", *clusterStartTLSRelayCA, err.Error())
+                os.Exit(1)
+            }
 
-        cert, err := tls.X509KeyPair([]byte(certificate), []byte(key))
+            cert, err = tls.X509KeyPair([]byte(certificate), []byte(key))
         
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair\n")
+            if err != nil {
+                fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair\n")
+                os.Exit(1)
+            }
+
+            rootCAs = x509.NewCertPool()
+
+            if !rootCAs.AppendCertsFromPEM([]byte(relayCA)) {
+                fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid\n")
+                os.Exit(1)
+            }
+        } else {
+            fmt.Fprintf(os.Stderr, "Error: -cert, -key, and -relay_ca must all be provided if one is provided to enable TLS mode\n")
             os.Exit(1)
         }
-
-        rootCAs := x509.NewCertPool()
-
-        if !rootCAs.AppendCertsFromPEM([]byte(relayCA)) {
-            fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid\n")
-            os.Exit(1)
-        }
-
 
         if *clusterStartMerkleDepth < uint(MerkleMinDepth) || *clusterStartMerkleDepth > uint(MerkleMaxDepth) {
             fmt.Fprintf(os.Stderr, "Error: The specified merkle depth is not valid. It must be between %d and %d inclusive\n", MerkleMinDepth, MerkleMaxDepth)
@@ -853,26 +870,37 @@ func main() {
 
         startOptions.ClusterHost = *clusterStartHost
         startOptions.ClusterPort = int(*clusterStartPort)
-        startOptions.ExternalHost = *clusterStartRelayHost
-        startOptions.ExternalPort = int(*clusterStartRelayPort)
+        
+        if !httpOnly {
+            startOptions.ExternalHost = *clusterStartRelayHost
+            startOptions.ExternalPort = int(*clusterStartRelayPort)
+        }
+
         startOptions.SyncMaxSessions = *clusterStartSyncMaxSessions
         startOptions.SyncPathLimit = uint32(*clusterStartSyncPathLimit)
         startOptions.SyncPeriod = *clusterStartSyncPeriod
+        startOptions.SnapshotDirectory = *clusterStartSnapshotDirectory
         SetLoggingLevel(*clusterStartLogLevel)
 
         cloudNodeStorage := storage.NewLevelDBStorageDriver(*clusterStartStore, nil)
-        cloudServer := NewCloudServer(CloudServerConfig{
+
+        var cloudServerConfig CloudServerConfig = CloudServerConfig{
             InternalHost: *clusterStartHost,
             InternalPort: int(*clusterStartPort),
-            ExternalHost: *clusterStartRelayHost,
-            ExternalPort: int(*clusterStartRelayPort),
             NodeID: 1,
             RelayTLSConfig: &tls.Config{
                 Certificates: []tls.Certificate{ cert },
                 ClientCAs: rootCAs,
                 ClientAuth: tls.RequireAndVerifyClientCert,
             },
-        })
+        }
+
+        if !httpOnly {
+            cloudServerConfig.ExternalHost = *clusterStartRelayHost
+            cloudServerConfig.ExternalPort = int(*clusterStartRelayPort)
+        }
+
+        cloudServer := NewCloudServer(cloudServerConfig)
 
         var capacity uint64 = 1
 
@@ -1327,6 +1355,49 @@ func main() {
         os.Exit(0)
     }
 
+    if clusterSnapshotCommand.Parsed() {
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterSnapshotHost, *clusterSnapshotPort) } })
+        snapshot, err := apiClient.Snapshot(context.TODO())
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to take snapshot: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        printSnapshot(snapshot)
+
+        os.Exit(0)
+    }
+
+    if clusterDownloadSnapshotCommand.Parsed() {
+        if *clusterDownloadSnapshotSnapshotId == "" {
+            fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
+
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterDownloadSnapshotHost, *clusterDownloadSnapshotPort) } })
+        snapshot, err := apiClient.DownloadSnapshot(context.TODO(), *clusterDownloadSnapshotSnapshotId)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to download snapshot: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        written, err := io.Copy(os.Stdout, snapshot)
+        snapshot.Close()
+
+        if err == nil || err == io.EOF {
+            fmt.Fprintf(os.Stderr, "Downloaded %d bytes successfully\n", written)
+
+            os.Exit(0)
+        }
+
+        os.Exit(1)
+    }
+
     if clusterBenchmarkCommand.Parsed() {
         internalAddresses := strings.Split(*clusterBenchmarkInternalAddresses, ",")
         externalAddresses := strings.Split(*clusterBenchmarkExternalAddresses, ",")
@@ -1603,6 +1674,10 @@ func benchmarkHistoryStress(server *Server) error {
     }
 }
 
+func printSnapshot(snapshot routes.Snapshot) {
+    fmt.Fprintf(os.Stderr, "Snapshot request accepted (uuid = %s). Node state snapshots are being created.\n", snapshot.UUID)
+}
+
 func printLogDump(logDump routes.LogDump) {
     fmt.Fprintf(os.Stderr, "Base Snapshot:\n")
     fmt.Fprintf(os.Stderr, "  Index: %d\n", logDump.BaseSnapshot.Index)
@@ -1679,6 +1754,10 @@ func logEntryToString(logEntry routes.LogEntry) string {
             commandType = "MoveRelay"
             moveRelayCommandBody := commandBody.(cluster.ClusterMoveRelayBody)
             commandDetails = fmt.Sprintf("Relay ID: %s, Site ID: %s", moveRelayCommandBody.RelayID, moveRelayCommandBody.SiteID)
+        case cluster.ClusterSnapshot:
+            commandType = "ClusterSnapshot"
+            clusterSnapshotCommandBody := commandBody.(cluster.ClusterSnapshotBody)
+            commandDetails = fmt.Sprintf("UUID: %s", clusterSnapshotCommandBody.UUID)
         }
     } else {
         commandDetails = "<unable to read details>"

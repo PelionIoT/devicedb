@@ -17,6 +17,11 @@ type NodeInitializationOptions struct {
     SyncMaxSessions uint
     SyncPathLimit uint32
     SyncPeriod uint
+    SnapshotDirectory string
+}
+
+func (options NodeInitializationOptions) SnapshotsEnabled() bool {
+    return options.SnapshotDirectory != ""
 }
 
 func (options NodeInitializationOptions) ShouldStartCluster() bool {

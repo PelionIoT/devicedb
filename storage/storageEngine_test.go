@@ -2,6 +2,7 @@ package storage_test
 
 import (
     . "devicedb/storage"
+    . "devicedb/util"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -10,7 +11,7 @@ import (
 )
 
 func newStorageDriver() StorageDriver {
-    return NewLevelDBStorageDriver("/tmp/testdevicedb", nil)
+    return NewLevelDBStorageDriver("/tmp/testdevicedb-"+RandomString(), nil)
 }
 
 var _ = Describe("StorageEngine", func() {
@@ -202,6 +203,77 @@ var _ = Describe("StorageEngine", func() {
             for i := 0; i < keyCount; i += 1 {
                 Expect(storageDriver.Get([][]byte{ []byte(fmt.Sprintf("key%05d", i)) })).Should(Equal([][]byte{ nil }))
             }
+        })
+    })
+
+    Describe("Snapshot", func() {
+        Specify("Should create snapshot", func() {
+            keyCount := 10000
+            storageDriver := newStorageDriver()
+            defer storageDriver.Close()
+            storageDriver.Open()
+            
+            batch := NewBatch()
+            
+            for i := 0; i < keyCount; i += 1 {
+                batch.Put([]byte(fmt.Sprintf("key%05d", i)), []byte(fmt.Sprintf("value%05d", i)))
+            }
+
+            largeValue1 := make([]byte, CopyBatchMaxBytes / 2)
+            largeValue2 := make([]byte, CopyBatchMaxBytes / 2)
+            largeValue3 := make([]byte, CopyBatchMaxBytes / 2)
+
+            batch.Put([]byte("large1"), largeValue1)
+            batch.Put([]byte("large2"), largeValue2)
+            batch.Put([]byte("large3"), largeValue3)
+            
+            Expect(storageDriver.Batch(batch)).Should(Succeed())
+
+            snapshotDirectory := "/tmp/testsnapshot-"+RandomString()
+            snapshotMetaPrefix := []byte("metadata")
+            snapshotMeta := map[string]string{
+                "ID": "AAA",
+            }
+            Expect(storageDriver.Snapshot(snapshotDirectory, snapshotMetaPrefix, snapshotMeta)).Should(Succeed())
+
+            snapshot := NewLevelDBStorageDriver(snapshotDirectory, nil)
+
+            defer snapshot.Close()
+            Expect(snapshot.Open()).Should(Succeed())
+
+            for i := 0; i < keyCount; i += 1 {
+                Expect(snapshot.Get([][]byte{ []byte(fmt.Sprintf("key%05d", i)) })).Should(Equal([][]byte{ []byte(fmt.Sprintf("value%05d", i)) }))
+            }
+
+            Expect(snapshot.Get([][]byte{ []byte("large1"), []byte("large2"), []byte("large3") })).Should(Equal([][]byte{
+                largeValue1,
+                largeValue2,
+                largeValue3,
+            }))
+
+            Expect(snapshot.Get([][]byte{ []byte("metadataID") })).Should(Equal([][]byte{
+                []byte("AAA"),
+            }))
+
+            restore := newStorageDriver()
+            
+            defer restore.Close()
+            Expect(restore.Open()).Should(Succeed())
+            Expect(restore.Restore(snapshot)).Should(Succeed())
+
+            for i := 0; i < keyCount; i += 1 {
+                Expect(restore.Get([][]byte{ []byte(fmt.Sprintf("key%05d", i)) })).Should(Equal([][]byte{ []byte(fmt.Sprintf("value%05d", i)) }))
+            }
+
+            Expect(restore.Get([][]byte{ []byte("large1"), []byte("large2"), []byte("large3") })).Should(Equal([][]byte{
+                largeValue1,
+                largeValue2,
+                largeValue3,
+            }))
+
+            Expect(restore.Get([][]byte{ []byte("metadataID") })).Should(Equal([][]byte{
+                []byte("AAA"),
+            }))
         })
     })
 })

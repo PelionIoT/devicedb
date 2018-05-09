@@ -3,6 +3,7 @@ package routes
 import (
     "context"
     "github.com/gorilla/websocket"
+    "io"
     "net/http"
 
     . "devicedb/bucket"
@@ -39,4 +40,7 @@ type ClusterFacade interface {
     GetRelayStatus(ctx context.Context, relayID string) (RelayStatus, error)
     LocalGetRelayStatus(relayID string) (RelayStatus, error)
     LocalLogDump() (LogDump, error)
+    ClusterSnapshot(ctx context.Context) (Snapshot, error)
+    CheckLocalSnapshotStatus(snapshotId string) error
+    WriteLocalSnapshot(snapshotId string, w io.Writer) error
 }
