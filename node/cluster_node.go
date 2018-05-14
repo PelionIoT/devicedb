@@ -338,6 +338,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     logDumEndpoint := &LogDumpEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     snapshotEndpoint := &SnapshotEndpoint{ ClusterFacade: &ClusterNodeFacade{ node: node } }
     profileEndpoint := &ProfilerEndpoint{ }
+    prometheusEndpoint := &PrometheusEndpoint{ }
     merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
 
     node.raftTransport.Attach(router)
@@ -350,6 +351,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     logDumEndpoint.Attach(router)
     snapshotEndpoint.Attach(router)
     profileEndpoint.Attach(router)
+    prometheusEndpoint.Attach(router)
     merkleSyncEndpoint.Attach(router)
 
     startResult := make(chan error)
