@@ -5,6 +5,8 @@ import (
     "io"
     "io/ioutil"
     "github.com/gorilla/mux"
+    "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
     "net/http"
 
     . "devicedb/bucket"
@@ -14,11 +16,60 @@ import (
     . "devicedb/transport"
 )
 
+var (
+    prometheusRequestDurations = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+        Namespace: "sites",
+        Subsystem: "devicedb",
+        Name: "request_durations_seconds",
+        Help: "The duration of each request",
+        Buckets: []float64{ 0.05, 0.25, 0.45, 0.65, 0.85, 1.05, 1.25, 1.45, 1.65, 1.85, 5, 10 },
+    }, []string{
+        "handler",
+        "code",
+    })
+
+    prometheusRequestCounts = prometheus.NewCounterVec(prometheus.CounterOpts{
+        Namespace: "sites",
+        Subsystem: "devicedb",
+        Name: "request_counts",
+        Help: "The number of requests",
+    }, []string{
+        "handler",
+        "code",
+    })
+)
+
+func init() {
+    prometheus.MustRegister(prometheusRequestDurations, prometheusRequestCounts)
+}
+
 type SitesEndpoint struct {
     ClusterFacade ClusterFacade
 }
 
-func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
+func (sitesEndpoint *SitesEndpoint) Attach(outerRouter *mux.Router) {
+    var router *mux.Router = mux.NewRouter()
+
+    outerRouter.PathPrefix("/sites/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        var routeMatch mux.RouteMatch
+
+        if router.Match(r, &routeMatch) {
+            var labels prometheus.Labels = prometheus.Labels{
+                "handler": routeMatch.Route.GetName(),
+            }
+
+            promhttp.InstrumentHandlerDuration(prometheusRequestDurations.MustCurryWith(labels),
+                promhttp.InstrumentHandlerCounter(prometheusRequestCounts.MustCurryWith(labels), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { 
+                    router.ServeHTTP(w, r)
+                })),
+            )(w, r)
+
+            return
+        }
+
+        router.ServeHTTP(w, r)
+    })
+
     // Add a site
     router.HandleFunc("/sites/{siteID}", func(w http.ResponseWriter, r *http.Request) {
         err := sitesEndpoint.ClusterFacade.AddSite(r.Context(), mux.Vars(r)["siteID"])
@@ -36,7 +87,7 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, "\n")
-    }).Methods("PUT")
+    }).Methods("PUT").Name("add_site")
 
     // Remove a site
     router.HandleFunc("/sites/{siteID}", func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +106,7 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, "\n")
-    }).Methods("DELETE")
+    }).Methods("DELETE").Name("remove_site")
 
     // Submit an update to a bucket
     router.HandleFunc("/sites/{siteID}/buckets/{bucket}/batches", func(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +190,7 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
         io.WriteString(w, string(encodedBatchResult) + "\n")
-    }).Methods("POST")
+    }).Methods("POST").Name("update_bucket")
 
     // Query keys in bucket
     router.HandleFunc("/sites/{siteID}/buckets/{bucket}/keys", func(w http.ResponseWriter, r *http.Request) {
@@ -327,5 +378,5 @@ func (sitesEndpoint *SitesEndpoint) Attach(router *mux.Router) {
 
             return
         }
-    }).Methods("GET")
+    }).Methods("GET").Name("read_bucket")
 }
