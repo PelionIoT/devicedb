@@ -346,13 +346,16 @@ func (node *ClusterNode) startNetworking() <-chan error {
     clusterEndpoint.Attach(router)
     partitionsEndpoint.Attach(router)
     relaysEndpoint.Attach(router)
+    // Note: Need to have merkleSyncEndpoint before sitesEndpoint
+    // since sitesEndpoint sets up a PrefixPath route for /sites/
+    // which is a prefix the merkleSyncEndpoints share.
+    merkleSyncEndpoint.Attach(router)    
     sitesEndpoint.Attach(router)
     syncEndpoint.Attach(router)
     logDumEndpoint.Attach(router)
     snapshotEndpoint.Attach(router)
     profileEndpoint.Attach(router)
     prometheusEndpoint.Attach(router)
-    merkleSyncEndpoint.Attach(router)
 
     startResult := make(chan error)
 
