@@ -2,6 +2,8 @@ package clusterio
 
 import (
     "context"
+    "fmt"
+    "github.com/prometheus/client_golang/prometheus"
     "sync"
     "time"
 
@@ -11,6 +13,34 @@ import (
     . "devicedb/logging"
     . "devicedb/routes"
 )
+
+var (
+    prometheusRequestCounts = prometheus.NewCounterVec(prometheus.CounterOpts{
+        Namespace: "sites",
+        Subsystem: "devicedb_internal",
+        Name: "request_counts",
+        Help: "The number of requests",
+    }, []string{
+        "type",
+        "source_node",
+        "endpoint_node",
+    })
+
+    prometheusRequestFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+        Namespace: "sites",
+        Subsystem: "devicedb_internal",
+        Name: "request_failures",
+        Help: "The number of request failures",
+    }, []string{
+        "type",
+        "source_node",        
+        "endpoint_node",
+    })
+)
+
+func init() {
+    prometheus.MustRegister(prometheusRequestCounts, prometheusRequestFailures)
+}
 
 var DefaultTimeout time.Duration = time.Second * 20
 
@@ -44,6 +74,20 @@ func NewAgent(nodeClient NodeClient, partitionResolver PartitionResolver) *Agent
         NodeClient: nodeClient,
         NodeReadRepairer: readRepairer,
         operationCancellers: make(map[uint64]func(), 0),
+    }
+}
+
+func (agent *Agent) recordRequestMetrics(requestType string, destinationNode uint64, failed bool) {
+    var labels = prometheus.Labels{
+        "type": requestType,
+        "source_node": fmt.Sprintf("%d", agent.NodeClient.LocalNodeID()),
+        "endpoint_node": fmt.Sprintf("%d", destinationNode),
+    }
+
+    prometheusRequestCounts.With(labels).Inc()
+
+    if failed {
+        prometheusRequestFailures.With(labels).Inc()
     }
 }
 
@@ -94,6 +138,8 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
 
         delete(remainingNodes, nodeID)
 
+        agent.recordRequestMetrics("batch", nodeID, err != nil)
+
         if err != nil {
             Log.Errorf("Unable to execute batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
@@ -120,6 +166,8 @@ func (agent *Agent) Batch(ctx context.Context, siteID string, bucket string, upd
         patch, err := agent.NodeClient.Batch(ctxDeadline, nodeID, partitionNumber, siteID, bucket, updateBatch)
 
         delete(remainingNodes, nodeID)
+
+        agent.recordRequestMetrics("batch", nodeID, err != nil)
 
         if err != nil {
             Log.Errorf("Unable to execute batch update to bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
@@ -158,6 +206,8 @@ func (agent *Agent) merge(ctx context.Context, opID uint64, nodes map[uint64]boo
     for nodeID, _ := range nodes {
         go func(nodeID uint64) {
             err := agent.NodeClient.Merge(ctx, nodeID, partitionNumber, siteID, bucket, patch, broadcastToRelays)
+
+            agent.recordRequestMetrics("merge", nodeID, err != nil)
 
             if err != nil {
                 Log.Errorf("Unable to merge patch into bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
@@ -247,6 +297,8 @@ func (agent *Agent) Get(ctx context.Context, siteID string, bucket string, keys 
         go func(nodeID uint64) {
             siblingSets, err := agent.NodeClient.Get(ctxDeadline, nodeID, partitionNumber, siteID, bucket, keys)
 
+            agent.recordRequestMetrics("get", nodeID, err != nil)
+
             if err != nil {
                 Log.Errorf("Unable to get keys from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
@@ -329,6 +381,8 @@ func (agent *Agent) GetMatches(ctx context.Context, siteID string, bucket string
         go func(nodeID uint64) {
             ssIterator, err := agent.NodeClient.GetMatches(ctxDeadline, nodeID, partitionNumber, siteID, bucket, keys)
 
+            agent.recordRequestMetrics("get_matches", nodeID, err != nil)
+
             if err != nil {
                 Log.Errorf("Unable to get matches from bucket %s at site %s at node %d: %v", bucket, siteID, nodeID, err.Error())
 
@@ -407,6 +461,8 @@ func (agent *Agent) RelayStatus(ctx context.Context, siteID string, relayID stri
 
         go func(nodeID uint64) {
             relayStatus, err := agent.NodeClient.RelayStatus(ctxDeadline, nodeID, siteID, relayID)
+
+            agent.recordRequestMetrics("relay_status", nodeID, err != nil)
 
             if err != nil {
                 Log.Errorf("Unable to get relay status for relay %s at node %d: %v", relayID, nodeID, err.Error())
