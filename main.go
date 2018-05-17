@@ -300,6 +300,7 @@ Cluster Commands:
     delete             Delete an entry in a site database with a certain key
     log_dump           Print the replicated log state of the specified node
     snapshot           Tell the cluster to create a consistent snapshot
+    get_snapshot       Check if snapshot has been completed at a particular node
     download_snapshot  Download a piece of the cluster snapshot from a particular node
     
 Use devicedb cluster help <cluster_command> for more usage information about a cluster command.
@@ -364,6 +365,7 @@ func main() {
     clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
     clusterLogDumpCommand := flag.NewFlagSet("log_dump", flag.ExitOnError)
     clusterSnapshotCommand := flag.NewFlagSet("snapshot", flag.ExitOnError)
+    clusterGetSnapshotCommand := flag.NewFlagSet("get_snapshot", flag.ExitOnError)
     clusterDownloadSnapshotCommand := flag.NewFlagSet("download_snapshot", flag.ExitOnError)
 
     startConfigFile := startCommand.String("conf", "", "The config file for this server")
@@ -485,6 +487,10 @@ func main() {
     clusterSnapshotHost := clusterSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member that should take a snapshot.")
     clusterSnapshotPort := clusterSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
 
+    clusterGetSnapshotHost := clusterGetSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to get a snapshot from.")
+    clusterGetSnapshotPort := clusterGetSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+    clusterGetSnapshotSnapshotId := clusterGetSnapshotCommand.String("uuid", "", "The UUID of the snapshot to check for")
+
     clusterDownloadSnapshotHost := clusterDownloadSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to download a snapshot from.")
     clusterDownloadSnapshotPort := clusterDownloadSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
     clusterDownloadSnapshotSnapshotId := clusterDownloadSnapshotCommand.String("uuid", "", "The UUID of the snapshot to download")
@@ -540,6 +546,8 @@ func main() {
             clusterLogDumpCommand.Parse(os.Args[3:])
         case "snapshot":
             clusterSnapshotCommand.Parse(os.Args[3:])
+        case "get_snapshot":
+            clusterGetSnapshotCommand.Parse(os.Args[3:])            
         case "download_snapshot":
             clusterDownloadSnapshotCommand.Parse(os.Args[3:])
         case "help":
@@ -1370,6 +1378,27 @@ func main() {
         os.Exit(0)
     }
 
+    if clusterGetSnapshotCommand.Parsed() {
+        if *clusterGetSnapshotSnapshotId == "" {
+            fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
+
+            os.Exit(1)
+        }
+
+        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterGetSnapshotHost, *clusterGetSnapshotPort) } })
+        snapshot, err := apiClient.GetSnapshot(context.TODO(), *clusterGetSnapshotSnapshotId)
+
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error: Unable to get snapshot status: %v\n", err.Error())
+
+            os.Exit(1)
+        }
+
+        printSnapshot(snapshot)
+
+        os.Exit(0)
+    }
+
     if clusterDownloadSnapshotCommand.Parsed() {
         if *clusterDownloadSnapshotSnapshotId == "" {
             fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
@@ -1675,7 +1704,7 @@ func benchmarkHistoryStress(server *Server) error {
 }
 
 func printSnapshot(snapshot routes.Snapshot) {
-    fmt.Fprintf(os.Stderr, "Snapshot request accepted (uuid = %s). Node state snapshots are being created.\n", snapshot.UUID)
+    fmt.Fprintf(os.Stderr, "uuid = %s\nstatus = %s\n", snapshot.UUID, snapshot.Status)
 }
 
 func printLogDump(logDump routes.LogDump) {

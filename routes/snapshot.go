@@ -26,8 +26,10 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
             io.WriteString(w, err.Error())
             
             return
-        }
+		}
 
+		snapshot.Status = SnapshotProcessing
+		
         encodedSnapshot, err := json.Marshal(snapshot)
 
         if err != nil {
@@ -42,9 +44,10 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
 
         w.Header().Set("Content-Type", "application/json; charset=utf8")
         w.WriteHeader(http.StatusOK)
-        io.WriteString(w, string(encodedSnapshot) + "\n")
+        io.WriteString(w, string(encodedSnapshot))
 	}).Methods("POST")
 	
+	// This endpoint definition must come before the one for /snapshot/{snapshotId}.tar or it will be overridden
 	router.HandleFunc("/snapshot/{snapshotId}.tar", func(w http.ResponseWriter, r *http.Request) {
 		var snapshotId string = mux.Vars(r)["snapshotId"]
 
@@ -55,7 +58,7 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
 			
 			w.Header().Set("Content-Type", "application/json; charset=utf8")
 			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, string(ESnapshotInProgress.JSON()) + "\n")
+			io.WriteString(w, string(ESnapshotInProgress.JSON()))
 
 			return
 		} else if err == ESnapshotOpenFailed {
@@ -63,7 +66,7 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
 			
 			w.Header().Set("Content-Type", "application/json; charset=utf8")
 			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, string(ESnapshotOpenFailed.JSON()) + "\n")
+			io.WriteString(w, string(ESnapshotOpenFailed.JSON()))
 
 			return
 		} else if err == ESnapshotReadFailed {
@@ -71,7 +74,7 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
 			
 			w.Header().Set("Content-Type", "application/json; charset=utf8")
 			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, string(ESnapshotReadFailed.JSON()) + "\n")
+			io.WriteString(w, string(ESnapshotReadFailed.JSON()))
 
 			return
 		} else if err != nil {
@@ -79,7 +82,7 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
 			
 			w.Header().Set("Content-Type", "application/json; charset=utf8")
 			w.WriteHeader(http.StatusInternalServerError)
-			io.WriteString(w, string(EStorage.JSON()) + "\n")
+			io.WriteString(w, string(EStorage.JSON()))
 
 			return
 		}
@@ -91,5 +94,46 @@ func (snapshotEndpoint *SnapshotEndpoint) Attach(router *mux.Router) {
 		if err != nil {
 			Log.Errorf("GET /snapshot/{snapshotId}: %v", err)
 		}
+	}).Methods("GET")
+
+	router.HandleFunc("/snapshot/{snapshotId}", func(w http.ResponseWriter, r *http.Request) {
+		var snapshotId string = mux.Vars(r)["snapshotId"]
+		var snapshot Snapshot = Snapshot{ UUID: snapshotId }
+		
+		err := snapshotEndpoint.ClusterFacade.CheckLocalSnapshotStatus(snapshotId)		
+
+		if err == ESnapshotInProgress {
+			snapshot.Status = SnapshotProcessing
+		} else if err == ESnapshotOpenFailed {
+			snapshot.Status = SnapshotMissing
+		} else if err == ESnapshotReadFailed {
+			snapshot.Status = SnapshotFailed
+		} else if err != nil {
+            Log.Warningf("GET /snapshot/{snapshotId}: %v", err)
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, err.Error())
+            
+            return
+        } else {
+			snapshot.Status = SnapshotComplete
+		}
+
+        encodedSnapshot, err := json.Marshal(snapshot)
+
+        if err != nil {
+            Log.Warningf("GET /snapshot/{snapshotId}: %v", err)
+
+            w.Header().Set("Content-Type", "application/json; charset=utf8")
+            w.WriteHeader(http.StatusInternalServerError)
+            io.WriteString(w, "\n")
+            
+            return
+        }
+
+        w.Header().Set("Content-Type", "application/json; charset=utf8")
+        w.WriteHeader(http.StatusOK)
+        io.WriteString(w, string(encodedSnapshot))
 	}).Methods("GET")
 }

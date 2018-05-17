@@ -277,6 +277,23 @@ func (client *APIClient) Snapshot(ctx context.Context) (routes.Snapshot, error) 
     return snapshot, nil
 }
 
+func (client *APIClient) GetSnapshot(ctx context.Context, uuid string) (routes.Snapshot, error) {
+    url := "/snapshot/" + uuid
+    response, err := client.sendRequest(ctx, "GET", url, nil)
+
+    if err != nil {
+        return routes.Snapshot{}, err
+    }
+
+    var snapshot routes.Snapshot
+
+    if err := json.Unmarshal(response, &snapshot); err != nil {
+        return routes.Snapshot{}, err
+    }
+
+    return snapshot, nil
+}
+
 func (client *APIClient) DownloadSnapshot(ctx context.Context, uuid string) (io.ReadCloser, error) {
     url := "/snapshot/" + uuid + ".tar"
     response, err := client.sendRequestRaw(ctx, "GET", url, nil)
