@@ -1,4 +1,4 @@
-Make sure you are familiar with cluster scaling and managment as described [here](/scaling.md)
+Make sure you are familiar with cluster scaling and managment as described [here](/docs/scaling.md)
 
 # Backup
 To enable snapshots you must start each cluster node with the -snapshot_store option. Ensure that the snapshots store directory exists since it will not be automatically created.

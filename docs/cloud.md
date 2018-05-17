@@ -1,7 +1,7 @@
-**[Cluster Management](/scaling.md)**
+**[Cluster Management](/docs/scaling.md)**
 
-**[Site and Relay Management](/sites_and_relays.md)**
+**[Site and Relay Management](/docs/sites_and_relays.md)**
 
-**[Monitoring](/prometheus.md)**
+**[Monitoring](/docs/prometheus.md)**
 
-**[Disaster Recovery](/disaster_recovery.md)**
+**[Disaster Recovery](/docs/disaster_recovery.md)**
