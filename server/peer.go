@@ -2,6 +2,7 @@ package server
 
 import (
     "github.com/gorilla/websocket"
+    "github.com/prometheus/client_golang/prometheus"
     "sync"
     "errors"
     "time"
@@ -34,6 +35,19 @@ const WRITE_WAIT_SECONDS = 10
 const PONG_WAIT_SECONDS = 60
 const PING_PERIOD_SECONDS = 40
 const CLOUD_PEER_ID = "cloud"
+
+var (
+    prometheusRelayConnectionsGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+        Namespace: "relays",
+        Subsystem: "devicedb_internal",
+        Name: "connections",
+        Help: "The number of current relay connections",
+    })
+)
+
+func init() {
+    prometheus.MustRegister(prometheusRelayConnectionsGauge)
+}
 
 func randomID() string {
     randomBytes := make([]byte, 16)
@@ -1175,6 +1189,7 @@ func NewSyncController(maxSyncSessions uint, bucketProxyFactory ddbSync.BucketPr
 }
 
 func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) error {
+    prometheusRelayConnectionsGauge.Inc()
     s.mapMutex.Lock()
     defer s.mapMutex.Unlock()
     
@@ -1200,6 +1215,7 @@ func (s *SyncController) addPeer(peerID string, w chan *SyncMessageWrapper) erro
 }
 
 func (s *SyncController) removePeer(peerID string) {
+    prometheusRelayConnectionsGauge.Dec()
     s.mapMutex.Lock()
     
     if _, ok := s.peers[peerID]; !ok {
