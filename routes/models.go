@@ -8,6 +8,13 @@ import (
     . "devicedb/transport"
 )
 
+const (
+    SnapshotProcessing string = "processing"
+    SnapshotFailed string = "failed"
+    SnapshotComplete string = "completed"
+    SnapshotMissing string = "missing"
+)
+
 type RelayStatus struct {
     Connected bool
     ConnectedTo uint64
@@ -80,4 +87,5 @@ type LogDump struct {
 
 type Snapshot struct {
     UUID string `json:"uuid"`
+    Status string `json:"status"`
 }
