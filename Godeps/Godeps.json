@@ -8,7 +8,7 @@
 	"Deps": [
 		{
 			"ImportPath": "github.com/WigWagCo/wigwag-go-logger/logging",
-			"Rev": "dcc1fb93984672c9fd6d52743e7f7ac73aec55c3"
+			"Rev": "c490edf07961ded7457e7a0f56c4918ce418c658"
 		},
 		{
 			"ImportPath": "github.com/beorn7/perks/quantile",
@@ -410,6 +410,10 @@
 		{
 			"ImportPath": "gopkg.in/yaml.v2",
 			"Rev": "e4d366fc3c7938e2958e662b4258c7a89e1f0e3e"
+		},
+		{
+			"ImportPath": "github.com/WigWagCo/wigwag-go-logger/vendor/github.com/op/go-logging",
+			"Rev": "c490edf07961ded7457e7a0f56c4918ce418c658"
 		}
 	]
 }
