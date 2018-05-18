@@ -58,7 +58,7 @@ func init() {
     
     logging.SetBackend(loggingBackend)
     
-	go watchLoggingEnvVariable()    
+	go watchLoggingConfig()
 }
 
 func LogLevelIsValid(ll string) bool {
