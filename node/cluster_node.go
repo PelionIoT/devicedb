@@ -340,6 +340,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     profileEndpoint := &ProfilerEndpoint{ }
     prometheusEndpoint := &PrometheusEndpoint{ }
     merkleSyncEndpoint := &ddbSync.BucketSyncHTTP{ PartitionPool: node.partitionPool, ClusterConfigController: node.configController }
+    kubernetesEndpoint := &KubernetesEndpoint{ }
 
     node.raftTransport.Attach(router)
     node.transferAgent.(*HTTPTransferAgent).Attach(router)
@@ -356,6 +357,7 @@ func (node *ClusterNode) startNetworking() <-chan error {
     snapshotEndpoint.Attach(router)
     profileEndpoint.Attach(router)
     prometheusEndpoint.Attach(router)
+    kubernetesEndpoint.Attach(router)
 
     startResult := make(chan error)
 
