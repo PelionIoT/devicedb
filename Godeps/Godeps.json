@@ -7,6 +7,10 @@
 	],
 	"Deps": [
 		{
+			"ImportPath": "github.com/WigWagCo/wigwag-go-logger/logging",
+			"Rev": "dcc1fb93984672c9fd6d52743e7f7ac73aec55c3"
+		},
+		{
 			"ImportPath": "github.com/beorn7/perks/quantile",
 			"Rev": "3a771d992973f24aa725d07868b467d1ddfceafb"
 		},
