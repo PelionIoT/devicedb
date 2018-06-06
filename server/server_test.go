@@ -331,7 +331,7 @@ var _ = Describe("Server", func() {
                 transportUpdateBatch.FromUpdateBatch(updateBatch)
               
                 // This connects to nothing so it will fail and keep re-trying
-                Expect(hub.ConnectCloud("", "localhost", 34343, "", "http://localhost:54545", "localhost", 54545, true)).Should(Not(HaveOccurred()))
+                Expect(hub.ConnectCloud("", "localhost", 34343, "", "http://localhost:54545", "", "http://localhost:32232", true)).Should(Not(HaveOccurred()))
 
                 <-time.After(time.Second)
 

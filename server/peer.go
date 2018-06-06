@@ -20,6 +20,7 @@ import (
     . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/historian"
+    . "devicedb/alerts"
     . "devicedb/logging"
     ddbSync "devicedb/sync"
 )
@@ -79,12 +80,12 @@ type Peer struct {
     host string
     port int
     historyURI string
-    alertHost string
-    alertPort int
+    alertsURI string
     partitionNumber uint64
     siteID string
     httpClient *http.Client
     httpHistoryClient *http.Client
+    httpAlertsClient *http.Client
     identityHeader string
 }
 
@@ -383,9 +384,8 @@ func (peer *Peer) toJSON(peerID string) *PeerJSON {
     }
 }
 
-func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName string, historyURI string, alertHost string, alertPort int, noValidate bool) {
-    peer.alertHost = alertHost
-    peer.alertPort = alertPort
+func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName string, historyURI string, alertsServerName string, alertsURI string, noValidate bool) {
+    peer.alertsURI = alertsURI
     peer.historyURI = historyURI
    
     tlsConfig := *tlsBaseConfig
@@ -394,37 +394,13 @@ func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName 
     tlsConfig.RootCAs = nil // ensures that this uses the default root CAs
     
     peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
-}
 
-func (peer *Peer) getLatestAlertSerial(hubID string) (uint64, error) {
-    if peer.id != CLOUD_PEER_ID {
-        return 0, errors.New("This peer is not the cloud peer")
-    }
-    
-    resp, err := peer.httpHistoryClient.Get(fmt.Sprintf("https://%s:%d/abc/alerts/%s/latestSerial", peer.alertHost, peer.alertPort, hubID))
-    
-    if err != nil {
-        return 0, err
-    }
-    
-    defer resp.Body.Close()
-    responseBody, err := ioutil.ReadAll(resp.Body)
-        
-    if err != nil {
-        return 0, err
-    }
-    
-    if resp.StatusCode != http.StatusOK {
-        return 0, errors.New(fmt.Sprintf("Received error code from server: (%d) %s", resp.StatusCode, string(responseBody)))
-    }
-    
-    latestSerial, err := strconv.ParseUint(string(responseBody), 10, 64)
-    
-    if err != nil {
-        return 0, err
-    }
-    
-    return latestSerial, nil
+    tlsConfig = *tlsBaseConfig
+    tlsConfig.InsecureSkipVerify = noValidate
+    tlsConfig.ServerName = alertsServerName
+    tlsConfig.RootCAs = nil
+
+    peer.httpAlertsClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
 }
 
 func (peer *Peer) pushEvents(events []*Event) error {
@@ -459,10 +435,15 @@ func (peer *Peer) pushEvents(events []*Event) error {
     return nil
 }
 
-func (peer *Peer) pushAlert(hubID string, event *Event) error {
-    // try to forward event to the cloud if failed or error response then return
-    eventJSON, _ := json.Marshal(event)
-    request, err := http.NewRequest("PUT", fmt.Sprintf("https://%s:%d/abc/alerts/%s/%s/%s", peer.alertHost, peer.alertPort, hubID, event.SourceID, event.Type), bytes.NewReader(eventJSON))
+func (peer *Peer) pushAlerts(alerts map[string]Alert) error {
+    var alertsList []Alert = make([]Alert, len(alerts))
+
+    for _, alert := range alerts {
+        alertsList = append(alertsList, alert)
+    }
+
+    alertsJSON, _ := json.Marshal(alertsList)
+    request, err := http.NewRequest("POST", peer.alertsURI, bytes.NewReader(alertsJSON))
     
     if err != nil {
         return err
@@ -531,11 +512,12 @@ type Hub struct {
     forwardEvents chan int
     forwardAlerts chan int
     historian *Historian
-    alertsLog *Historian
+    alertsMap *AlertMap
     purgeOnForward bool
     forwardBatchSize uint64
     forwardThreshold uint64
     forwardInterval uint64
+    alertsForwardInterval uint64
 }
 
 func NewHub(id string, syncController *SyncController, tlsConfig *tls.Config) *Hub {
@@ -635,7 +617,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
     return nil
 }
 
-func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerName, historyURI string, alertHost string, alertPort int, noValidate bool) error {
+func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerName, historyURI, alertsServerName, alertsURI string, noValidate bool) error {
     if noValidate {
         Log.Warningf("The cloud.noValidate option is set to true. The cloud server's certificate chain and identity will not be verified. !!! THIS OPTION SHOULD NOT BE SET TO TRUE IN PRODUCTION !!!")
     }
@@ -656,7 +638,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerNam
     
         for {
             // connect will return an error once the peer is disconnected for good
-            peer.useHistoryServer(hub.tlsConfig, historyServerName, historyURI, alertHost, alertPort, noValidate)
+            peer.useHistoryServer(hub.tlsConfig, historyServerName, historyURI, alertsServerName, alertsURI, noValidate)
             peer.identityHeader = hub.id
             incoming, outgoing, err := peer.connect(dialer, host, port)
             
@@ -987,18 +969,22 @@ func (hub *Hub) StartForwardingEvents() {
 }
 
 func (hub *Hub) ForwardAlerts() {
-    select {
-    case hub.forwardAlerts <- 1:
-    default:
-    }
+    // select {
+    // case hub.forwardAlerts <- 1:
+    // default:
+    // }
 }
 
 func (hub *Hub) StartForwardingAlerts() {
     go func() {
         for {
-            <-hub.forwardAlerts
+            select {
+            case <-hub.forwardAlerts:
+            case <-time.After(time.Millisecond * time.Duration(hub.alertsForwardInterval)):
+            }
+
             Log.Info("Begin alert forwarding to the cloud")
-            
+
             var cloudPeer *Peer
             
             hub.peerMapLock.Lock()
@@ -1011,70 +997,26 @@ func (hub *Hub) StartForwardingAlerts() {
                 continue
             }
             
-            cloudSerial, err := cloudPeer.getLatestAlertSerial(hub.id)
-            
+            alerts, err := hub.alertsMap.GetAlerts()
+
             if err != nil {
-                Log.Warningf("Unable to get the latest alert serial from the cloud. Event forwarding will resume later: %v", err)
-                
+                Log.Criticalf("Unable to query alerts map: %v. No more alerts will be forwarded to the cloud", err)
+
+                return
+            }
+
+            if err := cloudPeer.pushAlerts(alerts); err != nil {
+                Log.Warningf("Unable to push alerts to the cloud: %v. Alert forwarding process will resume later.", err)
+
                 continue
             }
-        
-            if cloudSerial > hub.alertsLog.LogSerial() - 1 {
-                Log.Warningf("The last event that the cloud received from this peer had a serial number greater than any event this node has stored in its history. This may indicate that the data store at this node was wiped since last connecting to the cloud. Skipping event serial number to %d", cloudSerial)
-                
-                err := hub.alertsLog.SetLogSerial(cloudSerial)
-                
-                if err != nil {
-                    Log.Errorf("Unable to skip alert log serial number ahead from %d to %d: %v. No new alerts will be forwarded to the cloud.", hub.alertsLog.LogSerial() - 1, cloudSerial, err)
-                    
-                    return
-                }
+
+            if err := hub.alertsMap.ClearAlerts(alerts); err != nil {
+                Log.Criticalf("Unable to clear alerts from the alert store after forwarding: %v. No more alerts will be forwarded to the cloud", err)
+
+                return
             }
-            
-            for cloudSerial < hub.alertsLog.LogSerial() - 1 {
-                minSerial := cloudSerial + 1
-                alertIterator, err := hub.alertsLog.Query(&HistoryQuery{ MinSerial: &minSerial, Limit: 1 })
-                
-                if err != nil {
-                    Log.Errorf("Unable to query alert history: %v. No more alerts will be forwarded to the cloud", err)
-                    
-                    return
-                }
-                
-                if alertIterator.Next() {
-                    err := cloudPeer.pushAlert(hub.id, alertIterator.Event())
-                    
-                    if err != nil {
-                        Log.Warningf("Unable to push alert %d to the cloud: %v. Alert forwarding process will resume later.", alertIterator.Event().Serial, err)
-                        
-                        break
-                    }
-                    
-                    if hub.purgeOnForward {
-                        maxSerial := alertIterator.Event().Serial + 1
-                        err = hub.alertsLog.Purge(&HistoryQuery{ MaxSerial: &maxSerial })
-                        
-                        if err != nil {
-                            Log.Warningf("Unable to purge alerts after push: %v")
-                        }
-                    }
-                }
-                
-                if alertIterator.Error() != nil {
-                    Log.Errorf("Unable to query alert history. Alert iterator error: %v. No more alerts will be forwarded to the cloud.", alertIterator.Error())
-                    
-                    return
-                }
-                
-                cloudSerial, err = cloudPeer.getLatestAlertSerial(hub.id)
-                
-                if err != nil {
-                    Log.Warningf("Unable to get the latest alert serial from the cloud. Alert forwarding will resume later: %v", err)
-                    
-                    break
-                }
-            }
-            
+
             Log.Info("Alert forwarding complete. Sleeping...")
         }
     }()

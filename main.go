@@ -98,6 +98,11 @@ gcInterval: 300000
 # keys that will no longer be used. This field is also in milliseconds
 gcPurgeAge: 600000
 
+# This field can be used to specify how this node handles alert forwarding.
+# alerts:
+#    # How often in milliseconds the latest alerts are forwarded to the cloud
+#    forwardInterval: 60000
+#
 # This field can be used to specify how this node handles time-series data.
 # These settings adjust how and when historical data is purged from the
 # history. If this field is not specified then default values are used.
@@ -236,8 +241,8 @@ logLevel: info
 #     historyID: *.wigwag.com
 #     # The URI of the history service that collects history logs
 #     historyURI: https://history.wigwag.com/history
-#     alertHost: alerts.wigwag.com
-#     alertPort: 443
+#     alertsID: *.wigwag.com
+#     alertsURI: https://alerts.wigwag.com/alerts
 
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate

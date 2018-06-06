@@ -8,6 +8,8 @@ gcPurgeAge: 600000
 merkleDepth: 19
 logLevel: debug
 peers:
+alerts:
+    forwardInterval: 1000
 history:
     forwardInterval: 1000
 tls:

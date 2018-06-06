@@ -24,6 +24,7 @@ import (
     . "devicedb/shared"
     . "devicedb/storage"
     . "devicedb/historian"
+    . "devicedb/alerts"
     . "devicedb/error"
     . "devicedb/logging"
     ddbSync "devicedb/sync"
@@ -37,7 +38,7 @@ const (
     lwwNodePrefix = iota
     localNodePrefix = iota
     historianPrefix = iota
-    alertsLogPrefix = iota
+    alertsMapPrefix = iota
 )
 
 type peerAddress struct {
@@ -54,6 +55,11 @@ type cloudAddress struct {
     URI string `json:"uri"`
 }
 
+type AlertEventData struct {
+    Metadata interface{} `json:"metadata"`
+    Status bool `json:"status"`
+}
+
 type ServerConfig struct {
     DBFile string
     Port int
@@ -67,6 +73,7 @@ type ServerConfig struct {
     GCPurgeAge uint64
     Cloud *cloudAddress
     History *cloudAddress
+    Alerts *cloudAddress
     HistoryPurgeOnForward bool
     HistoryEventLimit uint64
     HistoryEventFloor uint64
@@ -74,6 +81,7 @@ type ServerConfig struct {
     HistoryForwardBatchSize uint64
     HistoryForwardInterval uint64
     HistoryForwardThreshold uint64
+    AlertsForwardInterval uint64
     SyncExplorationPathLimit uint32
 }
 
@@ -137,9 +145,13 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         sc.History = &cloudAddress{
             ID: ysc.Cloud.HistoryID,
             NoValidate: ysc.Cloud.NoValidate,
-            Host: ysc.Cloud.AlertHost,
-            Port: ysc.Cloud.AlertPort,
             URI: ysc.Cloud.HistoryURI,
+        }
+
+        sc.Alerts = &cloudAddress{
+            ID: ysc.Cloud.AlertsID,
+            NoValidate: ysc.Cloud.NoValidate,
+            URI: ysc.Cloud.AlertsURI,
         }
     }
     
@@ -150,6 +162,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.HistoryForwardBatchSize = ysc.History.ForwardBatchSize
     sc.HistoryForwardInterval = ysc.History.ForwardInterval
     sc.HistoryForwardThreshold = ysc.History.ForwardThreshold
+    sc.AlertsForwardInterval = ysc.Alerts.ForwardInterval
     
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
     serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
@@ -183,7 +196,7 @@ type Server struct {
     syncPushBroadcastLimit uint64
     garbageCollector *GarbageCollector
     historian *Historian
-    alertsLog *Historian
+    alertsMap *AlertMap
     merkleDepth uint8
 }
 
@@ -233,7 +246,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     localBucket, _ := NewLocalBucket(nodeID, NewPrefixedStorageDriver([]byte{ localNodePrefix }, storageDriver), MerkleMinDepth)
     
     server.historian = NewHistorian(NewPrefixedStorageDriver([]byte{ historianPrefix }, storageDriver), serverConfig.HistoryEventLimit, serverConfig.HistoryEventFloor, serverConfig.HistoryPurgeBatchSize)
-    server.alertsLog = NewHistorian(NewPrefixedStorageDriver([]byte{ alertsLogPrefix }, storageDriver), serverConfig.HistoryEventLimit, serverConfig.HistoryEventFloor, serverConfig.HistoryPurgeBatchSize)
+    server.alertsMap = NewAlertMap(NewAlertStore(NewPrefixedStorageDriver([]byte{ alertsMapPrefix }, storageDriver)))
     
     server.bucketList.AddBucket(defaultBucket)
     server.bucketList.AddBucket(lwwBucket)
@@ -244,11 +257,12 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     
     if server.hub != nil && server.hub.syncController != nil {
         server.hub.historian = server.historian
-        server.hub.alertsLog = server.alertsLog
+        server.hub.alertsMap = server.alertsMap
         server.hub.purgeOnForward = serverConfig.HistoryPurgeOnForward
         server.hub.forwardBatchSize = serverConfig.HistoryForwardBatchSize
         server.hub.forwardThreshold = serverConfig.HistoryForwardThreshold
         server.hub.forwardInterval = serverConfig.HistoryForwardInterval
+        server.hub.alertsForwardInterval = serverConfig.AlertsForwardInterval
     }
     
     if server.hub != nil && server.hub.syncController != nil {
@@ -265,7 +279,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     }
     
     if server.hub != nil && serverConfig.Cloud != nil {
-        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.History.ID, serverConfig.History.URI, serverConfig.History.Host, serverConfig.History.Port, serverConfig.Cloud.NoValidate)
+        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.History.ID, serverConfig.History.URI, serverConfig.Alerts.ID, serverConfig.Alerts.URI, serverConfig.Cloud.NoValidate)
     }
     
     return server, nil
@@ -283,8 +297,8 @@ func (server *Server) History() *Historian {
     return server.historian
 }
 
-func (server *Server) AlertsLog() *Historian {
-    return server.alertsLog
+func (server *Server) AlertsMap() *AlertMap {
+    return server.alertsMap
 }
 
 func (server *Server) StartGC() {
@@ -739,14 +753,12 @@ func (server *Server) Start() error {
                 return
             }
 
-            alertBody, _ := json.Marshal(&alertData)
-
-            err = server.alertsLog.LogEvent(&Event{
+            err = server.alertsMap.UpdateAlert(Alert{
+                Key: sourceID,
+                Level: eventType,
                 Timestamp: timestamp,
-                SourceID: sourceID,
-                Type: eventType,
-                Data: string(alertBody),
-                Groups: groups,
+                Metadata: alertData.Metadata,
+                Status: alertData.Status,
             })
 
             server.hub.ForwardAlerts()

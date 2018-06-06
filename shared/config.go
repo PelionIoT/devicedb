@@ -27,6 +27,7 @@ type YAMLServerConfig struct {
     LogLevel string `yaml:"logLevel"`
     Cloud *YAMLCloud `yaml:"cloud"`
     History *YAMLHistory `yaml:"history"`
+    Alerts *YAMLAlerts `yaml:"alerts"`
 }
 
 type YAMLHistory struct {
@@ -37,6 +38,10 @@ type YAMLHistory struct {
     ForwardInterval uint64 `yaml:"forwardInterval"`
     ForwardBatchSize uint64 `yaml:"forwardBatchSize"`
     ForwardThreshold uint64 `yaml:"forwardThreshold"`
+}
+
+type YAMLAlerts struct {
+    ForwardInterval uint64 `yaml:"forwardInterval"`
 }
 
 type YAMLPeer struct {
@@ -51,8 +56,8 @@ type YAMLCloud struct {
     Port int `yaml:"port"`
     HistoryID string `yaml:"historyID"`
     HistoryURI string `yaml:"historyURI"`
-    AlertHost string `yaml:"alertHost"`
-    AlertPort int `yaml:"alertPort"`
+    AlertsID string `yaml:"alertsID"`
+    AlertsURI string `yaml:"alertsURI"`
     NoValidate bool `yaml:"noValidate"`
 }
 
@@ -124,21 +129,25 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
             ysc.Cloud.HistoryID = ysc.Cloud.ID
         }
 
-        if len(ysc.Cloud.AlertHost) == 0 {
-            return errors.New(fmt.Sprintf("The alert host name is empty for the alert service"))
-        }
-        
-        if !isValidPort(ysc.Cloud.AlertPort) {
-            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the alert service at %s", ysc.Cloud.AlertPort, ysc.Cloud.AlertHost))
+        if len(ysc.Cloud.AlertsID) == 0 {
+            ysc.Cloud.AlertsID = ysc.Cloud.ID
         }
     }
     
     if ysc.History == nil {
         ysc.History = &YAMLHistory{ }
     }
+
+    if ysc.Alerts == nil {
+        ysc.Alerts = &YAMLAlerts{ }
+    }
     
     if ysc.History.ForwardInterval < 1000 {
         return errors.New(fmt.Sprintf("history.forwardInterval must be at least 1000"))
+    }
+
+    if ysc.Alerts.ForwardInterval < 1000 {
+        return errors.New(fmt.Sprintf("alerts.forwardInterval must be at least 1000"))
     }
 
     if len(ysc.TLS.ClientCertificate) == 0 {
