@@ -101,7 +101,7 @@ func BenchmarkManyRelays(cloudAddresses []string, internalAddresses []string, nS
             addressParts := strings.Split(randomCloudAddress, ":")
             port, _ := strconv.ParseInt(addressParts[1], 10, 32)
 
-            if err := hub.ConnectCloud("cloud", addressParts[0], int(port), "", "", 0, true); err != nil {
+            if err := hub.ConnectCloud("cloud", addressParts[0], int(port), "", "", "", 0, true); err != nil {
                 fmt.Fprintf(os.Stderr, "Error: Unable to initiate cloud connection process: %v. Aborting...\n", err)
 
                 os.Exit(1)

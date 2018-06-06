@@ -128,6 +128,23 @@ gcPurgeAge: 600000
 #    # of large ranges may take a very long time. If this value is negative
 #    # then it defaults to 1.
 #    purgeBatchSize: 1000
+#    # This setting configures how long devicedb should let history logs queue up
+#    # before forwarding them to the cloud. If the number of queued history logs
+#    # exceeds the threshold indicated by forwardThreshold before the forwardInterval 
+#    # has passed, then the log forwarding will be triggered before that time.
+#    # This value is represented in milliseconds. It must be at least 1000 (once a second)
+#    forwardInterval: 60000
+#    # This setting configures how many history logs can queue up before a forwarding
+#    # session is triggered. Must be >= 0. Zero indicates no thresholdd. In other
+#    # words if this value is set to 0 then only forwardInterval is used to
+#    # determine when to forward history logs to the cloud
+#    forwardThreshold: 100
+#    # When a forwarding session has been triggered this setting configures how
+#    # many logs are included in the uploaded history log batches. If there are
+#    # 1000 history logs and forwardBatchSize is 100 then there would be 10 batches
+#    # of 100 logs uploaded to the cloud. It must be >= 0. If the batch size is 0
+#    # then there is no limit on the batch size.
+#    forwardBatchSize: 1000
 
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
@@ -217,10 +234,10 @@ logLevel: info
 #     # certificate so the server name provided in the certificate will not 
 #     # match the domain name of the host to which this node is connecting.
 #     historyID: *.wigwag.com
-#     # historyHost and historyPort may be ommitted. In this case historyHost and
-#     # historyPort are set to the normal cloud host and port
-#     historyHost: history.wigwag.com
-#     historyPort: 443
+#     # The URI of the history service that collects history logs
+#     historyURI: https://history.wigwag.com/history
+#     alertHost: alerts.wigwag.com
+#     alertPort: 443
 
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate

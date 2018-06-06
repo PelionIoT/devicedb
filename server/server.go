@@ -51,6 +51,7 @@ type cloudAddress struct {
     Host string `json:"host"`
     Port int `json:"port"`
     NoValidate bool
+    URI string `json:"uri"`
 }
 
 type ServerConfig struct {
@@ -70,6 +71,9 @@ type ServerConfig struct {
     HistoryEventLimit uint64
     HistoryEventFloor uint64
     HistoryPurgeBatchSize int
+    HistoryForwardBatchSize uint64
+    HistoryForwardInterval uint64
+    HistoryForwardThreshold uint64
     SyncExplorationPathLimit uint32
 }
 
@@ -132,9 +136,10 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
 
         sc.History = &cloudAddress{
             ID: ysc.Cloud.HistoryID,
-            Host: ysc.Cloud.HistoryHost,
-            Port: ysc.Cloud.HistoryPort,
             NoValidate: ysc.Cloud.NoValidate,
+            Host: ysc.Cloud.AlertHost,
+            Port: ysc.Cloud.AlertPort,
+            URI: ysc.Cloud.HistoryURI,
         }
     }
     
@@ -142,6 +147,9 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.HistoryEventLimit = ysc.History.EventLimit
     sc.HistoryEventFloor = ysc.History.EventFloor
     sc.HistoryPurgeBatchSize = ysc.History.PurgeBatchSize
+    sc.HistoryForwardBatchSize = ysc.History.ForwardBatchSize
+    sc.HistoryForwardInterval = ysc.History.ForwardInterval
+    sc.HistoryForwardThreshold = ysc.History.ForwardThreshold
     
     clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
     serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
@@ -238,6 +246,9 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
         server.hub.historian = server.historian
         server.hub.alertsLog = server.alertsLog
         server.hub.purgeOnForward = serverConfig.HistoryPurgeOnForward
+        server.hub.forwardBatchSize = serverConfig.HistoryForwardBatchSize
+        server.hub.forwardThreshold = serverConfig.HistoryForwardThreshold
+        server.hub.forwardInterval = serverConfig.HistoryForwardInterval
     }
     
     if server.hub != nil && server.hub.syncController != nil {
@@ -254,7 +265,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     }
     
     if server.hub != nil && serverConfig.Cloud != nil {
-        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.History.ID, serverConfig.History.Host, serverConfig.History.Port, serverConfig.Cloud.NoValidate)
+        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.History.ID, serverConfig.History.URI, serverConfig.History.Host, serverConfig.History.Port, serverConfig.Cloud.NoValidate)
     }
     
     return server, nil

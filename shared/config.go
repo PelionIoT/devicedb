@@ -34,6 +34,9 @@ type YAMLHistory struct {
     EventLimit uint64 `yaml:"eventLimit"`
     EventFloor uint64 `yaml:"eventFloor"`
     PurgeBatchSize int `yaml:"purgeBatchSize"`
+    ForwardInterval uint64 `yaml:"forwardInterval"`
+    ForwardBatchSize uint64 `yaml:"forwardBatchSize"`
+    ForwardThreshold uint64 `yaml:"forwardThreshold"`
 }
 
 type YAMLPeer struct {
@@ -47,8 +50,9 @@ type YAMLCloud struct {
     Host string `yaml:"host"`
     Port int `yaml:"port"`
     HistoryID string `yaml:"historyID"`
-    HistoryHost string `yaml:"historyHost"`
-    HistoryPort int `yaml:"historyPort"`
+    HistoryURI string `yaml:"historyURI"`
+    AlertHost string `yaml:"alertHost"`
+    AlertPort int `yaml:"alertPort"`
     NoValidate bool `yaml:"noValidate"`
 }
 
@@ -116,20 +120,16 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
             return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud at %s", ysc.Cloud.Port, ysc.Cloud.Host))
         }
 
-        if len(ysc.Cloud.HistoryHost) == 0 {
-            ysc.Cloud.HistoryHost = ysc.Cloud.Host
-        }
-
-        if !isValidPort(ysc.Cloud.HistoryPort) {
-            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud history service at %s", ysc.Cloud.HistoryPort, ysc.Cloud.HistoryHost))
-        }
-
-        if ysc.Cloud.HistoryPort == 0 {
-            ysc.Cloud.HistoryPort = ysc.Cloud.Port
-        }
-
         if len(ysc.Cloud.HistoryID) == 0 {
             ysc.Cloud.HistoryID = ysc.Cloud.ID
+        }
+
+        if len(ysc.Cloud.AlertHost) == 0 {
+            return errors.New(fmt.Sprintf("The alert host name is empty for the alert service"))
+        }
+        
+        if !isValidPort(ysc.Cloud.AlertPort) {
+            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the alert service at %s", ysc.Cloud.AlertPort, ysc.Cloud.AlertHost))
         }
     }
     
@@ -137,6 +137,10 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
         ysc.History = &YAMLHistory{ }
     }
     
+    if ysc.History.ForwardInterval < 1000 {
+        return errors.New(fmt.Sprintf("history.forwardInterval must be at least 1000"))
+    }
+
     if len(ysc.TLS.ClientCertificate) == 0 {
         ysc.TLS.ClientCertificate = ysc.TLS.Certificate
     }
