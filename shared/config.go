@@ -52,8 +52,7 @@ type YAMLPeer struct {
 
 type YAMLCloud struct {
     ID string `yaml:"id"`
-    Host string `yaml:"host"`
-    Port int `yaml:"port"`
+    URI string `yaml:"uri"`
     HistoryID string `yaml:"historyID"`
     HistoryURI string `yaml:"historyURI"`
     AlertsID string `yaml:"alertsID"`
@@ -117,12 +116,8 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     }
     
     if ysc.Cloud != nil {
-        if len(ysc.Cloud.Host) == 0 {
-            return errors.New(fmt.Sprintf("The host name is empty for the cloud"))
-        }
-        
-        if !isValidPort(ysc.Cloud.Port) {
-            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud at %s", ysc.Cloud.Port, ysc.Cloud.Host))
+        if len(ysc.Cloud.URI) == 0 {
+            return errors.New(fmt.Sprintf("The cloud.uri is empty"))
         }
 
         if len(ysc.Cloud.HistoryID) == 0 {

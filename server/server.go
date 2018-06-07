@@ -137,9 +137,8 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     if ysc.Cloud != nil {
         sc.Cloud = &cloudAddress{
             ID: ysc.Cloud.ID,
-            Host: ysc.Cloud.Host,
-            Port: ysc.Cloud.Port,
             NoValidate: ysc.Cloud.NoValidate,
+            URI: ysc.Cloud.URI,
         }
 
         sc.History = &cloudAddress{
@@ -279,7 +278,7 @@ func NewServer(serverConfig ServerConfig) (*Server, error) {
     }
     
     if server.hub != nil && serverConfig.Cloud != nil {
-        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.Host, serverConfig.Cloud.Port, serverConfig.History.ID, serverConfig.History.URI, serverConfig.Alerts.ID, serverConfig.Alerts.URI, serverConfig.Cloud.NoValidate)
+        server.hub.ConnectCloud(serverConfig.Cloud.ID, serverConfig.Cloud.URI, serverConfig.History.ID, serverConfig.History.URI, serverConfig.Alerts.ID, serverConfig.Alerts.URI, serverConfig.Cloud.NoValidate)
     }
     
     return server, nil

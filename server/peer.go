@@ -77,8 +77,7 @@ type Peer struct {
     rttLock sync.Mutex
     roundTripTime time.Duration
     result error
-    host string
-    port int
+    uri string
     historyURI string
     alertsURI string
     partitionNumber uint64
@@ -116,11 +115,10 @@ func (peer *Peer) accept(connection *websocket.Conn) (chan *SyncMessageWrapper, 
     return incoming, outgoing, nil
 }
 
-func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan *SyncMessageWrapper, chan *SyncMessageWrapper, error) {
+func (peer *Peer) connect(dialer *websocket.Dialer, uri string) (chan *SyncMessageWrapper, chan *SyncMessageWrapper, error) {
     reconnectWaitSeconds := 1
     
-    peer.host = host
-    peer.port = port
+    peer.uri = uri
     peer.httpClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: dialer.TLSClientConfig } }
 
     var header http.Header = make(http.Header)
@@ -132,10 +130,10 @@ func (peer *Peer) connect(dialer *websocket.Dialer, host string, port int) (chan
     for {
         peer.connection = nil
 
-        conn, _, err := dialer.Dial("wss://" + host + ":" + strconv.Itoa(port) + "/sync", header)
+        conn, _, err := dialer.Dial(uri, header)
                 
         if err != nil {
-            Log.Warningf("Unable to connect to peer %s at %s on port %d: %v. Reconnecting in %ds...", peer.id, host, port, err, reconnectWaitSeconds)
+            Log.Warningf("Unable to connect to peer %s at %s: %v. Reconnecting in %ds...", peer.id, uri, err, reconnectWaitSeconds)
             
             select {
             case <-time.After(time.Second * time.Duration(reconnectWaitSeconds)):
@@ -617,7 +615,7 @@ func (hub *Hub) Accept(connection *websocket.Conn, partitionNumber uint64, relay
     return nil
 }
 
-func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerName, historyURI, alertsServerName, alertsURI string, noValidate bool) error {
+func (hub *Hub) ConnectCloud(serverName, uri, historyServerName, historyURI, alertsServerName, alertsURI string, noValidate bool) error {
     if noValidate {
         Log.Warningf("The cloud.noValidate option is set to true. The cloud server's certificate chain and identity will not be verified. !!! THIS OPTION SHOULD NOT BE SET TO TRUE IN PRODUCTION !!!")
     }
@@ -640,7 +638,7 @@ func (hub *Hub) ConnectCloud(serverName, host string, port int, historyServerNam
             // connect will return an error once the peer is disconnected for good
             peer.useHistoryServer(hub.tlsConfig, historyServerName, historyURI, alertsServerName, alertsURI, noValidate)
             peer.identityHeader = hub.id
-            incoming, outgoing, err := peer.connect(dialer, host, port)
+            incoming, outgoing, err := peer.connect(dialer, uri)
             
             if err != nil {
                 break
@@ -696,7 +694,7 @@ func (hub *Hub) Connect(peerID, host string, port int) error {
     
         for {
             // connect will return an error once the peer is disconnected for good
-            incoming, outgoing, err := peer.connect(dialer, host, port)
+            incoming, outgoing, err := peer.connect(dialer, "wss://" + host + ":" + strconv.Itoa(port) + "/sync")
             
             if err != nil {
                 break

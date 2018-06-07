@@ -427,7 +427,7 @@ func main() {
     clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It only applies to TLS enabled servers and should only be used for testing.")
     clusterStartSnapshotDirectory := clusterStartCommand.String("snapshot_store", "", "To enable snapshots set this to some directory where database snapshots can be stored")
 
-    clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
+    clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: wss://localhost:9090,wss://localhost:8080")
     clusterBenchmarkInternalAddresses := clusterBenchmarkCommand.String("internal_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
     clusterBenchmarkName := clusterBenchmarkCommand.String("name", "multiple_relays", "The name of the benchmark to run")
     clusterBenchmarkNSites := clusterBenchmarkCommand.Uint("n_sites", 100, "The number of sites to simulate")
