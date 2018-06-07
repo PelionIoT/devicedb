@@ -436,7 +436,7 @@ func (peer *Peer) pushEvents(events []*Event) error {
 }
 
 func (peer *Peer) pushAlerts(alerts map[string]Alert) error {
-    var alertsList []Alert = make([]Alert, len(alerts))
+    var alertsList []Alert = make([]Alert, 0, len(alerts))
 
     for _, alert := range alerts {
         alertsList = append(alertsList, alert)
@@ -1003,6 +1003,12 @@ func (hub *Hub) StartForwardingAlerts() {
                 Log.Criticalf("Unable to query alerts map: %v. No more alerts will be forwarded to the cloud", err)
 
                 return
+            }
+
+            if len(alerts) == 0 {
+                Log.Infof("No new alerts. Nothing to forward")
+
+                continue
             }
 
             if err := cloudPeer.pushAlerts(alerts); err != nil {

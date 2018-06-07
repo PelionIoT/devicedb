@@ -731,20 +731,10 @@ func (server *Server) Start() error {
         if category == "alerts" {
             var alertData AlertEventData
 
-            err := json.Unmarshal(body, &alertData)
+            err = json.Unmarshal(body, &alertData)
             
             if err != nil {
-                Log.Warningf("PUT /events/{type}/{sourceID}: Unable to parse alert body")
-                
-                w.Header().Set("Content-Type", "application/json; charset=utf8")
-                w.WriteHeader(http.StatusBadRequest)
-                io.WriteString(w, string(EAlertBody.JSON()) + "\n")
-                
-                return
-            }
-
-            if eventType != "fatal" && eventType != "error" && eventType != "warning" {
-                Log.Warningf("PUT /events/{type}/{sourceID}: Invalid alert level", eventType)
+                Log.Warningf("PUT /events/{type}/{sourceID}: Unable to parse alert body %s", body)
                 
                 w.Header().Set("Content-Type", "application/json; charset=utf8")
                 w.WriteHeader(http.StatusBadRequest)
