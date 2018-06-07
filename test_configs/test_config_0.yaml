@@ -7,6 +7,10 @@ gcInterval: 300000
 gcPurgeAge: 600000
 merkleDepth: 19
 logLevel: debug
+alerts:
+    forwardInterval: 1000
+history:
+    forwardInterval: 1000
 peers:
     - id: WWRL000001
       host: 127.0.0.1

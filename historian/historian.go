@@ -22,6 +22,7 @@ var (
     BY_SERIAL_NUMBER_PREFIX = []byte{ 3 }
     SEQUENTIAL_COUNTER_PREFIX = []byte{ 4 }
     CURRENT_SIZE_COUNTER_PREFIX = []byte{ 5 }
+    HIGHEST_FORWARDED_INDEX_PREFIX = []byte{ 6 }
     DELIMETER = []byte(".")
 )
 
@@ -62,11 +63,6 @@ type Event struct {
     UUID string `json:"uuid"`
     Serial uint64 `json:"serial"`
     Groups []string `json:"groups"`
-}
-
-type AlertEventData struct {
-    Metadata string `json:"metadata"`
-    Status bool `json:"status"`
 }
 
 func (event *Event) indexBySerial() []byte {
@@ -177,6 +173,7 @@ type Historian struct {
     storageDriver StorageDriver
     nextID uint64
     currentSize uint64
+    forwardIndex uint64
     logLock sync.Mutex
     // event limit describes the maximum number of events
     // allowed to be stored in the history log
@@ -196,8 +193,9 @@ type Historian struct {
 func NewHistorian(storageDriver StorageDriver, eventLimit uint64, eventFloor uint64, purgeBatchSize int) *Historian {
     var nextID uint64
     var currentSize uint64
+    var forwardIndex uint64
     
-    values, err := storageDriver.Get([][]byte{ SEQUENTIAL_COUNTER_PREFIX, CURRENT_SIZE_COUNTER_PREFIX })
+    values, err := storageDriver.Get([][]byte{ SEQUENTIAL_COUNTER_PREFIX, CURRENT_SIZE_COUNTER_PREFIX, HIGHEST_FORWARDED_INDEX_PREFIX })
     
     if err == nil && len(values[0]) == 8 {
         nextID = binary.BigEndian.Uint64(values[0])
@@ -206,10 +204,15 @@ func NewHistorian(storageDriver StorageDriver, eventLimit uint64, eventFloor uin
     if err == nil && len(values[1]) == 8 {
         currentSize = binary.BigEndian.Uint64(values[1])
     }
+
+    if err == nil && len(values[2]) == 8 {
+        forwardIndex = binary.BigEndian.Uint64(values[2])
+    }
     
     historian := &Historian{
         storageDriver: storageDriver,
         nextID: nextID + 1,
+        forwardIndex: forwardIndex,
         currentSize: currentSize,
         eventLimit: eventLimit,
         eventFloor: eventFloor,
@@ -250,6 +253,30 @@ func (historian *Historian) SetLogSerial(s uint64) error {
     
     historian.nextID = s + 1
     
+    return nil
+}
+
+func (historian *Historian) ForwardIndex() uint64 {
+    return historian.forwardIndex
+}
+
+func (historian *Historian) SetForwardIndex(i uint64) error {
+    historian.logLock.Lock()
+    defer historian.logLock.Unlock()
+
+    batch := NewBatch()
+    batch.Put(HIGHEST_FORWARDED_INDEX_PREFIX, timestampBytes(i))
+    
+    err := historian.storageDriver.Batch(batch)
+    
+    if err != nil {
+        Log.Errorf("Storage driver error in SetForwardIndex(%v): %s", i, err.Error())
+        
+        return EStorage
+    }
+
+    historian.forwardIndex = i
+
     return nil
 }
 

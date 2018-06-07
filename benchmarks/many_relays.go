@@ -9,8 +9,6 @@ import (
     "io/ioutil"
     "math/rand"
     "os"
-    "strconv"
-    "strings"
     "time"
 
     "devicedb/bucket"
@@ -98,10 +96,8 @@ func BenchmarkManyRelays(cloudAddresses []string, internalAddresses []string, nS
             syncController.Start()
 
             randomCloudAddress := cloudAddresses[int(rand.Uint32() % uint32(len(cloudAddresses)))]
-            addressParts := strings.Split(randomCloudAddress, ":")
-            port, _ := strconv.ParseInt(addressParts[1], 10, 32)
 
-            if err := hub.ConnectCloud("cloud", addressParts[0], int(port), "", "", 0, true); err != nil {
+            if err := hub.ConnectCloud("cloud", randomCloudAddress, "", "", "", "", true); err != nil {
                 fmt.Fprintf(os.Stderr, "Error: Unable to initiate cloud connection process: %v. Aborting...\n", err)
 
                 os.Exit(1)

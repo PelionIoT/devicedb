@@ -98,6 +98,11 @@ gcInterval: 300000
 # keys that will no longer be used. This field is also in milliseconds
 gcPurgeAge: 600000
 
+# This field can be used to specify how this node handles alert forwarding.
+# alerts:
+#    # How often in milliseconds the latest alerts are forwarded to the cloud
+#    forwardInterval: 60000
+#
 # This field can be used to specify how this node handles time-series data.
 # These settings adjust how and when historical data is purged from the
 # history. If this field is not specified then default values are used.
@@ -128,6 +133,23 @@ gcPurgeAge: 600000
 #    # of large ranges may take a very long time. If this value is negative
 #    # then it defaults to 1.
 #    purgeBatchSize: 1000
+#    # This setting configures how long devicedb should let history logs queue up
+#    # before forwarding them to the cloud. If the number of queued history logs
+#    # exceeds the threshold indicated by forwardThreshold before the forwardInterval 
+#    # has passed, then the log forwarding will be triggered before that time.
+#    # This value is represented in milliseconds. It must be at least 1000 (once a second)
+#    forwardInterval: 60000
+#    # This setting configures how many history logs can queue up before a forwarding
+#    # session is triggered. Must be >= 0. Zero indicates no thresholdd. In other
+#    # words if this value is set to 0 then only forwardInterval is used to
+#    # determine when to forward history logs to the cloud
+#    forwardThreshold: 100
+#    # When a forwarding session has been triggered this setting configures how
+#    # many logs are included in the uploaded history log batches. If there are
+#    # 1000 history logs and forwardBatchSize is 100 then there would be 10 batches
+#    # of 100 logs uploaded to the cloud. It must be >= 0. If the batch size is 0
+#    # then there is no limit on the batch size.
+#    forwardBatchSize: 1000
 
 # The merkle depth adjusts how efficiently the sync process resolves
 # differences between database nodes. A rule of thumb is to set this as high
@@ -217,10 +239,10 @@ logLevel: info
 #     # certificate so the server name provided in the certificate will not 
 #     # match the domain name of the host to which this node is connecting.
 #     historyID: *.wigwag.com
-#     # historyHost and historyPort may be ommitted. In this case historyHost and
-#     # historyPort are set to the normal cloud host and port
-#     historyHost: history.wigwag.com
-#     historyPort: 443
+#     # The URI of the history service that collects history logs
+#     historyURI: https://history.wigwag.com/history
+#     alertsID: *.wigwag.com
+#     alertsURI: https://alerts.wigwag.com/alerts
 
 # The TLS options specify file paths to PEM encoded SSL certificates and keys
 # All connections between database nodes use TLS to identify and authenticate
@@ -405,7 +427,7 @@ func main() {
     clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It only applies to TLS enabled servers and should only be used for testing.")
     clusterStartSnapshotDirectory := clusterStartCommand.String("snapshot_store", "", "To enable snapshots set this to some directory where database snapshots can be stored")
 
-    clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
+    clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: wss://localhost:9090,wss://localhost:8080")
     clusterBenchmarkInternalAddresses := clusterBenchmarkCommand.String("internal_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
     clusterBenchmarkName := clusterBenchmarkCommand.String("name", "multiple_relays", "The name of the benchmark to run")
     clusterBenchmarkNSites := clusterBenchmarkCommand.Uint("n_sites", 100, "The number of sites to simulate")

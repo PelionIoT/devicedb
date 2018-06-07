@@ -8,6 +8,10 @@ gcPurgeAge: 600000
 merkleDepth: 19
 logLevel: debug
 peers:
+alerts:
+    forwardInterval: 1000
+history:
+    forwardInterval: 1000
 tls:
     clientCertificate: ../test_certs/WWRL000001.client.cert.pem
     clientKey: ../test_certs/WWRL000001.client.key.pem

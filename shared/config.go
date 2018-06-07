@@ -27,6 +27,7 @@ type YAMLServerConfig struct {
     LogLevel string `yaml:"logLevel"`
     Cloud *YAMLCloud `yaml:"cloud"`
     History *YAMLHistory `yaml:"history"`
+    Alerts *YAMLAlerts `yaml:"alerts"`
 }
 
 type YAMLHistory struct {
@@ -34,6 +35,13 @@ type YAMLHistory struct {
     EventLimit uint64 `yaml:"eventLimit"`
     EventFloor uint64 `yaml:"eventFloor"`
     PurgeBatchSize int `yaml:"purgeBatchSize"`
+    ForwardInterval uint64 `yaml:"forwardInterval"`
+    ForwardBatchSize uint64 `yaml:"forwardBatchSize"`
+    ForwardThreshold uint64 `yaml:"forwardThreshold"`
+}
+
+type YAMLAlerts struct {
+    ForwardInterval uint64 `yaml:"forwardInterval"`
 }
 
 type YAMLPeer struct {
@@ -44,11 +52,11 @@ type YAMLPeer struct {
 
 type YAMLCloud struct {
     ID string `yaml:"id"`
-    Host string `yaml:"host"`
-    Port int `yaml:"port"`
+    URI string `yaml:"uri"`
     HistoryID string `yaml:"historyID"`
-    HistoryHost string `yaml:"historyHost"`
-    HistoryPort int `yaml:"historyPort"`
+    HistoryURI string `yaml:"historyURI"`
+    AlertsID string `yaml:"alertsID"`
+    AlertsURI string `yaml:"alertsURI"`
     NoValidate bool `yaml:"noValidate"`
 }
 
@@ -108,35 +116,35 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     }
     
     if ysc.Cloud != nil {
-        if len(ysc.Cloud.Host) == 0 {
-            return errors.New(fmt.Sprintf("The host name is empty for the cloud"))
-        }
-        
-        if !isValidPort(ysc.Cloud.Port) {
-            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud at %s", ysc.Cloud.Port, ysc.Cloud.Host))
-        }
-
-        if len(ysc.Cloud.HistoryHost) == 0 {
-            ysc.Cloud.HistoryHost = ysc.Cloud.Host
-        }
-
-        if !isValidPort(ysc.Cloud.HistoryPort) {
-            return errors.New(fmt.Sprintf("%d is an invalid port to connect to the cloud history service at %s", ysc.Cloud.HistoryPort, ysc.Cloud.HistoryHost))
-        }
-
-        if ysc.Cloud.HistoryPort == 0 {
-            ysc.Cloud.HistoryPort = ysc.Cloud.Port
+        if len(ysc.Cloud.URI) == 0 {
+            return errors.New(fmt.Sprintf("The cloud.uri is empty"))
         }
 
         if len(ysc.Cloud.HistoryID) == 0 {
             ysc.Cloud.HistoryID = ysc.Cloud.ID
+        }
+
+        if len(ysc.Cloud.AlertsID) == 0 {
+            ysc.Cloud.AlertsID = ysc.Cloud.ID
         }
     }
     
     if ysc.History == nil {
         ysc.History = &YAMLHistory{ }
     }
+
+    if ysc.Alerts == nil {
+        ysc.Alerts = &YAMLAlerts{ }
+    }
     
+    if ysc.History.ForwardInterval < 1000 {
+        return errors.New(fmt.Sprintf("history.forwardInterval must be at least 1000"))
+    }
+
+    if ysc.Alerts.ForwardInterval < 1000 {
+        return errors.New(fmt.Sprintf("alerts.forwardInterval must be at least 1000"))
+    }
+
     if len(ysc.TLS.ClientCertificate) == 0 {
         ysc.TLS.ClientCertificate = ysc.TLS.Certificate
     }
