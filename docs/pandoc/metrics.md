@@ -15,6 +15,6 @@
 | ``devicedb_storage_errors``                          | counter        | Count the number of errors returned by the storage driver.   |
 |                                                      |                | Can be used to detect disk storage problems.                 |
 +------------------------------------------------------+----------------+--------------------------------------------------------------+
-| ``devicedb_unreachable_peers``                       | guage          | Count the number of unreachable peers. Can be used to detect |
-|                                                      |                | network partitions or failed nodes                           |
+| ``devicedb_peer_reachability``                       | guage          | A binary guage indicating whether or not the peer is         |
+|                                                      |                | currently reachable from some other peer                     |
 +------------------------------------------------------+----------------+--------------------------------------------------------------+
