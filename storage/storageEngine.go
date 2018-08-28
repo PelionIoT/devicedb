@@ -326,6 +326,7 @@ func (it *LevelDBIterator) Next() bool {
     }
     
     if it.it.Error() != nil {
+        prometheusRecordStorageError("iterator.next()", "")
         it.err = it.it.Error()
         it.ranges = []*util.Range{ }
     }
@@ -390,6 +391,8 @@ func (levelDriver *LevelDBStorageDriver) Open() error {
     db, err := leveldb.OpenFile(levelDriver.file, levelDriver.options)
     
     if err != nil {
+        prometheusRecordStorageError("open()", levelDriver.file)
+
         if levelErrors.IsCorrupted(err) {
             Log.Criticalf("LevelDB database is corrupted: %v", err.Error())
 
@@ -422,6 +425,8 @@ func (levelDriver *LevelDBStorageDriver) Recover() error {
     db, err := leveldb.RecoverFile(levelDriver.file, levelDriver.options)
 
     if err != nil {
+        prometheusRecordStorageError("recover()", levelDriver.file)
+
         return err
     }
 
@@ -438,6 +443,8 @@ func (levelDriver *LevelDBStorageDriver) Compact() error {
     err := levelDriver.db.CompactRange(util.Range{ })
 
     if err != nil {
+        prometheusRecordStorageError("compact()", levelDriver.file)
+
         return err
     }
 
@@ -458,6 +465,8 @@ func (levelDriver *LevelDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {
     defer snapshot.Release()
     
     if err != nil {
+        prometheusRecordStorageError("get()", levelDriver.file)
+
         return nil, err
     }
     
@@ -471,6 +480,8 @@ func (levelDriver *LevelDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {
             
             if err != nil {
                 if err.Error() != "leveldb: not found" {
+                    prometheusRecordStorageError("get()", levelDriver.file)
+
                     return nil, err
                 } else {
                     values[i] = nil
@@ -526,6 +537,8 @@ func (levelDriver *LevelDBStorageDriver) GetMatches(keys [][]byte) (StorageItera
     snapshot, err := levelDriver.db.GetSnapshot()
     
     if err != nil {
+        prometheusRecordStorageError("getMatches()", levelDriver.file)
+
         snapshot.Release()
         
         return nil, err
@@ -556,6 +569,8 @@ func (levelDriver *LevelDBStorageDriver) GetRange(min, max []byte) (StorageItera
     snapshot, err := levelDriver.db.GetSnapshot()
     
     if err != nil {
+        prometheusRecordStorageError("getRange()", levelDriver.file)
+
         snapshot.Release()
         
         return nil, err
@@ -574,6 +589,8 @@ func (levelDriver *LevelDBStorageDriver) GetRanges(ranges [][2][]byte, direction
     snapshot, err := levelDriver.db.GetSnapshot()
     
     if err != nil {
+        prometheusRecordStorageError("getRanges()", levelDriver.file)
+
         snapshot.Release()
         
         return nil, err
@@ -608,7 +625,13 @@ func (levelDriver *LevelDBStorageDriver) Batch(batch *Batch) error {
         } 
     }
     
-    return levelDriver.db.Write(b, nil)
+    err := levelDriver.db.Write(b, nil)
+
+    if err != nil {
+        prometheusRecordStorageError("batch()", levelDriver.file)
+    }
+
+    return err
 }
 
 
@@ -620,6 +643,8 @@ func (levelDriver *LevelDBStorageDriver) Snapshot(snapshotDirectory string, meta
     snapshotDB, err := leveldb.OpenFile(snapshotDirectory, &opt.Options{ })
     
     if err != nil {
+        prometheusRecordStorageError("snapshot()", levelDriver.file)
+
         Log.Errorf("Can't create snapshot because %s could not be opened for writing: %v", snapshotDirectory, err)
         
         return err
@@ -628,6 +653,8 @@ func (levelDriver *LevelDBStorageDriver) Snapshot(snapshotDirectory string, meta
     Log.Debugf("Copying database contents to snapshot at %s", snapshotDirectory)
 
     if err := levelCopy(snapshotDB, levelDriver.db); err != nil {
+        prometheusRecordStorageError("snapshot()", levelDriver.file)
+
         Log.Errorf("Can't create snapshot because there was an error while copying the keys: %v", err)
 
         return err
@@ -648,12 +675,16 @@ func (levelDriver *LevelDBStorageDriver) Snapshot(snapshotDirectory string, meta
     }
 
     if err := snapshotDB.Write(metaBatch, &opt.WriteOptions{ Sync: true }); err != nil {
+        prometheusRecordStorageError("snapshot()", levelDriver.file)
+
         Log.Errorf("Can't create snapshot because there was a problem recording the snapshot metadata: %v", err)
 
         return err
     }
 
     if err := snapshotDB.Close(); err != nil {
+        prometheusRecordStorageError("snapshot()", levelDriver.file)
+
         Log.Errorf("Can't create snapshot because there was an error while closing the snapshot database at %s: %v", snapshotDirectory, err)
 
         return err
@@ -716,6 +747,8 @@ func (levelDriver *LevelDBStorageDriver) OpenSnapshot(snapshotDirectory string) 
     snapshotDB := NewLevelDBStorageDriver(snapshotDirectory, &opt.Options{ ErrorIfMissing: true, ReadOnly: true })
 
     if err := snapshotDB.Open(); err != nil {
+        prometheusRecordStorageError("openSnapshot()", snapshotDirectory)
+
         return nil, err
     }
 
@@ -726,7 +759,13 @@ func (levelDriver *LevelDBStorageDriver) Restore(storageDriver StorageDriver) er
     Log.Debugf("Restoring storage state from snapshot...")
 
     if otherLevelDriver, ok := storageDriver.(*LevelDBStorageDriver); ok {
-        return levelDriver.restoreLevel(otherLevelDriver)
+        err := levelDriver.restoreLevel(otherLevelDriver)
+
+        if err != nil {
+            prometheusRecordStorageError("restore()", levelDriver.file)
+        }
+
+        return err
     }
 
     return errors.New("Snapshot source format not supported")
