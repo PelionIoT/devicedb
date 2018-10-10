@@ -17,7 +17,6 @@ import (
     "bytes"
 
     . "devicedb/bucket"
-    . "devicedb/cluster"
     . "devicedb/data"
     . "devicedb/historian"
     . "devicedb/alerts"
