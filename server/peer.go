@@ -788,7 +788,7 @@ func (hub *Hub) dialer(peerID string, noValidate bool, useDefaultRootCAs bool) (
         return nil, errors.New("No tls config provided")
     }
     
-    tlsConfig := *hub.tlsConfig
+    tlsConfig := hub.tlsConfig.Clone()
     
     if useDefaultRootCAs {
         tlsConfig.RootCAs = nil
@@ -798,7 +798,7 @@ func (hub *Hub) dialer(peerID string, noValidate bool, useDefaultRootCAs bool) (
     tlsConfig.ServerName = peerID
     
     dialer := &websocket.Dialer{
-        TLSClientConfig: &tlsConfig,
+        TLSClientConfig: tlsConfig,
     }
     
     return dialer, nil

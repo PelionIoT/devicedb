@@ -114,6 +114,9 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     clientTLSConfig := &tls.Config{
         Certificates: []tls.Certificate{ clientCertificate },
         RootCAs: rootCAs,
+        GetClientCertificate: func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+            return &clientCertificate, nil
+        },
     }
     serverTLSConfig := &tls.Config{
         Certificates: []tls.Certificate{ serverCertificate },
