@@ -59,8 +59,8 @@
 		},
 		{
 			"ImportPath": "github.com/gorilla/websocket",
-			"Comment": "v1.0.0-21-g2d1e454",
-			"Rev": "2d1e4548da234d9cb742cc3628556fef86aafbac"
+			"Comment": "v1.4.0-4-g76e4896",
+			"Rev": "76e4896901ef89d253d69b528d3701dd146fe2ae"
 		},
 		{
 			"ImportPath": "github.com/mattn/go-runewidth",
