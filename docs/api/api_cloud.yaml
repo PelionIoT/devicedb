@@ -1,0 +1,509 @@
+swagger: '2.0'
+info:
+  title: Cloud API
+  version: "v1"
+consumes:
+  - application/json
+tags:
+- name: cluster external
+  description: Endpoints that are consumed by external actors within the cloud. Not used for inter-cluster communication
+- name: cluster internal
+  description: Endpoints that are not consumed by external actors within the cloud. Used for inter-cluster communication
+- name: public
+  description: Endpoints that are exposed publicly on the gateways domain. Internet accessible from gateways with valid certs
+- name: sync
+  description: Endpoints related to the synchronization protocol
+paths:
+  /cluster:
+    get:
+      operationId: "get_cluster_overview"
+      summary: "Summarize Cluster State"
+      description: >
+        Get an overview of the cluster members, their addresses, partition assignments, and overall cluster settings
+      tags:
+      - cluster external
+      responses:
+        '200':
+          description: "Request successful"
+          schema:
+            $ref: "#/definitions/ClusterOverview"
+        '500':
+          description: "Internal server error"
+  /cluster/nodes:
+    post:
+      operationId: "add_node"
+      summary: "Add a Node To The Cluster"
+      description: >
+        Adds a new node to the cluster. This endpoint inititates a proposal to modify the cluster configuration by adding a new node. This endpoint
+        is used by new nodes as they start up. A request to this endpoint is sent from a new cluster member to a seed node, an existing cluster member.
+        If this node is being added to replace another node it can set its capacity to 0 in the body so that it will not be assigned any partitions.
+      tags:
+      - cluster internal
+      parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: "#/definitions/NodeConfig"
+      responses:
+        '200':
+          description: "The proposal was accepted and the node will be added to the cluster"
+        '400':
+          description: "The body was not provided or could not be parsed as a NodeConfig"
+          schema:
+            $ref: "#/definitions/Error"
+        '500':
+          description: "The proposal could not be accepted for some reason"
+          schema:
+            $ref: "#/definitions/Error"
+  /cluster/nodes/{nodeID}:
+    delete:
+      operationId: "delete_node"
+      summary: "Remove a Node From The Cluster"
+      description: >
+        Removes an existing node from the cluster and optionally replace it with a new node. This endpoint can be used 
+        to initiate decomissioning for a healthy node when a user wants to downsize the cluster or to forcefully remove 
+        a failed node from the cluster metadata, or replace a failed node with a new node.
+      tags:
+      - cluster external
+      parameters:
+      - name: nodeID
+        in: path
+        description: "The ID of the node that is being decomissioned/removed/replaced"
+        type: integer
+      - name: replace
+        in: query
+        description: "If provided, this specifies the ID of the node that will replace the removed node. The replacement must already be added to the cluster"
+        type: integer
+      - name: decommission
+        in: query
+        description: "If this is true then the request will be forwarded to the decomissioned node and that node will initiate the decomissioning process before removing itself from the cluster"
+        type: boolean
+      responses:
+        '200':
+          description: "The removal was successful"
+        '400':
+          description: "The request provided an invalid node ID, or some invalid combination of query parameters"
+        '403':
+          description: "The node received a forwarded decomissioning request from another node but its ID does not match the nodeID parameter"
+        '500':
+          description: "The proposal was not accepted for some reason"
+        '502':
+          description: "A decomission request could not be forwarded to the correct node"
+  /healthz:
+    get:
+      operationId: "health_check"
+      summary: "Health Check Endpoint for Kubernetes"
+      tags:
+      - cluster external
+      responses:
+        '200':
+          description: "Always responds with 200"
+  /log_dump:
+    get:
+      operationId: "log_dump"
+      summary: "Get a Raft Log Dump For Debugging"
+      description: >
+        Sometimes it is useful for debugging to inspect the messags committed to the cluster's Raft log. This endpoint
+        shows all committed messages in the log after the latest log snapshot.
+      tags:
+      - cluster external
+      responses:
+        '200':
+          description: "Successfully retrieved the log dump"
+          schema:
+            $ref: "#/definitions/LogDump"
+        '500':
+          description: "Unable to retrieve the raft log from storage"
+  /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/merges:
+    post:
+      operationId: "bucket_merge_internal"
+      summary: "Merge Keys Into a Bucket"
+      description: >
+        This endpoint is utilized during bucket writes after the initial write back is submitted to merge in the change into the other replicas. It only applies changes to the node that receives the request.
+      tags:
+      - cluster internal
+      - sync
+      parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: "#/definitions/KeySet"
+      - name: broadcast
+        in: query
+        required: false
+        type: boolean
+        description: A flag indicating whether or not the updates should be broadcast to gateways in this site
+      - name: partitionID
+        in: path
+        required: true
+        description: "Partition that the site database is in"
+        type: string
+      - name: siteID
+        in: path
+        required: true
+        description: "Site that the bucket is in"
+        type: string
+      - name: bucketID
+        in: path
+        required: true
+        description: "The bucket to merge the keys into"
+        type: string
+      responses:
+        '200':
+          description: "The node successfully processed the request, although it may not have written the update to its local storage. The response only sets the .nApplied property of the BatchResult. It is set to 1 if the operation was accepted and written to this node's local storage or 0 if this node does not actually contain this partition."
+          schema:
+            $ref: "#/definitions/BatchResult"
+        '400':
+          description: Bad request
+        '404':
+          description: The specified partition, site, or bucket does not exist within this node
+          schema:
+            $ref: "#/definitions/Error"
+        '500':
+          description: Local storage error. The node was unable to write the update to its local storage
+  /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/batches:
+    post:
+      operationId: "bucket_batch_internal"
+      summary: "Update Keys In A Bucket"
+      description: >
+        This endpoint is the first one contacted during a bucket write operation. It accepts the write, generates a new write event and returns a patch with the updates to be applied to other nodes using the merge operation. It only affects the storage state of the node that receives it.
+      tags:
+      - cluster internal
+      - sync
+      parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: "#/definitions/UpdateBatch"
+      - name: partitionID
+        in: path
+        required: true
+        description: "Partition that the site database is in"
+        type: string
+      - name: siteID
+        in: path
+        required: true
+        description: "Site that the bucket is in"
+        type: string
+      - name: bucketID
+        in: path
+        required: true
+        description: "The bucket to merge the keys into"
+        type: string
+      responses:
+        '200':
+          description: "The node successfully processed the request, although it may not have written the update to its local storage. The response sets the .nApplied and .patch properties of the BatchResult. It is set to 1 if the operation was accepted and written to this node's local storage or 0 if this node does not actually contain this partition. The patch property contains a KeySet that can be merged into other replicas to fulfill this write request."
+          schema:
+            $ref: "#/definitions/BatchResult"
+        '400':
+          description: Bad request
+        '404':
+          description: The specified partition, site, or bucket does not exist within this node
+          schema:
+            $ref: "#/definitions/Error"
+        '500':
+          description: Local storage error. The node was unable to write the update to its local storage
+  /partitions/{partitionID}/sites/{siteID}/buckets/{bucketID}/keys:
+    get:
+      operationId: "bucket_get_internal"
+      summary: "Read Keys From A Bucket"
+      description: >
+        Read keys from a node
+      tags:
+      - cluster internal
+      - sync
+      parameters:
+      - name: prefix
+        in: query
+        type: string
+      - name: key
+        in: query
+        type: string
+      - name: partitionID
+        in: path
+        required: true
+        description: "Partition that the site database is in"
+        type: string
+      - name: siteID
+        in: path
+        required: true
+        description: "Site that the bucket is in"
+        type: string
+      - name: bucketID
+        in: path
+        required: true
+        description: "The bucket to merge the keys into"
+        type: string
+      responses:
+        '200':
+          description: "The node successfully processed the request, although it may not have written the update to its local storage. The response sets the .nApplied and .patch properties of the BatchResult. It is set to 1 if the operation was accepted and written to this node's local storage or 0 if this node does not actually contain this partition. The patch property contains a KeySet that can be merged into other replicas to fulfill this write request."
+          schema:
+            $ref: "#/definitions/BatchResult"
+        '400':
+          description: Bad request
+        '404':
+          description: The specified partition, site, or bucket does not exist within this node
+          schema:
+            $ref: "#/definitions/Error"
+        '500':
+          description: Local storage error. The node was unable to write the update to its local storage
+  /metrics:
+    get:
+      tags:
+      - cluster external
+  /raftmessages:
+    post:
+      operationId: "send_raft_messages"
+      summary: "Transfer Raft Protocol Messages"
+      description: >
+        The etcd/raft library allows the user to implement any transport they want
+        in order to transfer messages between Raft node. This endpoint is DeviceDB's Raft transport implementation over HTTP
+      tags:
+      - raft
+      - cluster internal
+  /relays/{relay}:
+    get:
+      operationId: "get_relay"
+      summary: "Get relay status"
+      description: >
+        Get the status of a certain relay including the site it is attached to and which cloud node it is connected to
+      tags:
+      - cluster external
+    put:
+      operationId: "put_relay"
+      tags:
+      - cluster external
+    patch:
+      operationId: "patch_relay"
+      tags:
+      - cluster external
+    delete:
+      operationId: "delete_relay"
+      tags:
+      - cluster external
+  /sites/{site}:
+    put:
+      tags:
+      - cluster external
+    delete:
+      tags:
+      - cluster external
+  /sites/{siteID}/buckets/{bucket}/merkle:
+    get:
+      tags:
+      - cluster internal
+      - sync
+  /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys:
+    get:
+      tags:
+      - cluster internal
+      - sync
+  /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}:
+    get:
+      tags:
+      - cluster internal
+      - sync
+  /partitions/{partition}/keys:
+    get:
+      tags:
+      - cluster internal
+  /sites/{site}/buckets/{bucket}/batches:
+    post:
+      tags:
+      - cluster external
+  /sites/{site}/buckets/{bucket}/keys:
+    get:
+      tags:
+      - cluster external
+  /snapshot:
+    post:
+      tags:
+      - cluster external
+  /snapshot/{id}:
+    get:
+      tags:
+      - cluster external
+  /snapshot/{id}.tar:
+    get:
+      tags:
+      - cluster external
+  /sync:
+    get:
+      tags:
+      - cluster external
+      - public
+      - sync
+definitions:
+  Error:
+    type: object
+    properties:
+      message:
+        description: A description of what went wrong
+        type: string
+      code:
+        description: A DeviceDB specific error code
+        type: integer
+  ClusterOverview:
+    type: object
+    properties:
+      Nodes:
+        type: array
+        items:
+          $ref: "#/definitions/NodeConfig"
+      ClusterSettings:
+        $ref: "#/definitions/ClusterSettings"
+      PartitionDistribution:
+        $ref: "#/definitions/PartitionDistribution"
+      TokenAssignments:
+        $ref: "#/definitions/TokenAssignments"
+  NodeConfig:
+    type: object
+    properties:
+      Address:
+        type: object
+        properties:
+          NodeID:
+            type: string
+          Host:
+            type: string
+          Port:
+            type: integer
+          Capacity:
+            type: integer
+  ClusterSettings:
+    type: object
+    properties:
+      ReplicationFactor:
+        type: integer
+      Partitions:
+        type: integer
+  PartitionDistribution:
+    type: array
+    items:
+      type: array
+      items:
+        type: integer
+  TokenAssignments:
+    type: array
+    items:
+      type: integer
+  LogDump:
+    type: object
+    properties:
+      BaseSnapshot:
+        $ref: "#/definitions/LogSnapshot"
+      Entries:
+        $ref: "#/definitions/LogEntry"
+      CurrentSnapshot: 
+        $ref: "#/definitions/LogSnapshot"
+  LogSnapshot:
+    type: object
+    properties:
+      Index:
+        type: integer
+      State:
+        $ref: "#/definitions/ClusterState"
+  LogEntry:
+    type: object
+    properties:
+      Index:
+        type: integer
+      Command:
+        $ref: "#/definitions/ClusterCommand"
+  ClusterState:
+    type: object
+    properties:
+      RemovedNodes:
+        type: object
+      Nodes:
+        type: object
+        properties:
+          "123":
+            $ref: "#/definitions/NodeConfig"
+      Tokens:
+        type: array
+        items:
+          type: boolean
+      Partitions:
+        type: array
+        items:
+          type: array
+          items:
+            $ref: "#/definitions/PartitionReplica"
+      ClusterSettings:
+        $ref: "#/definitions/ClusterSettings"
+      Sites:
+        type: object
+      Relays:
+        type: object
+  ClusterCommand:
+    type: object
+    properties:
+      Type:
+        type: integer
+      SubmitterID:
+        type: integer
+      CommandID:
+        type: integer
+      Data:
+        type: string
+  PartitionReplica:
+    type: object
+    properties:
+      Partition:
+        type: integer
+      Replica:
+        type: integer
+      Holder:
+        type: integer
+      Owner:
+        type: integer
+  KeySet:
+    type: object
+    properties:
+      key:
+        $ref: "#/definitions/SiblingSet"
+  SiblingSet:
+    type: array
+    items:
+      type: object
+      properties:
+        clock:
+          $ref: "#/definitions/DottedVersionVector"
+        value:
+          type: string
+        timestamp: 
+          type: integer
+  DottedVersionVector:
+    type: object
+    properties:
+      dot:
+        type: object
+        properties:
+          node:
+            type: string
+          count:
+            type: string
+      vv:
+        type: object
+        properties:
+          nodeID:
+            type: string
+  BatchResult:
+    type: object
+    properties:
+      nApplied:
+        type: integer
+        description: Number of replicas that the batch was successfully applied to
+      replicas:
+        type: integer
+        description: Number of replicas in the replica set for this site
+      Quorum:
+        type: boolean
+        description: Was write quorum achieved
+      patch:
+        description: "The diff between what updates were and what was already there"
+        $ref: "#/definitions/KeySet"

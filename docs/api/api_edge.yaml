@@ -1,0 +1,16 @@
+swagger: '2.0'
+info:
+  title: Edge API
+  version: "v1"
+consumes:
+  - application/json
+paths:
+  /{bucket}/batch:
+    post:
+  /{bucket}/values:
+    get:
+  /{bucket}/matches:
+    get:
+  /{bucket}/watch:
+    get:
+definitions:
