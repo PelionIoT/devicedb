@@ -1,29 +1,83 @@
 package storage
 
+import (
+	bolt "go.etcd.io/bbolt"
+)
+
+type utilRange struct {
+	start []byte
+	limit []byte
+}
+
 type BoltDBStorageIterator struct {
+	bucket    bolt.Bucket
+	cursor    *bolt.Cursor
+	ranges    []*utilRange
+	prefix    []byte
+	key       []byte
+	value     []byte
+	direction int
 }
 
-func (bt *BoltDBStorageIterator) Next() bool {
-	return true
+func (iter *BoltDBStorageIterator) Next() bool {
+	if iter.cursor == nil {
+		if len(iter.ranges) == 0 {
+			return false
+		}
+
+		iter.prefix = iter.ranges[0].start
+		iter.cursor = iter.bucket.Cursor()
+		iter.ranges = iter.ranges[1:]
+
+		if iter.direction == BACKWARD {
+			if k, v := iter.cursor.Last(); k != nil {
+				iter.key, iter.value = k, v
+				return true
+			}
+
+			iter.Release()
+
+			return false
+		}
+	}
+
+	if iter.direction == BACKWARD {
+		if k, v := iter.cursor.Next(); k != nil {
+			iter.key, iter.value = k, v
+			return true
+		}
+	} else {
+		if k, v := iter.cursor.Next(); k != nil {
+			iter.key, iter.value = k, v
+			return true
+		}
+	}
+
+	iter.Release()
+
+	return iter.Next()
 }
 
-func (bt *BoltDBStorageIterator) Prefix() []byte {
-	return nil
+func (iter *BoltDBStorageIterator) Prefix() []byte {
+	return iter.prefix
 }
 
-func (bt *BoltDBStorageIterator) Key() []byte {
-	return nil
+func (iter *BoltDBStorageIterator) Key() []byte {
+	return iter.key
 }
 
-func (bt *BoltDBStorageIterator) Value() []byte {
-	return nil
+func (iter *BoltDBStorageIterator) Value() []byte {
+	return iter.value
 }
 
-func (bt *BoltDBStorageIterator) Release() {
-
+func (iter *BoltDBStorageIterator) Release() {
+	iter.prefix = nil
+	iter.key = nil
+	iter.value = nil
+	iter.cursor = nil
 }
 
-func (bt *BoltDBStorageIterator) Error() error {
+func (iter *BoltDBStorageIterator) Error() error {
 	return nil
 }
 
@@ -34,54 +88,54 @@ func NewBoltDBStorageDriver() *BoltDBStorageDriver {
 	return &BoltDBStorageDriver{}
 }
 
-func (bd *BoltDBStorageDriver) Open() error {
+func (driver *BoltDBStorageDriver) Open() error {
 	return nil
 }
 
-func (bd *BoltDBStorageDriver) Close() error {
+func (driver *BoltDBStorageDriver) Close() error {
 	return nil
 }
 
-func (bd *BoltDBStorageDriver) Recover() error {
+func (driver *BoltDBStorageDriver) Recover() error {
 	return nil
 }
 
-func (bd *BoltDBStorageDriver) Compact() error {
+func (driver *BoltDBStorageDriver) Compact() error {
 	return nil
 }
 
-func (bd *BoltDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {
+func (driver *BoltDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {
 	values := make([][]byte, len(keys))
 
 	return values, nil
 }
 
-func (bd *BoltDBStorageDriver) GetMatches(keys [][]byte) (StorageIterator, error) {
+func (driver *BoltDBStorageDriver) GetMatches(keys [][]byte) (StorageIterator, error) {
 	return &BoltDBStorageIterator{}, nil
 }
 
-func (bd *BoltDBStorageDriver) GetRange(min, max []byte) (StorageIterator, error) {
+func (driver *BoltDBStorageDriver) GetRange(min, max []byte) (StorageIterator, error) {
 	return &BoltDBStorageIterator{}, nil
 }
 
-func (bd *BoltDBStorageDriver) GetRanges(ranges [][2][]byte, direction int) (StorageIterator, error) {
+func (driver *BoltDBStorageDriver) GetRanges(ranges [][2][]byte, direction int) (StorageIterator, error) {
 	return &BoltDBStorageIterator{}, nil
 }
 
-func (bd *BoltDBStorageDriver) Batch(batch *Batch) error {
+func (driver *BoltDBStorageDriver) Batch(batch *Batch) error {
 	return nil
 }
 
-func (bd *BoltDBStorageDriver) Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error {
+func (driver *BoltDBStorageDriver) Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error {
 	return nil
 }
 
-func (bd *BoltDBStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
+func (driver *BoltDBStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
 	snapshotDB := NewBoltDBStorageDriver()
 
 	return snapshotDB, nil
 }
 
-func (bd *BoltDBStorageDriver) Restore(storageDriver StorageDriver) error {
+func (driver *BoltDBStorageDriver) Restore(storageDriver StorageDriver) error {
 	return nil
 }
