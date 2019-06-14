@@ -1,9 +1,8 @@
 package storage
 
 import (
+	. "devicedb/logging"
 	"errors"
-	"sort"
-	"strings"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -16,51 +15,65 @@ type utilRange struct {
 type BoltDBStorageIterator struct {
 	db         *bolt.DB
 	rootBucket string
-	cursor     *bolt.Cursor
 	ranges     []*utilRange
 	prefix     []byte
 	key        []byte
 	value      []byte
 	direction  int
+	err        error
 }
 
 func (iter *BoltDBStorageIterator) Next() bool {
-	// if iter.cursor == nil {
-	// 	if len(iter.ranges) == 0 {
-	// 		return false
-	// 	}
+	var tx *bolt.Tx
+	var err error
 
-	// 	iter.prefix = iter.ranges[0].start
-	// 	iter.cursor = iter.bucket.Cursor() //
-	// 	iter.ranges = iter.ranges[1:]
+	if tx, err = iter.db.Begin(false); err != nil {
+		prometheusRecordStorageError("iterator.next()", "")
+		iter.err = err
 
-	// 	if iter.direction == BACKWARD {
-	// 		if k, v := iter.cursor.Last(); k != nil {
-	// 			iter.key, iter.value = k, v
-	// 			return true
-	// 		}
+		return false
+	}
+	defer tx.Rollback()
 
-	// 		iter.Release()
+	var b *bolt.Bucket
+	if b = tx.Bucket([]byte(iter.rootBucket)); b == nil {
+		prometheusRecordStorageError("iterator.next()", "")
+		iter.err = errors.New("there is no such bucket in BoltDB")
 
-	// 		return false
-	// 	}
-	// }
+		return false
+	}
 
-	// if iter.direction == BACKWARD {
-	// 	if k, v := iter.cursor.Next(); k != nil {
-	// 		iter.key, iter.value = k, v
-	// 		return true
-	// 	}
-	// } else {
-	// 	if k, v := iter.cursor.Next(); k != nil {
-	// 		iter.key, iter.value = k, v
-	// 		return true
-	// 	}
-	// }
+	c := b.Cursor()
 
-	// iter.Release()
+	if iter.value == nil {
+		if len(iter.ranges) == 0 {
+			return false
+		}
 
-	// return iter.Next()
+		iter.prefix = iter.ranges[0].start
+		iter.ranges = iter.ranges[1:]
+
+		if iter.direction == BACKWARD {
+			k, _ := c.Last()
+			if string(iter.prefix) == string(k) {
+				return true
+			}
+
+			iter.Release()
+
+			return false
+		}
+	}
+
+	if iter.direction == BACKWARD {
+
+	} else {
+
+	}
+
+	iter.Release()
+
+	return iter.Next()
 }
 
 func (iter *BoltDBStorageIterator) Prefix() []byte {
@@ -79,11 +92,10 @@ func (iter *BoltDBStorageIterator) Release() {
 	iter.prefix = nil
 	iter.key = nil
 	iter.value = nil
-	iter.cursor = nil
 }
 
 func (iter *BoltDBStorageIterator) Error() error {
-	return nil
+	return iter.err
 }
 
 type BoltDBStorageDriver struct {
@@ -94,7 +106,7 @@ type BoltDBStorageDriver struct {
 }
 
 func NewBoltDBStorageDriver(file string, rootBucket string, options *bolt.Options) *BoltDBStorageDriver {
-	return &BoltDBStorageDriver{file, rootBucket, options, nil, nil}
+	return &BoltDBStorageDriver{file, rootBucket, options, nil}
 }
 
 func (driver *BoltDBStorageDriver) Open() error {
@@ -102,7 +114,7 @@ func (driver *BoltDBStorageDriver) Open() error {
 
 	db, err := bolt.Open(driver.file, 0666, driver.options)
 	if err != nil {
-		// log
+		Log.Errorf("Could not open the database: %v. Error: %v", driver.file, err)
 
 		return err
 	}
@@ -121,7 +133,7 @@ func (driver *BoltDBStorageDriver) Close() error {
 
 	driver.db = nil
 
-	return nil
+	return err
 }
 
 func (driver *BoltDBStorageDriver) Recover() error {
@@ -147,11 +159,10 @@ func (driver *BoltDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {
 
 	values := make([][]byte, len(keys))
 
-	// use view transaction here as this is a read operation and it would act like the snapshot of leveldb
 	if err := driver.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(driver.rootBucket))
 		if bucket == nil {
-			// log here: only retrieves values when the root bucket exists
+			Log.Errorf("The root bucket is not exist")
 
 			return errors.New("No such bucket")
 		}
@@ -166,47 +177,12 @@ func (driver *BoltDBStorageDriver) Get(keys [][]byte) ([][]byte, error) {
 
 		return nil
 	}); err != nil {
-		// log here: something went wrong here, which is the error that No such bucket
+		Log.Errorf("Something went wrong when trying to initialize the transaction of the database")
 
 		return nil, err
 	}
 
 	return values, nil
-}
-
-func consolidateKeys(keys [][]byte) [][]byte {
-	if keys == nil {
-		return [][]byte{}
-	}
-
-	s := make([]string, 0, len(keys))
-
-	for _, key := range keys {
-		if key == nil {
-			continue
-		}
-
-		s = append(s, string([]byte(key)))
-	}
-
-	sort.Strings(s)
-
-	result := make([][]byte, 0, len(s))
-
-	for i := 0; i < len(s); i++ {
-		if i == 0 {
-			result = append(result, []byte(s[i]))
-			continue
-		}
-
-		if !strings.HasPrefix(s[i], s[i-1]) {
-			result = append(result, []byte(s[i]))
-		} else {
-			s[i] = s[i-1]
-		}
-	}
-
-	return result
 }
 
 func bytesPrefix(prefix []byte) *utilRange {
@@ -232,7 +208,7 @@ func (driver *BoltDBStorageDriver) GetMatches(keys [][]byte) (StorageIterator, e
 
 	ranges := make([]*utilRange, 0, len(keys))
 	if keys == nil {
-		return &BoltDBStorageIterator{driver.db, driver.rootBucket, nil, ranges, nil, nil, nil, FORWARD}, nil
+		return &BoltDBStorageIterator{driver.db, driver.rootBucket, ranges, nil, nil, nil, FORWARD, nil}, nil
 	}
 
 	for _, key := range keys {
@@ -243,7 +219,7 @@ func (driver *BoltDBStorageDriver) GetMatches(keys [][]byte) (StorageIterator, e
 		}
 	}
 
-	return &BoltDBStorageIterator{driver.db, driver.rootBucket, nil, ranges, nil, nil, nil, FORWARD}, nil
+	return &BoltDBStorageIterator{driver.db, driver.rootBucket, ranges, nil, nil, nil, FORWARD, nil}, nil
 }
 
 func (driver *BoltDBStorageDriver) GetRange(min, max []byte) (StorageIterator, error) {
@@ -253,7 +229,7 @@ func (driver *BoltDBStorageDriver) GetRange(min, max []byte) (StorageIterator, e
 
 	ranges := []*utilRange{&utilRange{min, max}}
 
-	return &BoltDBStorageIterator{driver.db, driver.rootBucket, nil, ranges, nil, nil, nil, FORWARD}, nil
+	return &BoltDBStorageIterator{driver.db, driver.rootBucket, ranges, nil, nil, nil, FORWARD, nil}, nil
 }
 
 func (driver *BoltDBStorageDriver) GetRanges(ranges [][2][]byte, direction int) (StorageIterator, error) {
@@ -267,7 +243,7 @@ func (driver *BoltDBStorageDriver) GetRanges(ranges [][2][]byte, direction int) 
 		levelRanges[i] = &utilRange{ranges[i][0], ranges[i][1]}
 	}
 
-	return &BoltDBStorageIterator{driver.db, driver.rootBucket, nil, levelRanges, nil, nil, nil, direction}, nil
+	return &BoltDBStorageIterator{driver.db, driver.rootBucket, levelRanges, nil, nil, nil, direction, nil}, nil
 }
 
 func (driver *BoltDBStorageDriver) Batch(batch *Batch) error {
@@ -285,7 +261,7 @@ func (driver *BoltDBStorageDriver) Batch(batch *Batch) error {
 	if err = driver.db.Update(func(tx *bolt.Tx) error {
 		if bucket = tx.Bucket([]byte(driver.rootBucket)); bucket == nil {
 			if bucket, err = tx.CreateBucket([]byte(driver.rootBucket)); err != nil {
-				// log here: something went wrong when try to create the bucket
+				Log.Errorf("Something went wrong when trying to create a bucket: %v", err)
 
 				return err
 			}
@@ -302,7 +278,7 @@ func (driver *BoltDBStorageDriver) Batch(batch *Batch) error {
 
 		return nil
 	}); err != nil {
-		// log here: something went wrong when trying to insert or delete date
+		Log.Errorf("Something went wrong when trying to insert or delete data")
 
 		return err
 	}
@@ -311,16 +287,162 @@ func (driver *BoltDBStorageDriver) Batch(batch *Batch) error {
 }
 
 func (driver *BoltDBStorageDriver) Snapshot(snapshotDirectory string, metadataPrefix []byte, metadata map[string]string) error {
+	if driver.db == nil {
+		return errors.New("Driver is closed")
+	}
+
+	snapshotDB, err := bolt.Open(snapshotDirectory, 0666, nil)
+	if err != nil {
+		Log.Errorf("Can't create snapshot because %s could not be opened for writing: %v", snapshotDirectory, err)
+
+		return err
+	}
+
+	Log.Debugf("Copying database contents to snapshot at %s", snapshotDirectory)
+
+	//If a long running read transaction (for example, a snapshot transaction) is needed, you might want to set DB.InitialMmapSize to a large enough value to avoid potential blocking of write transaction.
+	if err := boltCopy(driver.rootBucket, snapshotDB, driver.db); err != nil {
+		prometheusRecordStorageError("snapshot()", driver.file)
+
+		Log.Errorf("Can't create snapshot because there was an error while copying the keys: %v", err)
+
+		return err
+	}
+
+	Log.Debugf("Recording snapshot metadata: %v", metadata)
+
+	if err := snapshotDB.Update(func(tx *bolt.Tx) error {
+		var snapshotBucket *bolt.Bucket
+
+		if snapshotBucket = tx.Bucket([]byte(driver.rootBucket)); snapshotBucket == nil {
+			prometheusRecordStorageError("snapshot()", driver.file)
+
+			Log.Error("Can't find the root bucket in the snapshot")
+
+			return errors.New("Can't create snapshot because there was a problem opening the root bucket in the snapshot")
+		}
+
+		Log.Debugf("Recording snapshot metadata: %v", metadata)
+
+		for metaKey, metaValue := range metadata {
+			key := make([]byte, len(metadataPrefix)+len([]byte(metaKey)))
+
+			copy(key, metadataPrefix)
+			copy(key[len(metadataPrefix):], []byte(metaKey))
+
+			if err := snapshotBucket.Put(key, []byte(metaValue)); err != nil {
+				prometheusRecordStorageError("snapshot()", driver.file)
+
+				Log.Errorf("Can't create snapshot because there was a problem recording the snapshot metadata: %v", err)
+
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		prometheusRecordStorageError("snapshot()", driver.file)
+
+		Log.Errorf("Can't create the snapshot because there was a problem opening the snapshot")
+
+		return err
+	}
+
+	Log.Debugf("Created snapshot at %s", snapshotDirectory)
+
+	return nil
+}
+
+func boltCopy(rootBucket string, dest *bolt.DB, src *bolt.DB) error {
+	var err error
+	var srcBucket *bolt.Bucket
+	var destBucket *bolt.Bucket
+
+	if err = src.View(func(tx *bolt.Tx) error {
+		if srcBucket = tx.Bucket([]byte(rootBucket)); srcBucket == nil {
+			Log.Error("Can't find the root bucket in the source BoltDB when trying to create the snapshotDB from it")
+
+			return errors.New("There is no root bucket in the source DB when trying to create the snapshot DB")
+		}
+
+		if err = dest.Update(func(tx *bolt.Tx) error {
+			if destBucket = tx.Bucket([]byte(rootBucket)); destBucket == nil {
+				if destBucket, err = tx.CreateBucketIfNotExists([]byte(rootBucket)); err != nil {
+					Log.Errorf("Can't create the root bucket in the snapshot DB when trying to copy the key-value pair to snapshot DB")
+
+					return err
+				}
+			}
+
+			if err = srcBucket.ForEach(func(k, v []byte) error {
+				if err = destBucket.Put(k, v); err != nil {
+					Log.Errorf("Can't copy the key-value pair %v:%v to the destination snapshot: %v", k, v, err)
+
+					return err
+				}
+
+				return nil
+			}); err != nil {
+				Log.Errorf("Can't create the snapshot DB because there was a problem writing the key-value pair to destination: %v", err)
+
+				return err
+			}
+
+			Log.Debugf("Finished copy the entire source database to the snapshot DB")
+
+			return nil
+		}); err != nil {
+			Log.Errorf("Something went wrong when trying to open the snapshot database")
+
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		Log.Errorf("Something went wrong when trying to open the source database")
+
+		return err
+	}
 
 	return nil
 }
 
 func (driver *BoltDBStorageDriver) OpenSnapshot(snapshotDirectory string) (StorageDriver, error) {
-	snapshotDB := NewBoltDBStorageDriver()
+	snapshotDB := NewBoltDBStorageDriver(snapshotDirectory, driver.rootBucket, nil)
+
+	if err := snapshotDB.Open(); err != nil {
+		prometheusRecordStorageError("restore()", driver.file)
+
+		return nil, err
+	}
 
 	return snapshotDB, nil
 }
 
 func (driver *BoltDBStorageDriver) Restore(storageDriver StorageDriver) error {
+	Log.Debugf("Restoring storage state from snapshot...")
+
+	if otherDriver, ok := storageDriver.(*BoltDBStorageDriver); ok {
+		err := driver.restoreBolt(otherDriver)
+
+		if err != nil {
+			prometheusRecordStorageError("restore()", driver.file)
+		}
+
+		return err
+	}
+
+	return errors.New("Snapshot source format not supported")
+}
+
+func (driver *BoltDBStorageDriver) restoreBolt(otherDriver *BoltDBStorageDriver) error {
+	if err := boltCopy(driver.rootBucket, driver.db, otherDriver.db); err != nil {
+		Log.Errorf("Unable to copy snapshot data to primary node storage: %v", err)
+
+		return err
+	}
+
+	Log.Debugf("Copied snapshot data to node storage successfully")
+
 	return nil
 }
