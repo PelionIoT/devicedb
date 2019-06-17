@@ -65,9 +65,29 @@ func (iter *BoltDBStorageIterator) Next() bool {
 		}
 	}
 
+	cur_k, cur_v := c.Seek(key)
+
 	if iter.direction == BACKWARD {
+		if cur_k != nil && string(cur_k) != string(iter.prefix) {
+			prev_k, prev_v = c.Prev()
+			iter.key = prev_k
+			iter.value = prev_v
+
+			if prev_k != nil {
+				return true
+			}
+		}
 
 	} else {
+		if cur_k != nil && string(cur_k) != string(iter.ranges[0].end) {
+			next_k, next_v = c.Next()
+			iter.key = next_k
+			iter.value = next_v
+
+			if next_k != nil {
+				return true
+			}
+		}
 
 	}
 
