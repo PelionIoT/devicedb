@@ -6,8 +6,8 @@ import (
     "io"
     "net/http"
 
-	. "devicedb/error"
-	. "devicedb/logging"
+	. "github.com/armPelionEdge/devicedb/error"
+	. "github.com/armPelionEdge/devicedb/logging"
 )
 
 type SnapshotEndpoint struct {

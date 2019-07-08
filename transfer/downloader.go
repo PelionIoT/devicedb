@@ -7,10 +7,10 @@ import (
     "sync"
     "time"
 
-    . "devicedb/cluster"
-    . "devicedb/data"
-    . "devicedb/logging"
-    . "devicedb/partition"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/partition"
 )
 
 type PartitionDownloader interface {

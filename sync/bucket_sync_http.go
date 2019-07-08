@@ -1,11 +1,11 @@
 package sync
 
 import (
-    . "devicedb/cluster"
-    . "devicedb/error"
-    . "devicedb/logging"
-    . "devicedb/rest"
-    . "devicedb/partition"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/rest"
+    . "github.com/armPelionEdge/devicedb/partition"
 
     "io"
     "net/http"

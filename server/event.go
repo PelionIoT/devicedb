@@ -1,7 +1,7 @@
 package server
 
 import (
-	"devicedb/historian"
+	"github.com/armPelionEdge/devicedb/historian"
 	"encoding/json"
 )
 

@@ -1,7 +1,7 @@
 package client
 
 import (
-    "devicedb/transport"
+    "github.com/armPelionEdge/devicedb/transport"
 )
 
 // Contains a database update operation

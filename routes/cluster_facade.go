@@ -6,10 +6,10 @@ import (
     "io"
     "net/http"
 
-    . "devicedb/bucket"
-    . "devicedb/data"
-    . "devicedb/cluster"
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/raft"
 )
 
 type ClusterFacade interface {

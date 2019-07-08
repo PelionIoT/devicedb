@@ -7,11 +7,11 @@ import (
     "net/http"
     "strconv"
 
-    . "devicedb/bucket"
-    . "devicedb/cluster"
-    . "devicedb/data"
-    . "devicedb/error"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 type PartitionsEndpoint struct {

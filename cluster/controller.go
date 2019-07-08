@@ -4,9 +4,9 @@ import (
     "errors"
     "sync"
     "sort"
-    "devicedb/raft"
+    "github.com/armPelionEdge/devicedb/raft"
 
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 var ENoSuchCommand = errors.New("The cluster command type is not supported")

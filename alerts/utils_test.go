@@ -1,7 +1,7 @@
 package alerts_test
 
 import (
-	. "devicedb/alerts"
+	. "github.com/armPelionEdge/devicedb/alerts"
 )
 
 type MockAlertStore struct {

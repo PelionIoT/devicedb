@@ -8,12 +8,12 @@ import (
     "net/http/httptest"
     "strings"
 
-    . "devicedb/bucket"
-    . "devicedb/error"
-    . "devicedb/cluster"
-    . "devicedb/data"
-    . "devicedb/routes"
-    . "devicedb/transport"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/transport"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

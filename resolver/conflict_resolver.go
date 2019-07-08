@@ -1,7 +1,7 @@
 package resolver
 
 import (
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/data"
 )
 
 type ConflictResolver interface {

@@ -5,7 +5,7 @@ import (
     "github.com/gorilla/websocket"
     "net/http"
 
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 type SyncEndpoint struct {

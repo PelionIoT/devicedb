@@ -1,11 +1,11 @@
 package site_test
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/data"
-    . "devicedb/site"
-    . "devicedb/storage"
-    . "devicedb/util"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/site"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/util"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

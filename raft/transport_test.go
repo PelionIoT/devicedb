@@ -1,7 +1,7 @@
 package raft_test
 
 import (
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/raft"
     "github.com/coreos/etcd/raft/raftpb"
     "github.com/gorilla/mux"
     "net"

@@ -1,8 +1,8 @@
 package storage_test
 
 import (
-    . "devicedb/storage"
-    . "devicedb/util"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/util"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

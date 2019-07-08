@@ -4,8 +4,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"devicedb/historian"
-	. "devicedb/server"
+	"github.com/armPelionEdge/devicedb/historian"
+	. "github.com/armPelionEdge/devicedb/server"
 )
 
 var _ = Describe("Event", func() {

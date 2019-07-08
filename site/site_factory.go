@@ -1,10 +1,10 @@
 package site
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/bucket/builtin"
-    . "devicedb/merkle"
-    . "devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/bucket/builtin"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/storage"
 )
 
 var keyStorePrefix = []byte{ 0 }

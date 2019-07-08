@@ -3,8 +3,8 @@ package bucket
 import (
     "container/heap"
     "context"   
-    "devicedb/data"
-    . "devicedb/logging"
+    "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/logging"
     "strings"
     "sync"
 )

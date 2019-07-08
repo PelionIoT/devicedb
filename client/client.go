@@ -11,11 +11,11 @@ import (
     "context"
     "fmt"
 
-    . "devicedb/raft"
-    . "devicedb/error"
-    . "devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/cluster"
 
-    "devicedb/rest"
+    "github.com/armPelionEdge/devicedb/rest"
 )
 
 const DefaultClientTimeout = time.Second * 10

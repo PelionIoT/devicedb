@@ -11,8 +11,8 @@ import (
     "github.com/syndtr/goleveldb/leveldb/util"
     levelErrors "github.com/syndtr/goleveldb/leveldb/errors"
 
-    . "devicedb/error"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 const (

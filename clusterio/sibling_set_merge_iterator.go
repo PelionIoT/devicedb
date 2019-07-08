@@ -3,7 +3,7 @@ package clusterio
 import (
     "sort"
 
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/data"
 )
 
 type SiblingSetMergeIterator struct {

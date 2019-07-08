@@ -8,10 +8,10 @@ import (
     "net/http"
     "net/http/httptest"
 
-    . "devicedb/cluster"
-    . "devicedb/error"
-    . "devicedb/raft"
-    . "devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/routes"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

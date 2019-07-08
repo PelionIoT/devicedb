@@ -7,9 +7,9 @@ import (
     "context"
     "time"
     
-    . "devicedb/storage"
-    . "devicedb/cluster"
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

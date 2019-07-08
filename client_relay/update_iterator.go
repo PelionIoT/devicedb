@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"devicedb/transport"
+	"github.com/armPelionEdge/devicedb/transport"
 )
 
 type UpdateIterator interface {

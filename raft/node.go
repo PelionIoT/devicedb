@@ -6,7 +6,7 @@ import (
     "errors"
     "context"
 
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/logging"
     
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"

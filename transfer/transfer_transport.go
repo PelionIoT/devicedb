@@ -7,7 +7,7 @@ import (
     "net/http"
     "io"
 
-    . "devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/cluster"
 )
 
 const DefaultEndpointURL = "/partitions/%d/keys"

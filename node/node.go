@@ -3,9 +3,9 @@ package node
 import (
     "context"
     
-    . "devicedb/bucket"
-    . "devicedb/data"
-    . "devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/routes"
 )
 
 // A Node coordinates interactions between

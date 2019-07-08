@@ -4,7 +4,7 @@ import (
     "context"
     "sync"
     
-    . "devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/cluster"
 )
 
 type PartitionTransferProposer interface {

@@ -1,7 +1,7 @@
 package partition
 
 import (
-    . "devicedb/site"
+    . "github.com/armPelionEdge/devicedb/site"
 )
 
 type PartitionFactory interface {

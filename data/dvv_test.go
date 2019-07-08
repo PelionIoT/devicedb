@@ -1,7 +1,7 @@
 package data_test
 
 import (
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/data"
     
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

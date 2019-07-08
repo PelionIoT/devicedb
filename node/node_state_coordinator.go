@@ -1,9 +1,9 @@
 package node
 
 import (
-    . "devicedb/cluster"
-    . "devicedb/node_facade"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/node_facade"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 type ClusterNodeStateCoordinator struct {

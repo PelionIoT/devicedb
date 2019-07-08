@@ -1,7 +1,7 @@
 package strategies
 
 import (
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/data"
 )
 
 type MultiValue struct {

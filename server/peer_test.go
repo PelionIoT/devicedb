@@ -8,11 +8,11 @@ import (
     "crypto/x509"
     "io/ioutil"
     
-    . "devicedb/server"
-    . "devicedb/util"
-    . "devicedb/bucket"
-    . "devicedb/data"
-    ddbSync "devicedb/sync"
+    . "github.com/armPelionEdge/devicedb/server"
+    . "github.com/armPelionEdge/devicedb/util"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    ddbSync "github.com/armPelionEdge/devicedb/sync"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

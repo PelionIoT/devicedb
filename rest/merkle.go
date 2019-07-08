@@ -1,7 +1,7 @@
 package rest
 
 import (
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/data"
 )
 
 type MerkleTree struct {

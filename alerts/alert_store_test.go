@@ -4,9 +4,9 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	. "devicedb/alerts"
-	. "devicedb/storage"
-    . "devicedb/util"
+	. "github.com/armPelionEdge/devicedb/alerts"
+	. "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/util"
 )
 
 var _ = Describe("AlertStore", func() {

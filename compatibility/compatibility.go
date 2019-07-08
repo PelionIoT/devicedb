@@ -9,13 +9,13 @@ import (
     "errors"
     "fmt"
 
-    . "devicedb/shared"
-    . "devicedb/storage"
-    . "devicedb/logging"
-    . "devicedb/data"
-    . "devicedb/bucket"
-    . "devicedb/merkle"
-    . "devicedb/bucket/builtin"
+    . "github.com/armPelionEdge/devicedb/shared"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/bucket/builtin"
 )
 
 func SiblingToNormalizedJSON(sibling *Sibling) string {

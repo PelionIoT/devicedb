@@ -1,7 +1,7 @@
 package site
 
 import (
-    . "devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/bucket"
 )
 
 type Site interface {

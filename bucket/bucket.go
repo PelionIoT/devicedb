@@ -4,8 +4,8 @@ import (
     "context"
     "errors"
 
-    . "devicedb/data"
-    . "devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/merkle"
 )
 
 var ENoSuchBucket = errors.New("No such bucket")

@@ -3,7 +3,7 @@ package transfer
 import (
     "io"
 
-    . "devicedb/partition"
+    . "github.com/armPelionEdge/devicedb/partition"
 )
 
 type PartitionTransferFactory interface {

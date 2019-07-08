@@ -9,9 +9,9 @@ import (
 	"path"
 	"sync"
 
-	. "devicedb/error"
-	. "devicedb/logging"
-	. "devicedb/storage"
+	. "github.com/armPelionEdge/devicedb/error"
+	. "github.com/armPelionEdge/devicedb/logging"
+	. "github.com/armPelionEdge/devicedb/storage"
 )
 
 
