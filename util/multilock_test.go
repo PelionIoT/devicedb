@@ -3,7 +3,7 @@ package util_test
 import (
     "sync"
     
-    . "devicedb/util"
+    . "github.com/armPelionEdge/devicedb/util"
     
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

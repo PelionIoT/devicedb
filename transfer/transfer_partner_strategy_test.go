@@ -1,9 +1,9 @@
 package transfer_test
 
 import (
-    . "devicedb/cluster"
-    . "devicedb/raft"
-    . "devicedb/transfer"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/transfer"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

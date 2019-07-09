@@ -1,12 +1,12 @@
 package server_test
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/data"
-    . "devicedb/merkle"
-    . "devicedb/server"
-    . "devicedb/util"
-    ddbSync "devicedb/sync"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/server"
+    . "github.com/armPelionEdge/devicedb/util"
+    ddbSync "github.com/armPelionEdge/devicedb/sync"
     
     "time"
 

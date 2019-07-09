@@ -3,9 +3,9 @@ package routes
 import (
     "time"
 
-    . "devicedb/cluster"
-    . "devicedb/data"
-    . "devicedb/transport"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/transport"
 )
 
 const (

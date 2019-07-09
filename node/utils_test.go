@@ -3,12 +3,12 @@ package node_test
 import (
     "context"
 
-    . "devicedb/bucket"
-    . "devicedb/cluster"
-    . "devicedb/data"
-    . "devicedb/node"
-    . "devicedb/raft"
-    . "devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/node"
+    . "github.com/armPelionEdge/devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/routes"
 
     "github.com/coreos/etcd/raft/raftpb"
 )

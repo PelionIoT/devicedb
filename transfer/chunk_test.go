@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-    . "devicedb/transfer"
+    . "github.com/armPelionEdge/devicedb/transfer"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

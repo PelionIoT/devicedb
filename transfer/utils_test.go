@@ -8,13 +8,13 @@ import (
     "net"
     "net/http"
 
-    . "devicedb/transfer"
-    . "devicedb/site"
-    . "devicedb/partition"
-    . "devicedb/data"
-    . "devicedb/cluster"
-    . "devicedb/merkle"
-    . "devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/transfer"
+    . "github.com/armPelionEdge/devicedb/site"
+    . "github.com/armPelionEdge/devicedb/partition"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/bucket"
 
     "github.com/coreos/etcd/raft/raftpb"
 )

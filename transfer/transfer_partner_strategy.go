@@ -3,7 +3,7 @@ package transfer
 import (
     "math/rand"
 
-    . "devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/cluster"
 )
 
 type PartitionTransferPartnerStrategy interface {

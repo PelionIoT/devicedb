@@ -3,10 +3,10 @@ package clusterio_test
 import (
     "context"
 
-    . "devicedb/bucket"
-    . "devicedb/clusterio"
-    . "devicedb/data"
-    . "devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/clusterio"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/routes"
 )
 
 type MockPartitionResolver struct {

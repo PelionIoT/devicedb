@@ -1,7 +1,7 @@
 package node
 
 import (
-    . "devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/cluster"
 )
 
 type PartitionResolver struct {

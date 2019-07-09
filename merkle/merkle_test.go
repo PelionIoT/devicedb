@@ -1,8 +1,8 @@
 package merkle_test
 
 import (
-    . "devicedb/data"
-    . "devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/merkle"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

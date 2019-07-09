@@ -9,11 +9,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
     "net/http"
 
-    . "devicedb/bucket"
-    . "devicedb/cluster"
-    . "devicedb/error"
-    . "devicedb/logging"
-    . "devicedb/transport"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/transport"
 )
 
 var (

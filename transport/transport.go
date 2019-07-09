@@ -4,10 +4,10 @@ import (
     "encoding/json"
     "encoding/base64"
 
-    . "devicedb/data"
-    . "devicedb/error"
-    . "devicedb/bucket"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 type TransportRow struct {

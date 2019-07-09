@@ -1,7 +1,7 @@
 package cluster
 
 import (
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/raft"
 )
 
 type ClusterConfigControllerBuilder interface {

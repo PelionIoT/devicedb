@@ -8,11 +8,11 @@ import (
     "crypto/x509"
     "io/ioutil"
     
-    . "devicedb/server"
-    . "devicedb/util"
-    . "devicedb/bucket"
-    . "devicedb/data"
-    ddbSync "devicedb/sync"
+    . "github.com/armPelionEdge/devicedb/server"
+    . "github.com/armPelionEdge/devicedb/util"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    ddbSync "github.com/armPelionEdge/devicedb/sync"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"
@@ -63,10 +63,8 @@ var _ = Describe("Hub", func() {
     var initiatorSyncController *SyncController
     var responderSyncController *SyncController
     var neutralSyncController *SyncController
-    var initiatorServer *Server
     var responderServer *Server
-    var neutralServer *Server
-    
+        
     responderServerTLS, responderClientTLS, err := loadCerts("WWRL000000")
 
     if err != nil {
@@ -97,7 +95,7 @@ var _ = Describe("Hub", func() {
         
         initiatorSyncController = NewSyncController(2, nil, ddbSync.NewPeriodicSyncScheduler(SYNC_PERIOD_MS), 1000)
         initiatorHub = NewHub("", initiatorSyncController, initiatorClientTLS)
-        initiatorServer, _ = NewServer(ServerConfig{
+        _, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + RandomString(),
             Port: 8181,
             ServerTLS: initiatorServerTLS,
@@ -106,7 +104,7 @@ var _ = Describe("Hub", func() {
         
         neutralSyncController = NewSyncController(2, nil, ddbSync.NewPeriodicSyncScheduler(SYNC_PERIOD_MS), 1000)
         neutralHub = NewHub("", neutralSyncController, initiatorClientTLS) // WWRL000001
-        neutralServer, _ = NewServer(ServerConfig{
+        _, _ = NewServer(ServerConfig{
             DBFile: "/tmp/testdb-" + RandomString(),
             Port: 8282,
             ServerTLS: initiatorServerTLS,

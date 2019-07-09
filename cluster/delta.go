@@ -1,7 +1,7 @@
 package cluster
 
 import (
-    ddbRaft "devicedb/raft"
+    ddbRaft "github.com/armPelionEdge/devicedb/raft"
 )
 
 type ClusterStateDeltaType int

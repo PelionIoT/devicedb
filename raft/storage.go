@@ -4,7 +4,7 @@ import (
     "sync"
     "errors"
 
-    . "devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/storage"
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
     "encoding/binary"

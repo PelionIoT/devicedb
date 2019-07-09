@@ -7,11 +7,11 @@ import (
     "sync"
     "time"
 
-    . "devicedb/bucket"
-    . "devicedb/data"
-    . "devicedb/error"
-    . "devicedb/logging"
-    . "devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/routes"
 )
 
 var (

@@ -1,8 +1,8 @@
 package site
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
 )
 
 type SiteIterator interface {

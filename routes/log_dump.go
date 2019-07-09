@@ -6,7 +6,7 @@ import (
     "io"
     "net/http"
 
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 type LogDumpEndpoint struct {

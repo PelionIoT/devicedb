@@ -1,16 +1,16 @@
 package sync_test
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/data"
-    . "devicedb/merkle"
-    rest "devicedb/rest"
-    . "devicedb/cluster"
-    . "devicedb/client"
-    . "devicedb/raft"
-    . "devicedb/site"
-    . "devicedb/partition"
-    . "devicedb/sync"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    rest "github.com/armPelionEdge/devicedb/rest"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/client"
+    . "github.com/armPelionEdge/devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/site"
+    . "github.com/armPelionEdge/devicedb/partition"
+    . "github.com/armPelionEdge/devicedb/sync"
 
     "github.com/coreos/etcd/raft/raftpb"
     "github.com/gorilla/mux"

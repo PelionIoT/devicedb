@@ -5,8 +5,8 @@ import (
     "sync"
     "time"
 
-    . "devicedb/data"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 type ReadRepairer struct {

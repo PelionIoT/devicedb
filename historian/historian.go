@@ -10,9 +10,9 @@ import (
     "sort"
     "sync"
     
-    . "devicedb/storage"
-    . "devicedb/error"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
 )
 
 var (

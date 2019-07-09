@@ -5,7 +5,7 @@ import (
     "sort"
     "sync"
 
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/data"
 )
 
 type NodeTokenCount struct {

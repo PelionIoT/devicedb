@@ -1,9 +1,9 @@
 package builtin
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/storage"
-    . "devicedb/resolver/strategies"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/resolver/strategies"
 )
 
 type LWWBucket struct {

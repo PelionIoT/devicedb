@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"devicedb/client"
-	"devicedb/transport"
+	"github.com/armPelionEdge/devicedb/client"
+	"github.com/armPelionEdge/devicedb/transport"
 )
 
 type EntryIterator interface {

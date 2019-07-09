@@ -5,9 +5,9 @@ import (
     "net/http"
     "time"
 
-    . "devicedb/cluster"
-    . "devicedb/transfer"
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/transfer"
+    . "github.com/armPelionEdge/devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

@@ -8,10 +8,10 @@ import (
     "net/http"
     "strconv"
 
-    . "devicedb/cluster"
-    . "devicedb/error"
-    . "devicedb/logging"
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/raft"
 )
 
 type ClusterEndpoint struct {

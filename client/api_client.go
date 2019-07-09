@@ -9,8 +9,8 @@ import (
     "io/ioutil"
     "net/http"
 
-    "devicedb/routes"
-    . "devicedb/error"
+    "github.com/armPelionEdge/devicedb/routes"
+    . "github.com/armPelionEdge/devicedb/error"
 )
 
 type APIClientConfig struct {

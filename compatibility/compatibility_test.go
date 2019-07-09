@@ -1,8 +1,8 @@
 package compatibility_test
 
 import (
-    . "devicedb/compatibility"
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/compatibility"
+    . "github.com/armPelionEdge/devicedb/data"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

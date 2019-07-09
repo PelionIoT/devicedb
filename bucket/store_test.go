@@ -1,11 +1,11 @@
 package bucket_test
 
 import (
-    . "devicedb/bucket"
-    . "devicedb/error"
-    . "devicedb/storage"
-    . "devicedb/merkle"
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/data"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

@@ -1,9 +1,9 @@
 package site_test
 
 import (
-    . "devicedb/site"
-    . "devicedb/storage"
-    . "devicedb/util"
+    . "github.com/armPelionEdge/devicedb/site"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/util"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

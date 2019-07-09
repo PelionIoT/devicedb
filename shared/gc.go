@@ -3,8 +3,8 @@ package shared
 import (
     "time"
 
-    . "devicedb/logging"
-    . "devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/bucket"
 )
 
 type GarbageCollector struct {

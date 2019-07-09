@@ -1,7 +1,7 @@
 package util
 
 import (
-    . "devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/storage"
 )
 
 func MakeNewStorageDriver() StorageDriver {

@@ -5,8 +5,8 @@ import (
     "sync"
     "time"
 
-    . "devicedb/clusterio"
-    . "devicedb/data"
+    . "github.com/armPelionEdge/devicedb/clusterio"
+    . "github.com/armPelionEdge/devicedb/data"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

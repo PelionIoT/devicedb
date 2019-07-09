@@ -8,8 +8,8 @@ import (
     "gopkg.in/yaml.v2"
     "path/filepath"
 
-    . "devicedb/logging"
-    . "devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/merkle"
 )
 
 type YAMLServerConfig struct {

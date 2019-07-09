@@ -1,14 +1,14 @@
 package raft_test
 
 import (
-    . "devicedb/storage"
-    . "devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/logging"
     "time"
 
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
 
-    . "devicedb/raft"
+    . "github.com/armPelionEdge/devicedb/raft"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

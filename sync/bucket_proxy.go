@@ -5,16 +5,16 @@ import (
     "errors"
     "math/rand"
 
-    . "devicedb/bucket"
-    . "devicedb/client"
-    . "devicedb/cluster"
-    . "devicedb/clusterio"
-    . "devicedb/data"
-    . "devicedb/partition"
-    . "devicedb/site"
-    . "devicedb/raft"
-    rest "devicedb/rest"
-    . "devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/armPelionEdge/devicedb/client"
+    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/armPelionEdge/devicedb/clusterio"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/partition"
+    . "github.com/armPelionEdge/devicedb/site"
+    . "github.com/armPelionEdge/devicedb/raft"
+    rest "github.com/armPelionEdge/devicedb/rest"
+    . "github.com/armPelionEdge/devicedb/merkle"
 )
 
 var ENoLocalBucket = errors.New("No such bucket exists locally")

@@ -12,14 +12,14 @@ import (
     "sync"
     "sync/atomic"
 
-    . "devicedb/storage"
-    . "devicedb/error"
-    . "devicedb/data"
-    . "devicedb/logging"
-    . "devicedb/merkle"
-    . "devicedb/util"
-    . "devicedb/resolver"
-    . "devicedb/resolver/strategies"
+    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/armPelionEdge/devicedb/error"
+    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/armPelionEdge/devicedb/logging"
+    . "github.com/armPelionEdge/devicedb/merkle"
+    . "github.com/armPelionEdge/devicedb/util"
+    . "github.com/armPelionEdge/devicedb/resolver"
+    . "github.com/armPelionEdge/devicedb/resolver/strategies"
 )
 
 const MAX_SORTING_KEY_LENGTH = 255
