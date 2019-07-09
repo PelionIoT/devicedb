@@ -47,12 +47,11 @@ var _ = Describe("Monitor", func() {
             })
 
             Context("When there is a listener who specified a prefix matching this updates key", func() {
-                var cancel func()
                 var ctx context.Context
                 var deliveryChannel chan data.Row
 
                 BeforeEach(func() {
-                    ctx, cancel = context.WithCancel(context.Background())
+                    ctx, _ = context.WithCancel(context.Background())
                     deliveryChannel = make(chan data.Row)
 
                     monitor.AddListener(ctx, [][]byte{ }, [][]byte{ []byte("a") }, deliveryChannel)
@@ -136,12 +135,11 @@ var _ = Describe("Monitor", func() {
             })
 
             Context("When there is a listener who specified a prefix matching this updates key", func() {
-                var cancel func()
                 var ctx context.Context
                 var deliveryChannel chan data.Row
 
                 BeforeEach(func() {
-                    ctx, cancel = context.WithCancel(context.Background())
+                    ctx, _ = context.WithCancel(context.Background())
                     deliveryChannel = make(chan data.Row)
 
                     monitor.AddListener(ctx, [][]byte{ }, [][]byte{ []byte("a") }, deliveryChannel)

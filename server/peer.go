@@ -16,7 +16,6 @@ import (
     "io/ioutil"
     "bytes"
 
-    . "github.com/armPelionEdge/devicedb/bucket"
     . "github.com/armPelionEdge/devicedb/data"
     . "github.com/armPelionEdge/devicedb/historian"
     . "github.com/armPelionEdge/devicedb/alerts"
