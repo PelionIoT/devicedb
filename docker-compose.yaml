@@ -1,0 +1,54 @@
+# This defines a minimal setup to simulate a devicedb edge node connected
+# to a devicedb cloud node
+version: '3'
+services:
+  devicedb-identity:
+    build: .
+    command: generate-certs-and-identity.sh /etc/devicedb
+    environment:
+    - CLOUD_HOST=devicedb-cloud
+    - CLOUD_URI=ws://devicedb-cloud:8080/sync
+    - EDGE_DATA_DIRECTORY=/var/lib/devicedb/data
+    - EDGE_LISTEN_PORT=9090
+    - EDGE_LOG_LEVEL=debug
+    - EDGE_CLIENT_CERT=/etc/devicedb/client.crt
+    - EDGE_CLIENT_KEY=/etc/devicedb/client.key
+    - EDGE_CLIENT_RESOURCES=/etc/devicedb/shared
+    volumes:
+    - devicedb-identity:/etc/devicedb
+    - ${EDGE_CLIENT_RESOURCES}:/etc/devicedb/shared
+  devicedb-edge:
+    build: .
+    command:
+    - devicedb
+    - start
+    - -conf
+    - /etc/devicedb/devicedb.conf
+    depends_on:
+    - devicedb-identity
+    volumes:
+    - devicedb-identity:/etc/devicedb
+    - devicedb-edge-data:/var/lib/devicedb
+  devicedb-cloud:
+    build: .
+    command: 
+    - devicedb
+    - cluster
+    - start
+    - -store
+    - /var/lib/devicedb/data
+    - -snapshot_store
+    - /var/lib/devicedb/snapshots
+    - -replication_factor
+    - "1"
+    - -host
+    - "0.0.0.0"
+    depends_on:
+    - devicedb-identity
+    volumes:
+    - devicedb-identity:/etc/devicedb
+    - devicedb-cloud-data:/var/lib/devicedb
+volumes:
+  devicedb-identity:
+  devicedb-cloud-data:
+  devicedb-edge-data:
