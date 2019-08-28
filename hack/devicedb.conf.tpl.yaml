@@ -11,6 +11,17 @@ logLevel: $EDGE_LOG_LEVEL
 cloud:
   noValidate: true
   uri: $CLOUD_URI
+alerts:
+  forwardInterval: 60000
+history:
+   purgeOnForward: true
+   eventLimit: 1000
+   eventFloor: 500
+   purgeBatchSize: 1000
+   forwardInterval: 60000
+   forwardThreshold: 100
+   forwardBatchSize: 1000
 tls:
   certificate: $EDGE_CLIENT_CERT
   key: $EDGE_CLIENT_KEY
+  rootCA: $EDGE_CLIENT_CA

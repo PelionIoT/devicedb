@@ -17,6 +17,8 @@ if [ ! -d "$OUT_DIR" ]; then
     exit 1
 fi
 
+echo "$(cat devicedb.conf.tpl.yaml | envsubst)" > $OUT_DIR/devicedb.conf
+
 if [ -f "$OUT_DIR/ready" ]; then
     echo "Identity already exists. Skipping identity generation"
 
@@ -80,8 +82,6 @@ openssl req \
     -subj "/C=US/ST=TX/L=City/O=my_o/OU=my_ou/CN=$CLOUD_HOST/emailAddress=email@example.com" \
     -passout pass:password \
     -days 365
-
-echo "$(cat devicedb.conf.tpl.yaml | envsubst)" > $OUT_DIR/devicedb.conf
 
 cp $OUT_DIR/myCA.pem $EDGE_CLIENT_RESOURCES/ca.pem
 

@@ -10,9 +10,10 @@ services:
     - CLOUD_URI=ws://devicedb-cloud:8080/sync
     - EDGE_DATA_DIRECTORY=/var/lib/devicedb/data
     - EDGE_LISTEN_PORT=9090
-    - EDGE_LOG_LEVEL=debug
+    - EDGE_LOG_LEVEL=info
     - EDGE_CLIENT_CERT=/etc/devicedb/client.crt
     - EDGE_CLIENT_KEY=/etc/devicedb/client.key
+    - EDGE_CLIENT_CA=/etc/devicedb/myCA.pem
     - EDGE_CLIENT_RESOURCES=/etc/devicedb/shared
     volumes:
     - devicedb-identity:/etc/devicedb
@@ -48,6 +49,13 @@ services:
     volumes:
     - devicedb-identity:/etc/devicedb
     - devicedb-cloud-data:/var/lib/devicedb
+  devicedb-cloud-init:
+    build: .
+    command: compose-cloud-add-device.sh /etc/devicedb
+    depends_on:
+    - devicedb-identity
+    volumes:
+    - devicedb-identity:/etc/devicedb
 volumes:
   devicedb-identity:
   devicedb-cloud-data:
