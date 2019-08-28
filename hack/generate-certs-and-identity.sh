@@ -83,6 +83,9 @@ openssl req \
     -passout pass:password \
     -days 365
 
-cp $OUT_DIR/myCA.pem $EDGE_CLIENT_RESOURCES/ca.pem
+cp $OUT_DIR/myCA.pem $EDGE_CLIENT_RESOURCES/myCA.pem
+cp $OUT_DIR/client.crt $EDGE_CLIENT_RESOURCES/client.crt
+cp $OUT_DIR/client.key $EDGE_CLIENT_RESOURCES/client.key
+cp $OUT_DIR/devicedb.conf $EDGE_CLIENT_RESOURCES/devicedb.conf
 
 touch $OUT_DIR/ready

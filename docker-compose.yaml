@@ -11,9 +11,9 @@ services:
     - EDGE_DATA_DIRECTORY=/var/lib/devicedb/data
     - EDGE_LISTEN_PORT=9090
     - EDGE_LOG_LEVEL=info
-    - EDGE_CLIENT_CERT=/etc/devicedb/client.crt
-    - EDGE_CLIENT_KEY=/etc/devicedb/client.key
-    - EDGE_CLIENT_CA=/etc/devicedb/myCA.pem
+    - EDGE_CLIENT_CERT=./client.crt
+    - EDGE_CLIENT_KEY=./client.key
+    - EDGE_CLIENT_CA=./myCA.pem
     - EDGE_CLIENT_RESOURCES=/etc/devicedb/shared
     volumes:
     - devicedb-identity:/etc/devicedb
@@ -27,6 +27,8 @@ services:
     - /etc/devicedb/devicedb.conf
     depends_on:
     - devicedb-identity
+    ports:
+    - "9090:9090"
     volumes:
     - devicedb-identity:/etc/devicedb
     - devicedb-edge-data:/var/lib/devicedb
@@ -46,6 +48,8 @@ services:
     - "0.0.0.0"
     depends_on:
     - devicedb-identity
+    ports:
+    - "8080:8080"
     volumes:
     - devicedb-identity:/etc/devicedb
     - devicedb-cloud-data:/var/lib/devicedb
