@@ -1,0 +1,27 @@
+db: $EDGE_DATA_DIRECTORY
+port: $EDGE_LISTEN_PORT
+syncSessionLimit: 2
+syncSessionPeriod: 1000
+syncExplorationPathLimit: 1000
+syncPushBroadcastLimit: 0
+gcInterval: 300000
+gcPurgeAge: 600000
+merkleDepth: 19
+logLevel: $EDGE_LOG_LEVEL
+cloud:
+  noValidate: true
+  uri: $CLOUD_URI
+alerts:
+  forwardInterval: 60000
+history:
+   purgeOnForward: true
+   eventLimit: 1000
+   eventFloor: 500
+   purgeBatchSize: 1000
+   forwardInterval: 60000
+   forwardThreshold: 100
+   forwardBatchSize: 1000
+tls:
+  certificate: $EDGE_CLIENT_CERT
+  key: $EDGE_CLIENT_KEY
+  rootCA: $EDGE_CLIENT_CA
