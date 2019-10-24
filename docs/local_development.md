@@ -14,7 +14,7 @@ You can use docker-compose to create a local single-node devicedb cloud cluster 
    ```bash
    $ EDGE_CLIENT_RESOURCES=<my-edge-config> docker-compose up
    ```
-   Replace `<my-edge-config>` with whatever directory you chose in the last step. Let all the services initialize. It may take a few seconds. Wait until you see something like this:
+   Replace `<my-edge-config>` with whatever directory you chose in the last step. Let all the services initialize. It may take a few seconds. Use an absolute path. Wait until you see something like this:
    ```
    devicedb-edge_1        | [2019-08-28T22:41:04.064] [INFO] [] Connected to devicedb cloud
    ```
