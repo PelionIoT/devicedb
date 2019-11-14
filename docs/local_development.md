@@ -1,6 +1,11 @@
 # Setting Up A Sandbox Environment
 
-## docker-compose
+## Pre-requisites
+
+* `docker-compose` - Version `1.22.0` or higher
+* `docker`- Version `1.13.0` or higher
+
+## Running Devicedb Edge Internally
 You can use docker-compose to create a local single-node devicedb cloud cluster and connect a local devicedb edge node to it.
 
 1. Make sure you are in the root directory of the devicedb project
@@ -8,13 +13,16 @@ You can use docker-compose to create a local single-node devicedb cloud cluster 
    $ cd devicedb
    ```
 
-1. Pick a directory where important devicedb edge certificates and configuration will be placed or create a new one.
+1. Create a configuration folder:
+   ```bash
+   $ mkdir <my-edge-config>
+   ```
 
 1. Run `docker-compose up`
    ```bash
    $ EDGE_CLIENT_RESOURCES=<my-edge-config> docker-compose up
    ```
-   Replace `<my-edge-config>` with whatever directory you chose in the last step. Let all the services initialize. It may take a few seconds. Use an absolute path. Wait until you see something like this:
+   Replace `<my-edge-config>` with the absolute path of the directory you created in step 2. Let all the services initialize - it may take a few seconds
    ```
    devicedb-edge_1        | [2019-08-28T22:41:04.064] [INFO] [] Connected to devicedb cloud
    ```
@@ -25,14 +33,14 @@ You can use docker-compose to create a local single-node devicedb cloud cluster 
    ```
    This is your device ID, `96d45e02c9e311e9a8880242ac1c0002` in this example.
 
-1. On the same machine run this command, replacing the device ID with your own
+1. In another terminal, verify that the edge node is talking to the cloud by running the following command:
    ```bash
-   $ devicedb cluster relay_status -relay 96d45e02c9e311e9a8880242ac1c0002
+   $ EDGE_CLIENT_RESOURCES=<my-edge-config> docker-compose exec devicedb-cloud devicedb cluster relay_status -relay <device-id>
    Relay ID: 96d45e02c9e311e9a8880242ac1c0002
    Connected To: 14432897153250237318
    Ping: 2.532741ms
    ```
-   This verifies that the edge node is talking to the cloud
+   Where `<my-edge-config>` is the absolute path of the directory you created in step 2, and `<device-id>` is the device ID from step 4
 
 ## Running Devicedb Edge Externally
 You may want to just run the cloud cluster in docker and run your devicedb edge node elsewhere, such as a rasberry pi or another machine.
