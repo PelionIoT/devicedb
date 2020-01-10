@@ -7,8 +7,8 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "github.com/WigWagCo/wigwag-go-logger/logging",
-			"Rev": "004c5464cc0e849b9db951af7d2bff18b0a435f2"
+			"ImportPath": "github.com/armpelionedge/edge-go-logger/logging",
+			"Rev": "d3461e08601e702d9d1adc07461589734d18c3a9"
 		},
 		{
 			"ImportPath": "github.com/beorn7/perks/quantile",
