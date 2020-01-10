@@ -27,7 +27,7 @@ SITE_ID=`cat $SITE_ID_FILE`
 
 echo "Create site $SITE_ID"
 
-until devicedb cluster add_site -host devicedb-cloud -site $SITE_ID
+until devicedb cluster add_site -host $CLOUD_HOST -site $SITE_ID
 do
     echo "Unable to create site $SITE_ID. Trying again in 5 seconds"
     sleep 5
@@ -35,7 +35,7 @@ done
 
 echo "Create device $DEVICE_ID"
 
-until devicedb cluster add_relay -host devicedb-cloud -relay $DEVICE_ID
+until devicedb cluster add_relay -host $CLOUD_HOST -relay $DEVICE_ID
 do
     echo "Unable to create device $DEVICE_ID. Trying again in 5 seconds"
     sleep 5
@@ -43,7 +43,7 @@ done
 
 echo "Move device $DEVICE_ID into site $SITE_ID"
 
-until devicedb cluster move_relay -host devicedb-cloud -relay $DEVICE_ID -site $SITE_ID
+until devicedb cluster move_relay -host $CLOUD_HOST -relay $DEVICE_ID -site $SITE_ID
 do
     echo "Unable to move device $DEVICE_ID into site $SITE_ID. Trying again in 5 seconds"
     sleep 5
