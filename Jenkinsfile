@@ -90,6 +90,7 @@ pipeline {
          //checkout scm
           withEnv(["GOROOT=/home/jenkins/go", "GOPATH=/home/jenkins/goprojects", "PATH+GO=/home/jenkins/goprojects/bin:/home/jenkins/go/bin"]){
               script{
+                  sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
                   if(env.BRANCH_NAME ==~ /^PR-[0-9]*$/){
                     sh "go get -u github.com/armPelionEdge/devicedb && cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && git fetch --all && git checkout ${CHANGE_BRANCH} && git merge origin/${env.CHANGE_TARGET} && go build"
                   }
