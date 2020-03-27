@@ -22,7 +22,7 @@ def notifySlack(String buildStatus = 'UNSTABLE') {
         colorCode = '#FF0000' 
     } 
  
-    def mainText = '*Name -> <' + env.RUN_DISPLAY_URL + '|' + projectName.toString() + '>*'
+    sdef mainText = '*Name -> <' + env.RUN_DISPLAY_URL + '|' + projectName.toString() + '>*'
  
     JSONArray attachments = new JSONArray();
     JSONObject detailsAttachment = new JSONObject(); 
@@ -102,43 +102,37 @@ pipeline {
        }
     }
     
-    //stage('Test and Code Review') {
-      //parallel {
-        stage('Test'){
-          agent{
-            label 'noi-linux-ubuntu16-ci-slave'
-          }
-          steps {
-            catchError(buildResult: 'SUCCESS'){
-              withEnv(["GOROOT=$HOME/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:$HOME/go/bin"]){
-                sh 'go get -u github.com/jstemmer/go-junit-report'
-                sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml && cp report.xml cov.out /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
-                sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && gocover-cobertura < cov.out > coverage.xml && cp coverage.xml /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
-                stash includes: 'cov.out', name: 'sonar-coverage'
-              }
-            }
-          }
+    stage('Test'){
+      agent{
+        label 'noi-linux-ubuntu16-ci-slave'
+      }
+      steps {
+        withEnv(["GOROOT=$HOME/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:$HOME/go/bin"]){
+          sh 'go get -u github.com/jstemmer/go-junit-report'
+          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml && cp report.xml cov.out /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
+          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && gocover-cobertura < cov.out > coverage.xml && cp coverage.xml /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
+          stash includes: 'cov.out', name: 'sonar-coverage'
         }
+      }
+    }
         
-        stage('SonarQube'){
-          agent{
-            label 'master'
-          }
-          options{
-            checkoutToSubdirectory('/var/jenkins_home/goprojects/src/github.com/armPelionEdge/devicedb')
-          }
-          environment {
-            scannerHome = tool 'SonarQubeScanner'
-          }
-          steps {
-            withSonarQubeEnv('sonarqube') {
-              unstash 'sonar-coverage'
-              sh "cd $JENKINS_HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $JENKINS_HOME/workspace/devicedb_${env.BRANCH_NAME}"
-            }
-          }
+    stage('SonarQube'){
+      agent{
+        label 'master'
+      }
+      options{
+        checkoutToSubdirectory('/var/jenkins_home/goprojects/src/github.com/armPelionEdge/devicedb')
+      }
+      environment {
+        scannerHome = tool 'SonarQubeScanner'
+      }
+      steps {
+        withSonarQubeEnv('sonarqube') {
+          unstash 'sonar-coverage'
+          sh "cd $JENKINS_HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $JENKINS_HOME/workspace/devicedb_${env.BRANCH_NAME}"
         }
-      //}
-    //}
+      }
+    }
     
     stage('Auto Doc') {
       agent{
