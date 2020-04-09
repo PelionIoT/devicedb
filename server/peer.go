@@ -408,19 +408,25 @@ func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName 
     peer.alertsURI = alertsURI
     peer.historyURI = historyURI
    
-    tlsConfig := *tlsBaseConfig
-    tlsConfig.InsecureSkipVerify = noValidate
-    tlsConfig.ServerName = historyServerName
-    tlsConfig.RootCAs = nil // ensures that this uses the default root CAs
-    
-    peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
+    if(tlsBaseConfig != nil) {
+        tlsConfig := *tlsBaseConfig
+        tlsConfig.InsecureSkipVerify = noValidate
+        tlsConfig.ServerName = historyServerName
+        tlsConfig.RootCAs = nil // ensures that this uses the default root CAs
+        
+        peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
 
-    tlsConfig = *tlsBaseConfig
-    tlsConfig.InsecureSkipVerify = noValidate
-    tlsConfig.ServerName = alertsServerName
-    tlsConfig.RootCAs = nil
+        tlsConfig = *tlsBaseConfig
+        tlsConfig.InsecureSkipVerify = noValidate
+        tlsConfig.ServerName = alertsServerName
+        tlsConfig.RootCAs = nil
 
-    peer.httpAlertsClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
+        peer.httpAlertsClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
+    } else {
+        Log.Infof(" Starting clients with no tls\n")
+        peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ } }
+        peer.httpAlertsClient = &http.Client{ Transport: &http.Transport{ } }
+    }
 }
 
 func (peer *Peer) pushEvents(events []*Event) error {
@@ -808,7 +814,8 @@ func (hub *Hub) ReconnectPeerBySite(siteID string) {
 
 func (hub *Hub) dialer(peerID string, noValidate bool, useDefaultRootCAs bool) (*websocket.Dialer, error) {
     if hub.tlsConfig == nil {
-        return nil, errors.New("No tls config provided")
+        dialer := &websocket.Dialer{}
+        return dialer,nil
     }
     
     tlsConfig := hub.tlsConfig.Clone()
