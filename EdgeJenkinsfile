@@ -111,6 +111,7 @@ pipeline {
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh 'go get -u github.com/jstemmer/go-junit-report'
+          sh 'go get code.google.com/p/go.tools/cmd/cover && go get github.com/t-yuki/gocover-cobertura'
           sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml && cp report.xml cov.out /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
           sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && gocover-cobertura < cov.out > coverage.xml && cp coverage.xml /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
           //stash includes: 'cov.out', name: 'sonar-coverage'
@@ -143,7 +144,6 @@ pipeline {
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh 'go get github.com/robertkrimen/godocdown/godocdown'
-          sh 'go get code.google.com/p/go.tools/cmd/cover && go get github.com/t-yuki/gocover-cobertura'
           sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go list ./... > devicedb_packages.txt'
           sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input'
           sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
