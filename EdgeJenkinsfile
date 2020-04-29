@@ -11,7 +11,7 @@ should use 'env' as the key name.
 */
 
 //def call(String buildStatus = 'STARTED', prevBuildStatus = '', String JOB_NAME = '', String BUILD_URL = '', Map configuration = [:]) {
-def call(configuration = [:]) {
+def notifySlack(configuration = [:]) {
 
     def prevBuildStatus = "${currentBuild.previousBuild?.result}"
     def buildStatus = "${currentBuild.currentResult}"
