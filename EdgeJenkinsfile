@@ -1,4 +1,79 @@
-@Library('edge-ci') _
+import hudson.Util;
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+/*
+configuration is a Map type data structure that accepts key value pairs of information that the user wants
+to include in their slack notification. Users can include urls or links of reports or any dashboards
+in the configuration that they want to display in their notification. Users are advised to use meaningful key
+names in the configuration and in case they want to include the environment on which the job is running, they
+should use 'env' as the key name.
+*/
+
+//def call(String buildStatus = 'STARTED', prevBuildStatus = '', String JOB_NAME = '', String BUILD_URL = '', Map configuration = [:]) {
+def call(configuration = [:]) {
+
+    def prevBuildStatus = "${currentBuild.previousBuild?.result}"
+    def buildStatus = "${currentBuild.currentResult}"
+
+    def colorCode = '#FF0000' // Red
+    if (buildStatus != 'SUCCESS' ^ prevBuildStatus != 'SUCCESS') {
+        if (buildStatus == 'UNSTABLE') {
+            colorCode = '#FFFF00' // Yellow
+        } else if (buildStatus == 'ABORTED') {
+            colorCode = '#A9A9A9' // Darg grey
+        } else if (buildStatus == 'SUCCESS') {
+            colorCode = '#00FF00' // Green
+        } else {
+            colorCode = '#FF0000' // Red
+        }
+        def mainText = '*Name -> <' + env.BUILD_URL + '|' + env.JOB_NAME + '>*'
+
+        JSONArray attachments = new JSONArray();
+        JSONObject detailsAttachment = new JSONObject();
+
+
+        // Create details field for attachment.
+        JSONArray fields = new JSONArray();
+        JSONObject fieldsObject = new JSONObject();
+
+        fieldsObject.put('title', 'Status');
+        fieldsObject.put('value', buildStatus.toString());
+        fieldsObject.put('short', true);
+        fields.add(fieldsObject);
+
+        fieldsObject = new JSONObject();
+        fieldsObject.put('title', 'Job ID');
+        fieldsObject.put('value', '#' + BUILD_NUMBER.toString());
+        fieldsObject.put('short', true);
+        fields.add(fieldsObject);
+
+        configuration.each { k, v ->
+            fieldsObject = new JSONObject();
+            report_name = k.capitalize();
+            fieldsObject.put('value', '<' + v + '|*' + report_name + ' Report*>');
+            fieldsObject.put('short', true);
+            fields.add(fieldsObject);
+        }
+
+        if (buildStatus == 'SUCCESS') {
+            detailsAttachment.put('title', "Restored to Normal");
+        }
+
+        // Put fields JSONArray
+        detailsAttachment.put('fields', fields);
+        detailsAttachment.put('color', colorCode.toString());
+        detailsAttachment.put('footer', 'After ' + Util.getTimeSpanString(System.currentTimeMillis() - currentBuild.startTimeInMillis))
+        attachments.add(detailsAttachment);
+
+        print detailsAttachment
+
+        // Send notifications
+        slackSend(message: mainText.toString(), attachments: attachments.toString(), channel: '#edge-jenkins-ci')
+
+    }
+}
+
 
 pipeline {
   agent none
@@ -43,7 +118,7 @@ pipeline {
       }
     }
 
-    /*stage('SonarQube'){
+    stage('SonarQube'){
       agent{
         label 'oulu-lab'
       }
@@ -59,7 +134,7 @@ pipeline {
           sh "cd $JENKINS_HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $JENKINS_HOME/ws/devicedb_${env.BRANCH_NAME}"
         }
       }
-    }*/
+    }
 
     stage('Auto Doc') {
       agent{
