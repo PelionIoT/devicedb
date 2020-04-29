@@ -132,7 +132,7 @@ pipeline {
       steps {
         withSonarQubeEnv('sonarqube') {
           //unstash 'sonar-coverage'
-          sh "cd $JENKINS_HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $JENKINS_HOME/ws/devicedb_${env.BRANCH_NAME}"
+          sh "cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $HOME/ws/devicedb_${env.BRANCH_NAME}"
         }
       }
     }
