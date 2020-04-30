@@ -13,11 +13,16 @@ should use 'env' as the key name.
 //def call(String buildStatus = 'STARTED', prevBuildStatus = '', String JOB_NAME = '', String BUILD_URL = '', Map configuration = [:]) {
 def notifySlack(configuration = [:]) {
 
+    print "inside notify slack"
+
     def prevBuildStatus = "${currentBuild.previousBuild?.result}"
     def buildStatus = "${currentBuild.currentResult}"
+    print prevBuildStatus
+    print buildStatus
 
     def colorCode = '#FF0000' // Red
     if (buildStatus != 'SUCCESS' ^ prevBuildStatus != 'SUCCESS') {
+      print "inside if"
         if (buildStatus == 'UNSTABLE') {
             colorCode = '#FFFF00' // Yellow
         } else if (buildStatus == 'ABORTED') {
