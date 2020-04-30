@@ -119,7 +119,7 @@ pipeline {
       }
     }
 
-    stage('SonarQube'){
+    /*stage('SonarQube'){
       agent{
         label 'oulu-lab'
       }
@@ -135,7 +135,7 @@ pipeline {
           sh "cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $HOME/ws/devicedb_${env.BRANCH_NAME}"
         }
       }
-    }
+    }*/
 
     stage('Auto Doc') {
       agent{
