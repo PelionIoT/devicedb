@@ -169,6 +169,7 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     if ysc.Alerts.ForwardInterval < 1000 {
         return errors.New(fmt.Sprintf("alerts.forwardInterval must be at least 1000"))
     }
+    
     if (YAMLTLSFiles{}) != ysc.TLS {
         if len(ysc.TLS.ClientCertificate) == 0 {
             ysc.TLS.ClientCertificate = ysc.TLS.Certificate
@@ -234,6 +235,7 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
             return errors.New("The specified server certificate and key represent an invalid public/private key pair")
         }
     }
+
     // purge age must be at least ten minutes
     if ysc.GCPurgeAge < 600000 {
         return errors.New("The gc purge age must be at least ten minutes (i.e. gcPurgeAge: 600000)")
