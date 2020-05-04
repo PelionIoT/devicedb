@@ -111,16 +111,22 @@ pipeline {
     stage('Test'){
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
-          sh 'go get -u github.com/jstemmer/go-junit-report'
-          sh 'go get golang.org/x/tools/cmd/cover && go get github.com/t-yuki/gocover-cobertura'
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml && cp report.xml cov.out /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && gocover-cobertura < cov.out > coverage.xml && cp coverage.xml /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
+          sh """
+            go get -u github.com/jstemmer/go-junit-report
+            go get golang.org/x/tools/cmd/cover
+            go get github.com/t-yuki/gocover-cobertura
+            cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
+            go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml
+            cp report.xml cov.out /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
+            gocover-cobertura < cov.out > coverage.xml
+            cp coverage.xml /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
+          """
           //stash includes: 'cov.out', name: 'sonar-coverage'
         }
       }
     }
 
-    /*stage('SonarQube'){
+    stage('SonarQube'){
       agent{
         label 'oulu-lab'
       }
@@ -133,10 +139,14 @@ pipeline {
       steps {
         withSonarQubeEnv('sonarqube') {
           //unstash 'sonar-coverage'
-          sh "cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $HOME/ws/devicedb_${env.BRANCH_NAME}"
+          sh """
+            cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
+            ${scannerHome}/bin/sonar-scanner
+            cp -r .scannerwork $HOME/ws/devicedb_${env.BRANCH_NAME}
+            """
         }
       }
-    }*/
+    }
 
     stage('Coverity'){
       steps{
@@ -156,10 +166,13 @@ pipeline {
     stage('Auto Doc') {
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
-          sh 'go get github.com/robertkrimen/godocdown/godocdown'
-          sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go list ./... > devicedb_packages.txt'
-          sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input'
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
+          sh """
+            go get github.com/robertkrimen/godocdown/godocdown
+            cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
+            go list ./... > devicedb_packages.txt
+            input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input
+            cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
+          """
         }
       }
     }
