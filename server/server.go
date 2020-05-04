@@ -166,7 +166,10 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.HistoryForwardInterval = ysc.History.ForwardInterval
     sc.HistoryForwardThreshold = ysc.History.ForwardThreshold
     sc.AlertsForwardInterval = ysc.Alerts.ForwardInterval
-    
+
+    clientTLSConfig := nil
+    sc.NodeID = ysc.NodeID
+
     if (YAMLTLSFiles{}) != ysc.TLS  {
         rootCAs := x509.NewCertPool()
         
@@ -176,7 +179,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         
         clientCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
         serverCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
-        clientTLSConfig := &tls.Config{
+        clientTLSConfig = &tls.Config{
             Certificates: []tls.Certificate{ clientCertificate },
             RootCAs: rootCAs,
             GetClientCertificate: func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
@@ -205,18 +208,14 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
         }
         if ysc.NodeID == ""  {
                 sc.NodeID = clientCN
-            } else {
-                sc.NodeID = ysc.NodeID
-            }
-            sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ddbSync.NewPeriodicSyncScheduler(time.Millisecond * time.Duration(ysc.SyncSessionPeriod)), sc.SyncExplorationPathLimit), clientTLSConfig)
+            } 
     } else {
         if ysc.NodeID == "" {
             return errors.New("No TLS certificates provided. Config file must have 'nodeid' field")
         }
-        sc.NodeID = ysc.NodeID
         Log.Infof(" No TLS Config provided. Http mode\n")
-        sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ddbSync.NewPeriodicSyncScheduler(time.Millisecond * time.Duration(ysc.SyncSessionPeriod)), sc.SyncExplorationPathLimit), nil)
     }
+    sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ddbSync.NewPeriodicSyncScheduler(time.Millisecond * time.Duration(ysc.SyncSessionPeriod)), sc.SyncExplorationPathLimit), clientTLSConfig)
     return nil
 }
 

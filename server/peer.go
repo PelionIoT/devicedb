@@ -409,6 +409,9 @@ func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName 
     peer.historyURI = historyURI
    
     if(tlsBaseConfig != nil) {
+        Log.Infof(" Starting clients with no tls\n")
+        tlsBaseConfig = &tls.Config{}
+    }
         tlsConfig := *tlsBaseConfig
         tlsConfig.InsecureSkipVerify = noValidate
         tlsConfig.ServerName = historyServerName
@@ -422,11 +425,6 @@ func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName 
         tlsConfig.RootCAs = nil
 
         peer.httpAlertsClient = &http.Client{ Transport: &http.Transport{ TLSClientConfig: &tlsConfig } }
-    } else {
-        Log.Infof(" Starting clients with no tls\n")
-        peer.httpHistoryClient = &http.Client{ Transport: &http.Transport{ } }
-        peer.httpAlertsClient = &http.Client{ Transport: &http.Transport{ } }
-    }
 }
 
 func (peer *Peer) pushEvents(events []*Event) error {
