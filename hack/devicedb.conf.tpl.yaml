@@ -21,7 +21,6 @@ history:
    forwardInterval: 60000
    forwardThreshold: 100
    forwardBatchSize: 1000
-#nodeid: 39c54e945e3d11ea8c3a0242ac120002
 tls:
   certificate: $EDGE_CLIENT_CERT
   key: $EDGE_CLIENT_KEY
