@@ -141,6 +141,7 @@ pipeline {
     stage('Coverity'){
       steps{
         sh """
+          source ~/.profile
           cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
           cov-configure --go
           cov-build --dir coverity go build
