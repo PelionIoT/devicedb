@@ -167,7 +167,7 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.HistoryForwardThreshold = ysc.History.ForwardThreshold
     sc.AlertsForwardInterval = ysc.Alerts.ForwardInterval
 
-    clientTLSConfig := nil
+    var clientTLSConfig *tls.Config = nil
     sc.NodeID = ysc.NodeID
 
     if (YAMLTLSFiles{}) != ysc.TLS  {
