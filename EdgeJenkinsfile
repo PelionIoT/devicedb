@@ -140,15 +140,15 @@ pipeline {
 
     stage('Coverity'){
       steps{
-        sh """
-          . ~/.profile
-          cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
-          cov-configure --go
-          cov-build --dir coverity go build
-          tar -zcvf devicedb_master.tar.gz coverity
-        """
         withAWS(region: "eu-west-1", credentials: "AKIA4NI2GQUKC43TCTC2") {
-          sh "aws s3 cp devicedb_master.tar.gz s3://coverity-reports/"
+          sh """
+            . ~/.profile
+            cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
+            cov-configure --go
+            cov-build --dir coverity go build
+            tar -zcvf devicedb_master.tar.gz coverity
+            aws s3 cp devicedb_master.tar.gz s3://coverity-reports/
+          """
         }
       }
     }
