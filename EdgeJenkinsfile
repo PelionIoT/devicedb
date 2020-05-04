@@ -96,12 +96,12 @@ pipeline {
          //checkout scm
           withEnv(["GOROOT=/usr/local/go", "GOPATH=/home/jenkins/goprojects", "PATH+GO=/home/jenkins/goprojects/bin:/usr/local/go/bin"]){
               script{
-                  sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
+                  sh 'rm -rf /home/jenknis/goprojects/src/github.com/sameer2209-arm/devicedb'
                   if(env.BRANCH_NAME ==~ /^PR-[0-9]*$/){
-                    sh "go get -u github.com/armPelionEdge/devicedb && cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && git fetch --all && git checkout ${CHANGE_BRANCH} && git merge origin/${env.CHANGE_TARGET} && go build"
+                    sh "go get -u github.com/sameer2209-arm/devicedb && cd /home/jenkins/goprojects/src/github.com/sameer2209-arm/devicedb && git fetch --all && git checkout ${CHANGE_BRANCH} && git merge origin/${env.CHANGE_TARGET} && go build"
                   }
                   else{
-                    sh "go get -u github.com/armPelionEdge/devicedb && cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && git fetch --all && git checkout ${env.BRANCH_NAME} && git merge origin/${env.BRANCH_NAME} && go build"
+                    sh "go get -u github.com/sameer2209-arm/devicedb && cd /home/jenkins/goprojects/src/github.com/sameer2209-arm/devicedb && git fetch --all && git checkout ${env.BRANCH_NAME} && git merge origin/${env.BRANCH_NAME} && go build"
                   }
               }
           }
@@ -115,7 +115,7 @@ pipeline {
             go get -u github.com/jstemmer/go-junit-report
             go get golang.org/x/tools/cmd/cover
             go get github.com/t-yuki/gocover-cobertura
-            cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
+            cd /home/jenkins/goprojects/src/github.com/sameer2209-arm/devicedb
             go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml
             cp report.xml cov.out /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
             gocover-cobertura < cov.out > coverage.xml
@@ -134,7 +134,7 @@ pipeline {
         withSonarQubeEnv('sonarqube') {
           //unstash 'sonar-coverage'
           sh """
-            cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
+            cd $HOME/goprojects/src/github.com/sameer2209-arm/devicedb
             ${scannerHome}/bin/sonar-scanner
             cp -r .scannerwork $HOME/ws/devicedb_${env.BRANCH_NAME}
             """
@@ -147,7 +147,7 @@ pipeline {
         withAWS(region: "eu-west-1", credentials: "AKIA4NI2GQUKC43TCTC2") {
           sh """
             . ~/.profile
-            cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
+            cd $HOME/goprojects/src/github.com/sameer2209-arm/devicedb
             cov-configure --go
             cov-build --dir coverity go build
             tar -zcvf devicedb_master.tar.gz coverity
@@ -162,7 +162,7 @@ pipeline {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
             go get github.com/robertkrimen/godocdown/godocdown
-            cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
+            cd /home/jenkins/goprojects/src/github.com/sameer2209-arm/devicedb
             go list ./... > devicedb_packages.txt
             input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input
             cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
@@ -178,7 +178,7 @@ pipeline {
       step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
       archiveArtifacts artifacts: 'devicedb_docs.md'
       notifySlack()
-      sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
+      sh 'rm -rf /home/jenknis/goprojects/src/github.com/sameer2209-arm/devicedb'
     }
   }
 }
