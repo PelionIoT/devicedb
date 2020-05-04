@@ -127,12 +127,6 @@ pipeline {
     }
 
     stage('SonarQube'){
-      agent{
-        label 'oulu-lab'
-      }
-      //options{
-        //checkoutToSubdirectory('/var/jenkins_home/goprojects/src/github.com/armPelionEdge/devicedb')
-      //}
       environment {
         scannerHome = tool 'SonarQubeScanner'
       }
