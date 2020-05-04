@@ -46,6 +46,7 @@ type YAMLServerConfig struct {
     GCInterval uint64 `yaml:"gcInterval"`
     GCPurgeAge uint64 `yaml:"gcPurgeAge"`
     MerkleDepth uint8 `yaml:"merkleDepth"`
+    NodeID string `yaml:"nodeid"`
     Peers []YAMLPeer `yaml:"peers"`
     TLS YAMLTLSFiles `yaml:"tls"`
     LogLevel string `yaml:"logLevel"`
@@ -168,71 +169,73 @@ func (ysc *YAMLServerConfig) LoadFromFile(file string) error {
     if ysc.Alerts.ForwardInterval < 1000 {
         return errors.New(fmt.Sprintf("alerts.forwardInterval must be at least 1000"))
     }
+    
+    if (YAMLTLSFiles{}) != ysc.TLS {
+        if len(ysc.TLS.ClientCertificate) == 0 {
+            ysc.TLS.ClientCertificate = ysc.TLS.Certificate
+        }
+        
+        if len(ysc.TLS.ServerCertificate) == 0 {
+            ysc.TLS.ServerCertificate = ysc.TLS.Certificate
+        }
+        
+        if len(ysc.TLS.ClientKey) == 0 {
+            ysc.TLS.ClientKey = ysc.TLS.Key
+        }
+        
+        if len(ysc.TLS.ServerKey) == 0 {
+            ysc.TLS.ServerKey = ysc.TLS.Key
+        }
+        
+        clientCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientCertificate))
+        
+        if err != nil {
+            return errors.New(fmt.Sprintf("Could not load client certificate from %s", ysc.TLS.ClientCertificate))
+        }
+        
+        clientKey, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientKey))
+        
+        if err != nil {
+            return errors.New(fmt.Sprintf("Could not load client key from %s", ysc.TLS.ClientKey))
+        }
+        
+        serverCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ServerCertificate))
+        
+        if err != nil {
+            return errors.New(fmt.Sprintf("Could not load server certificate from %s", ysc.TLS.ServerCertificate))
+        }
+        
+        serverKey, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ServerKey))
+        
+        if err != nil {
+            return errors.New(fmt.Sprintf("Could not load server key from %s", ysc.TLS.ServerKey))
+        }
+        
+        rootCA, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.RootCA))
+        
+        if err != nil {
+            return errors.New(fmt.Sprintf("Could not load root CA chain from %s", ysc.TLS.RootCA))
+        }
+        
+        ysc.TLS.ClientCertificate = string(clientCertificate)
+        ysc.TLS.ClientKey = string(clientKey)
+        ysc.TLS.ServerCertificate = string(serverCertificate)
+        ysc.TLS.ServerKey = string(serverKey)
+        ysc.TLS.RootCA = string(rootCA)
+        
+        _, err = tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
+        
+        if err != nil {
+            return errors.New("The specified client certificate and key represent an invalid public/private key pair")
+        }
+        
+        _, err = tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
+        
+        if err != nil {
+            return errors.New("The specified server certificate and key represent an invalid public/private key pair")
+        }
+    }
 
-    if len(ysc.TLS.ClientCertificate) == 0 {
-        ysc.TLS.ClientCertificate = ysc.TLS.Certificate
-    }
-    
-    if len(ysc.TLS.ServerCertificate) == 0 {
-        ysc.TLS.ServerCertificate = ysc.TLS.Certificate
-    }
-    
-    if len(ysc.TLS.ClientKey) == 0 {
-        ysc.TLS.ClientKey = ysc.TLS.Key
-    }
-    
-    if len(ysc.TLS.ServerKey) == 0 {
-        ysc.TLS.ServerKey = ysc.TLS.Key
-    }
-    
-    clientCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientCertificate))
-    
-    if err != nil {
-        return errors.New(fmt.Sprintf("Could not load client certificate from %s", ysc.TLS.ClientCertificate))
-    }
-    
-    clientKey, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ClientKey))
-    
-    if err != nil {
-        return errors.New(fmt.Sprintf("Could not load client key from %s", ysc.TLS.ClientKey))
-    }
-    
-    serverCertificate, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ServerCertificate))
-    
-    if err != nil {
-        return errors.New(fmt.Sprintf("Could not load server certificate from %s", ysc.TLS.ServerCertificate))
-    }
-    
-    serverKey, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.ServerKey))
-    
-    if err != nil {
-        return errors.New(fmt.Sprintf("Could not load server key from %s", ysc.TLS.ServerKey))
-    }
-    
-    rootCA, err := ioutil.ReadFile(resolveFilePath(file, ysc.TLS.RootCA))
-    
-    if err != nil {
-        return errors.New(fmt.Sprintf("Could not load root CA chain from %s", ysc.TLS.RootCA))
-    }
-    
-    ysc.TLS.ClientCertificate = string(clientCertificate)
-    ysc.TLS.ClientKey = string(clientKey)
-    ysc.TLS.ServerCertificate = string(serverCertificate)
-    ysc.TLS.ServerKey = string(serverKey)
-    ysc.TLS.RootCA = string(rootCA)
-    
-    _, err = tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
-    
-    if err != nil {
-        return errors.New("The specified client certificate and key represent an invalid public/private key pair")
-    }
-    
-    _, err = tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
-    
-    if err != nil {
-        return errors.New("The specified server certificate and key represent an invalid public/private key pair")
-    }
-    
     // purge age must be at least ten minutes
     if ysc.GCPurgeAge < 600000 {
         return errors.New("The gc purge age must be at least ten minutes (i.e. gcPurgeAge: 600000)")
