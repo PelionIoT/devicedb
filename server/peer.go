@@ -408,7 +408,7 @@ func (peer *Peer) useHistoryServer(tlsBaseConfig *tls.Config, historyServerName 
     peer.alertsURI = alertsURI
     peer.historyURI = historyURI
    
-    if(tlsBaseConfig != nil) {
+    if(tlsBaseConfig == nil) {
         Log.Infof(" Starting clients with no tls\n")
         tlsBaseConfig = &tls.Config{}
     }
