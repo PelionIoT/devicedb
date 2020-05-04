@@ -81,18 +81,17 @@ def notifySlack(configuration = [:]) {
 
 
 pipeline {
-  agent none
+  agent{
+    label 'oulu-lab'
+  }
   /*options{
     skipDefaultCheckout()
   }*/
   stages {
     stage('Build') {
-        agent{
-            label 'oulu-lab'
-        }
-        options{
+        /*options{
             lock resource: 'oulu-lab'
-        }
+        }*/
         steps {
          //checkout scm
           withEnv(["GOROOT=/usr/local/go", "GOPATH=/home/jenkins/goprojects", "PATH+GO=/home/jenkins/goprojects/bin:/usr/local/go/bin"]){
@@ -110,9 +109,6 @@ pipeline {
     }
 
     stage('Test'){
-      agent{
-        label 'oulu-lab'
-      }
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh 'go get -u github.com/jstemmer/go-junit-report'
@@ -142,10 +138,21 @@ pipeline {
       }
     }*/
 
-    stage('Auto Doc') {
-      agent{
-        label 'oulu-lab'
+    stage('Coverity'){
+      steps{
+        sh """
+          cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
+          cov-configure --go
+          cov-build --dir coverity go build
+          tar -zcvf devicedb_master.tar.gz coverity
+        """
+        withAWS(region: "eu-west-1", credentials: "AKIA4NI2GQUKC43TCTC2") {
+          sh "aws s3 cp devicedb_master.tar.gz s3://coverity-reports/"
+        }
       }
+    }
+
+    stage('Auto Doc') {
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh 'go get github.com/robertkrimen/godocdown/godocdown'
@@ -159,13 +166,11 @@ pipeline {
 
   post{
     always{
-      node('oulu-lab'){
-        junit 'report.xml'
-        step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
-        archiveArtifacts artifacts: 'devicedb_docs.md'
-        notifySlack()
-        sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
-      }
+      junit 'report.xml'
+      step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
+      archiveArtifacts artifacts: 'devicedb_docs.md'
+      notifySlack()
+      sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
     }
   }
 }
