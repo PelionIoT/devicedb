@@ -135,7 +135,7 @@ pipeline {
           //unstash 'sonar-coverage'
           sh """
             cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
-            ${scannerHome}/bin/sonar-scanner
+            ${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=edge:devicedb:master -Dsonar.projectName=devicedb:master  -Dsonar.projectVersion=1.0.0 -Dsonar.host.url=http://127.0.0.1:9000 -Dsonar.login=29a1119178eefc6cfabfc01906bfe6a96e62856b -Dsonar.go.coverage.reportPaths=cov.out
             cp -r .scannerwork $HOME/ws/devicedb_${env.BRANCH_NAME}
             """
         }
