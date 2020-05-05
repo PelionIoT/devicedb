@@ -126,7 +126,7 @@ pipeline {
       }
     }
 
-    stage('SonarQube'){
+    /*stage('SonarQube'){
       environment {
         scannerHome = tool 'SonarQubeScanner'
       }
@@ -140,7 +140,7 @@ pipeline {
             """
         }
       }
-    }
+    }*/
 
     stage('Coverity'){
       steps{
@@ -150,8 +150,8 @@ pipeline {
             cd $HOME/goprojects/src/github.com/armPelionEdge/devicedb
             cov-configure --go
             cov-build --dir coverity go build
-            tar -zcvf devicedb_master.tar.gz coverity
-            aws s3 cp devicedb_master.tar.gz s3://coverity-reports/
+            tar -zcvf coverity-devicedb_master.tar.gz coverity
+            aws s3 cp coverity-devicedb_master.tar.gz s3://coverity-reports/
           """
         }
       }
