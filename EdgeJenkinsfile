@@ -160,13 +160,13 @@ pipeline {
     stage('Coveralls'){
       environment{
         COVERALLS_ENDPOINT = 'https://coveralls.isgtesting.com'
-        COVERALLS_REPO_TOKEN = NHm2Ew9RyyySJPxpvjQQBuJTN7pWtB5EU
+        COVERALLS_REPO_TOKEN = 'NHm2Ew9RyyySJPxpvjQQBuJTN7pWtB5EU'
       }
       steps{
         sh """
           go get github.com/mattn/goveralls
           cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
-          goveralls -coverprofile cov.out -endpoint ${COVERALLS_ENDPOINT} -reponame sameer2209-arm/devicedb -repotoken ${COVERALLS_REPO_TOKEN} -service edge-jenkins 
+          goveralls -coverprofile cov.out -endpoint ${COVERALLS_ENDPOINT} -reponame sameer2209-arm/devicedb -repotoken ${COVERALLS_REPO_TOKEN} -service edge-jenkins
         """
       }
     }
