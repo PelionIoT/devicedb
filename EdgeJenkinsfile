@@ -108,7 +108,7 @@ pipeline {
        }
     }
 
-    stage('Test'){
+    /*stage('Test'){
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
@@ -124,7 +124,7 @@ pipeline {
           //stash includes: 'cov.out', name: 'sonar-coverage'
         }
       }
-    }
+    }*/
 
     /*stage('SonarQube'){
       environment {
@@ -142,7 +142,7 @@ pipeline {
       }
     }*/
 
-    stage('Coverity'){
+    /*stage('Coverity'){
       steps{
         withAWS(region: "eu-west-1", credentials: "AKIA4NI2GQUKC43TCTC2") {
           sh """
@@ -171,17 +171,23 @@ pipeline {
           """
         }
       }
-    }
+    }*/
 
     stage('Auto Doc') {
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
+            echo line 1
             go get github.com/robertkrimen/godocdown/godocdown
+            echo line 2
             cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
+            echo line 3
             go list ./... > devicedb_packages.txt
+            echo line 4
             input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input
+            echo line 5
             cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
+            echo line 6
           """
         }
       }
