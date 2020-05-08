@@ -191,7 +191,8 @@ pipeline {
             echo line 6
           """*/
           sh "go get github.com/robertkrimen/godocdown/godocdown"
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go list ./... > devicedb_packages.txt"
+          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb"
+          sh "go list ./... > devicedb_packages.txt"
           sh "input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input"
           sh "cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/"
         }
