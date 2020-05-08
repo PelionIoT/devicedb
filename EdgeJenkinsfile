@@ -108,7 +108,7 @@ pipeline {
        }
     }
 
-    /*stage('Test'){
+    stage('Test'){
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
@@ -124,7 +124,7 @@ pipeline {
           //stash includes: 'cov.out', name: 'sonar-coverage'
         }
       }
-    }*/
+    }
 
     /*stage('SonarQube'){
       environment {
@@ -142,7 +142,7 @@ pipeline {
       }
     }*/
 
-    /*stage('Coverity'){
+    stage('Coverity'){
       steps{
         withAWS(region: "eu-west-1", credentials: "AKIA4NI2GQUKC43TCTC2") {
           sh """
@@ -171,7 +171,7 @@ pipeline {
           """
         }
       }
-    }*/
+    }
 
     stage('Auto Doc') {
       steps {
