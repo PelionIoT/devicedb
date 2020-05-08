@@ -173,7 +173,7 @@ pipeline {
       }
     }
 
-    stage('Auto Doc') {
+    /*stage('Auto Doc') {
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
@@ -185,7 +185,7 @@ pipeline {
           """
         }
       }
-    }
+    }*/
   }
 
   post{
