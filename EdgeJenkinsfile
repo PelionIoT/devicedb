@@ -13,16 +13,11 @@ should use 'env' as the key name.
 //def call(String buildStatus = 'STARTED', prevBuildStatus = '', String JOB_NAME = '', String BUILD_URL = '', Map configuration = [:]) {
 def notifySlack(configuration = [:]) {
 
-    print "inside notify slack"
-
     def prevBuildStatus = "${currentBuild.previousBuild?.result}"
     def buildStatus = "${currentBuild.currentResult}"
-    print prevBuildStatus
-    print buildStatus
 
     def colorCode = '#FF0000' // Red
-    //if (buildStatus != 'SUCCESS' ^ prevBuildStatus != 'SUCCESS') {
-      print "inside if"
+    if (buildStatus != 'SUCCESS' ^ prevBuildStatus != 'SUCCESS') {
         if (buildStatus == 'UNSTABLE') {
             colorCode = '#FFFF00' // Yellow
         } else if (buildStatus == 'ABORTED') {
@@ -74,9 +69,9 @@ def notifySlack(configuration = [:]) {
         print detailsAttachment
 
         // Send notifications
-        slackSend(message: mainText.toString(), attachments: attachments.toString(), channel: '#edge-noida-automation')
+        slackSend(message: mainText.toString(), attachments: attachments.toString(), channel: '#edge-jenkins-ci')
 
-    //}
+    }
 }
 
 
@@ -154,14 +149,14 @@ pipeline {
     stage('Coveralls'){
       environment{
         COVERALLS_ENDPOINT = 'https://coveralls.isgtesting.com'
-        COVERALLS_REPO_TOKEN = 'NHm2Ew9RyyySJPxpvjQQBuJTN7pWtB5EU'
+        COVERALLS_REPO_TOKEN = 'VgHN8yU29Jzyrq2FMH5CB69VDeMYz694u'
       }
       steps{
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
             go get github.com/mattn/goveralls
             cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
-            goveralls -coverprofile cov.out -endpoint ${COVERALLS_ENDPOINT} -reponame sameer2209-arm/devicedb -repotoken ${COVERALLS_REPO_TOKEN} -service edge-jenkins
+            goveralls -coverprofile cov.out -endpoint ${COVERALLS_ENDPOINT} -reponame armPelionEdge/devicedb -repotoken ${COVERALLS_REPO_TOKEN} -service edge-jenkins
           """
         }
       }
@@ -195,7 +190,7 @@ pipeline {
       }
       notifySlack(coverity: "https://coverity.cambridge.arm.com/reports.htm#v33339/p10156",
                   cobertura: cobertura_url,
-                  coveralls: "https://coveralls.isgtesting.com/github/sameer2209-arm/devicedb",
+                  coveralls: "https://coveralls.isgtesting.com/github/armPelionEdge/devicedb",
                   )
       sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
     }
