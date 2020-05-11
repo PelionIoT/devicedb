@@ -21,7 +21,7 @@ def notifySlack(configuration = [:]) {
     print buildStatus
 
     def colorCode = '#FF0000' // Red
-    if (buildStatus != 'SUCCESS' ^ prevBuildStatus != 'SUCCESS') {
+    //if (buildStatus != 'SUCCESS' ^ prevBuildStatus != 'SUCCESS') {
       print "inside if"
         if (buildStatus == 'UNSTABLE') {
             colorCode = '#FFFF00' // Yellow
@@ -74,9 +74,9 @@ def notifySlack(configuration = [:]) {
         print detailsAttachment
 
         // Send notifications
-        slackSend(message: mainText.toString(), attachments: attachments.toString(), channel: '#edge-jenkins-ci')
+        slackSend(message: mainText.toString(), attachments: attachments.toString(), channel: '#edge-noida-automation')
 
-    }
+    //}
 }
 
 
@@ -84,14 +84,8 @@ pipeline {
   agent{
     label 'oulu-lab'
   }
-  /*options{
-    skipDefaultCheckout()
-  }*/
   stages {
     stage('Build') {
-        /*options{
-            lock resource: 'oulu-lab'
-        }*/
         steps {
          //checkout scm
           withEnv(["GOROOT=/usr/local/go", "GOPATH=/home/jenkins/goprojects", "PATH+GO=/home/jenkins/goprojects/bin:/usr/local/go/bin"]){
@@ -108,7 +102,7 @@ pipeline {
        }
     }
 
-    stage('Test'){
+    stage('Unit Test'){
       steps {
         withEnv(["GOROOT=/usr/local/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:/usr/local/go/bin"]){
           sh """
@@ -177,19 +171,6 @@ pipeline {
       steps {
         sh 'echo hello'
         withEnv(["GOROOT=/usr/local/go", "GOPATH=/home/jenkins/goprojects", "PATH+GO=/home/jenkins/goprojects/bin:/usr/local/go/bin"]){
-          /*sh """
-            echo line 1
-            go get github.com/robertkrimen/godocdown/godocdown
-            echo line 2
-            cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb
-            echo line 3
-            go list ./... 2>&1 | tee devicedb_packages.txt
-            echo line 4
-            input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input
-            echo line 5
-            cp devicedb_docs.md /home/jenkins/ws/devicedb_${env.BRANCH_NAME}/
-            echo line 6
-          """*/
           sh "go get github.com/robertkrimen/godocdown/godocdown"
           sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go list ./... 2>&1 | tee devicedb_packages.txt"
           sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input'
@@ -204,7 +185,7 @@ pipeline {
       junit 'report.xml'
       step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
       archiveArtifacts artifacts: 'devicedb_docs.md'
-      notifySlack()
+      notifySlack(coveralls: "https://coveralls.isgtesting.com/github/sameer2209-arm/devicedb", coverity: "https://coverity.cambridge.arm.com/reports.htm#v33339/p10156")
       sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
     }
   }
