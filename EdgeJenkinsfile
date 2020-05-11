@@ -185,7 +185,11 @@ pipeline {
       junit 'report.xml'
       step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
       archiveArtifacts artifacts: 'devicedb_docs.md'
-      notifySlack(coveralls: "https://coveralls.isgtesting.com/github/sameer2209-arm/devicedb", coverity: "https://coverity.cambridge.arm.com/reports.htm#v33339/p10156")
+      notifySlack(coveralls: "https://coveralls.isgtesting.com/github/sameer2209-arm/devicedb",
+                  coverity: "https://coverity.cambridge.arm.com/reports.htm#v33339/p10156",
+                  cobertura: "https://edge-jenkins.isgtesting.com/view/all/job/devicedb/job/${env.BRANCH_NAME}/${env.BUILD_NUMBER}/cobertura/",
+                  sonarqube: "https://oulab2.mbedcloudtesting.com:9000"
+                  )
       sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
     }
   }
