@@ -126,29 +126,6 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.SyncPushBroadcastLimit = ysc.SyncPushBroadcastLimit
     sc.SyncExplorationPathLimit = ysc.SyncExplorationPathLimit
     sc.PeerAddresses = make(map[string]peerAddress)
-    
-    rootCAs := x509.NewCertPool()
-    
-    if !rootCAs.AppendCertsFromPEM([]byte(ysc.TLS.RootCA)) {
-        return errors.New("Could not append root CA to chain")
-    }
-    
-    clientCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
-    serverCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
-    clientTLSConfig := &tls.Config{
-        Certificates: []tls.Certificate{ clientCertificate },
-        RootCAs: rootCAs,
-        GetClientCertificate: func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-            return &clientCertificate, nil
-        },
-    }
-    serverTLSConfig := &tls.Config{
-        Certificates: []tls.Certificate{ serverCertificate },
-        ClientCAs: rootCAs,
-    }
-    
-    sc.ServerTLS = serverTLSConfig
-    
     for _, yamlPeer := range ysc.Peers {
         if _, ok := sc.PeerAddresses[yamlPeer.ID]; ok {
             return errors.New(fmt.Sprintf("Duplicate entry for peer %s in config file", yamlPeer.ID))
@@ -189,23 +166,56 @@ func (sc *ServerConfig) LoadFromFile(file string) error {
     sc.HistoryForwardInterval = ysc.History.ForwardInterval
     sc.HistoryForwardThreshold = ysc.History.ForwardThreshold
     sc.AlertsForwardInterval = ysc.Alerts.ForwardInterval
-    
-    clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
-    serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
-    clientCN := clientCertX509.Subject.CommonName
-    serverCN := serverCertX509.Subject.CommonName
-    
-    if len(clientCN) == 0 {
-        return errors.New("The common name in the certificate is empty. The node ID must not be empty")
+
+    var clientTLSConfig *tls.Config = nil
+    sc.NodeID = ysc.NodeID
+
+    if (YAMLTLSFiles{}) != ysc.TLS  {
+        rootCAs := x509.NewCertPool()
+        
+        if !rootCAs.AppendCertsFromPEM([]byte(ysc.TLS.RootCA)) {
+            return errors.New("Could not append root CA to chain")
+        }
+        
+        clientCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ClientCertificate), []byte(ysc.TLS.ClientKey))
+        serverCertificate, _ := tls.X509KeyPair([]byte(ysc.TLS.ServerCertificate), []byte(ysc.TLS.ServerKey))
+        clientTLSConfig = &tls.Config{
+            Certificates: []tls.Certificate{ clientCertificate },
+            RootCAs: rootCAs,
+            GetClientCertificate: func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+                return &clientCertificate, nil
+            },
+        }
+        serverTLSConfig := &tls.Config{
+            Certificates: []tls.Certificate{ serverCertificate },
+            ClientCAs: rootCAs,
+        }
+        
+        sc.ServerTLS = serverTLSConfig
+        
+        
+        clientCertX509, _ := x509.ParseCertificate(clientCertificate.Certificate[0])
+        serverCertX509, _ := x509.ParseCertificate(serverCertificate.Certificate[0])
+        clientCN := clientCertX509.Subject.CommonName
+        serverCN := serverCertX509.Subject.CommonName
+        
+        if len(clientCN) == 0 {
+            return errors.New("The common name in the certificate is empty. The node ID must not be empty")
+        }
+         
+        if clientCN != serverCN {
+            return errors.New(fmt.Sprintf("Server and client certificates have differing common names(%s and %s). This is the string used to uniquely identify the node.", serverCN, clientCN))
+        }
+        if ysc.NodeID == ""  {
+                sc.NodeID = clientCN
+            } 
+    } else {
+        if ysc.NodeID == "" {
+            return errors.New("No TLS certificates provided. Config file must have 'nodeid' field")
+        }
+        Log.Infof(" No TLS Config provided. Http mode\n")
     }
-     
-    if clientCN != serverCN {
-        return errors.New(fmt.Sprintf("Server and client certificates have differing common names(%s and %s). This is the string used to uniquely identify the node.", serverCN, clientCN))
-    }
-    
-    sc.NodeID = clientCN
     sc.Hub = NewHub(sc.NodeID, NewSyncController(uint(ysc.MaxSyncSessions), nil, ddbSync.NewPeriodicSyncScheduler(time.Millisecond * time.Duration(ysc.SyncSessionPeriod)), sc.SyncExplorationPathLimit), clientTLSConfig)
-    
     return nil
 }
 
