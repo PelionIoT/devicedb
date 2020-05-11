@@ -182,10 +182,10 @@ pipeline {
       archiveArtifacts artifacts: 'devicedb_docs.md'
       script{
         if(env.BRANCH_NAME ==~ /^PR-[0-9]*$/){
-          cobertura_url = "https://edge-jenkins.isgtesting.com/view/all/job/devicedb/view/change-requests/job/${env.BRANCH_NAME}/${env.BUILD_NUMBER}/cobertura/"
+          cobertura_url = "https://edge-jenkins.isgtesting.com/view/Pelion-Edge-QA-Team/job/devicedb/view/change-requests/job/${env.BRANCH_NAME}/${env.BUILD_NUMBER}/cobertura/"
         }
         else{
-          cobertura_url = "https://edge-jenkins.isgtesting.com/view/all/job/devicedb/job/${env.BRANCH_NAME}/${env.BUILD_NUMBER}/cobertura/"
+          cobertura_url = "https://edge-jenkins.isgtesting.com/view/Pelion-Edge-QA-Team/job/devicedb/job/${env.BRANCH_NAME}/${env.BUILD_NUMBER}/cobertura/"
         }
       }
       notifySlack(coverity: "https://coverity.cambridge.arm.com/reports.htm#v33339/p10156",
