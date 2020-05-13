@@ -1,4 +1,3 @@
-[![Coverage Status](https://coveralls.isgtesting.com/repos/github/sameer2209-arm/devicedb/badge.png)](https://coveralls.isgtesting.com/github/sameer2209-arm/devicedb)
 # DeviceDB
 DeviceDB is a key value store that runs both on IoT gateways and in the cloud to allow configuration and state data to be easily shared between applictations running in the cloud and applications running on the gateway.
 
