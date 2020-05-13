@@ -1,4 +1,4 @@
 #!/usr/bin/env groovy
-@Library('edge-ci@devicedb_ci') _
+@Library('edge-ci@master') _
 
 devicedb_ci()
