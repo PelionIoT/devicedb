@@ -34,8 +34,9 @@
 # HOST
 # SEED_NODE_ADDRESS
 # LOG_LEVEL
+# SYNC_PERIOD
 if [ $NODE_NAME = $SEED_NODE_NAME ]; then 
-    /go/bin/devicedb cluster start -store $DATA_STORAGE_PATH -snapshot_store $SNAPSHOT_STORAGE_PATH -replication_factor $REPLICATION_FACTOR -port $PORT -host $HOST -log_level $LOG_LEVEL;
+    /go/bin/devicedb cluster start -store $DATA_STORAGE_PATH -snapshot_store $SNAPSHOT_STORAGE_PATH -replication_factor $REPLICATION_FACTOR -port $PORT -host $HOST -log_level $LOG_LEVEL -sync_period $SYNC_PERIOD;
 else
-    /go/bin/devicedb cluster start -store $DATA_STORAGE_PATH -snapshot_store $SNAPSHOT_STORAGE_PATH -replication_factor $REPLICATION_FACTOR -port $PORT -host $HOST -log_level $LOG_LEVEL -join $SEED_NODE_ADDRESS;
+    /go/bin/devicedb cluster start -store $DATA_STORAGE_PATH -snapshot_store $SNAPSHOT_STORAGE_PATH -replication_factor $REPLICATION_FACTOR -port $PORT -host $HOST -log_level $LOG_LEVEL -sync_period $SYNC_PERIOD -join $SEED_NODE_ADDRESS;
 fi;
