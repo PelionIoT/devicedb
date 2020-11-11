@@ -25,7 +25,7 @@ package partition
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/PelionIoT/devicedb/data"
 )
 
 type PartitionIterator interface {

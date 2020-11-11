@@ -25,7 +25,7 @@ package data_test
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/PelionIoT/devicedb/data"
     
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

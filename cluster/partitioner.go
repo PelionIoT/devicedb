@@ -29,7 +29,7 @@ import (
     "sort"
     "sync"
 
-    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/PelionIoT/devicedb/data"
 )
 
 type NodeTokenCount struct {

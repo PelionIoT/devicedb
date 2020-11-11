@@ -27,7 +27,7 @@ package transfer
 import (
     "io"
 
-    . "github.com/armPelionEdge/devicedb/partition"
+    . "github.com/PelionIoT/devicedb/partition"
 )
 
 type PartitionTransferFactory interface {

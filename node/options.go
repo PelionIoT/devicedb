@@ -25,7 +25,7 @@ package node
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/cluster"
+    . "github.com/PelionIoT/devicedb/cluster"
 )
 
 type NodeInitializationOptions struct {

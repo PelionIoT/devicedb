@@ -25,7 +25,7 @@ package site
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/bucket"
+    . "github.com/PelionIoT/devicedb/bucket"
 )
 
 type Site interface {

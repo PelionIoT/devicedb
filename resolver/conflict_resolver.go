@@ -25,7 +25,7 @@ package resolver
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/data"
+    . "github.com/PelionIoT/devicedb/data"
 )
 
 type ConflictResolver interface {

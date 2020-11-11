@@ -30,7 +30,7 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"github.com/armPelionEdge/devicedb/transport"
+	"github.com/PelionIoT/devicedb/transport"
 )
 
 type UpdateIterator interface {

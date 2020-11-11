@@ -25,7 +25,7 @@ package client
 
 
 import (
-    "github.com/armPelionEdge/devicedb/transport"
+    "github.com/PelionIoT/devicedb/transport"
 )
 
 // Contains a database update operation

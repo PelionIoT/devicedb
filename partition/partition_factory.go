@@ -25,7 +25,7 @@ package partition
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/site"
+    . "github.com/PelionIoT/devicedb/site"
 )
 
 type PartitionFactory interface {
