@@ -25,7 +25,7 @@ package transfer_test
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/transfer"
+    . "github.com/PelionIoT/devicedb/transfer"
 
     . "github.com/onsi/ginkgo"
     . "github.com/onsi/gomega"

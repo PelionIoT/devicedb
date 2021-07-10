@@ -33,8 +33,8 @@ import (
     "io/ioutil"
     "net/http"
 
-    "github.com/armPelionEdge/devicedb/routes"
-    . "github.com/armPelionEdge/devicedb/error"
+    "github.com/PelionIoT/devicedb/routes"
+    . "github.com/PelionIoT/devicedb/error"
 )
 
 type APIClientConfig struct {

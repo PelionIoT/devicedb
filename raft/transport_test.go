@@ -25,7 +25,7 @@ package raft_test
 
 
 import (
-    . "github.com/armPelionEdge/devicedb/raft"
+    . "github.com/PelionIoT/devicedb/raft"
     "github.com/coreos/etcd/raft/raftpb"
     "github.com/gorilla/mux"
     "net"

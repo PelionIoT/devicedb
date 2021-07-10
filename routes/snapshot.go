@@ -30,8 +30,8 @@ import (
     "io"
     "net/http"
 
-	. "github.com/armPelionEdge/devicedb/error"
-	. "github.com/armPelionEdge/devicedb/logging"
+	. "github.com/PelionIoT/devicedb/error"
+	. "github.com/PelionIoT/devicedb/logging"
 )
 
 type SnapshotEndpoint struct {

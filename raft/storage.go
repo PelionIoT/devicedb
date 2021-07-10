@@ -28,7 +28,7 @@ import (
     "sync"
     "errors"
 
-    . "github.com/armPelionEdge/devicedb/storage"
+    . "github.com/PelionIoT/devicedb/storage"
     "github.com/coreos/etcd/raft"
     "github.com/coreos/etcd/raft/raftpb"
     "encoding/binary"
