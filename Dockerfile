@@ -1,4 +1,4 @@
-FROM golang
+FROM golang:1.15
 ADD . /go/src/github.com/armPelionEdge/devicedb
 RUN cd src/github.com/armPelionEdge/devicedb && go install
 
