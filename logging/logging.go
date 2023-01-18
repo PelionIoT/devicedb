@@ -1,4 +1,5 @@
 package logging
+
 //
 // Copyright (c) 2019 ARM Limited.
 //
@@ -23,9 +24,8 @@ package logging
 // SOFTWARE.
 //
 
-
 import (
-    "github.com/WigWagCo/wigwag-go-logger/logging"
+	"github.com/PelionIoT/wigwag-go-logger/logging"
 )
 
 var Log = logging.Log

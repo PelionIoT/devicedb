@@ -54,7 +54,7 @@ This use case will spin up a DeviceDB Edge docker container and a DeviceDB Cloud
 
 1. Clone DeviceDB and go to the directory you cloned to:
     ```bash
-    git clone git@github.com:armPelionEdge/devicedb.git
+    git clone git@github.com:PelionIoT/devicedb.git
     cd devicedb
     ```
 
@@ -98,10 +98,10 @@ Run the following steps to install DeviceDB on your cloud server:
 
 1. Clone DeviceDB and go to the directory you cloned to:
     ```bash
-    go get github.com/armPelionEdge/devicedb
-    cd $GOPATH/src/github.com/armPelionEdge/devicedb
+    go get github.com/PelionIoT/devicedb
+    cd $GOPATH/src/github.com/PelionIoT/devicedb
     ```
-    Note: if you have a previous manually cloned devicedb (the folder would be located at `$GOPATH/src/github.com/armPelionEdge/devicedb`), you will need to delete the devicedb folder before running the go get command. 
+    Note: if you have a previous manually cloned devicedb (the folder would be located at `$GOPATH/src/github.com/PelionIoT/devicedb`), you will need to delete the devicedb folder before running the go get command. 
 
 1. Generate certificates and identity files:
     ```bash
@@ -131,12 +131,12 @@ Run the following steps to install DeviceDB on your gateway:
 
 1. Clone DeviceDB and go to the directory you cloned to:
     ```bash
-    go get github.com/armPelionEdge/devicedb
-    cd $GOPATH/src/github.com/armPelionEdge/devicedb
+    go get github.com/PelionIoT/devicedb
+    cd $GOPATH/src/github.com/PelionIoT/devicedb
     ```
-    Note: if you have a previous manually cloned devicedb (the folder would be located at `$GOPATH/src/github.com/armPelionEdge/devicedb`), you will need to delete the devicedb folder before running the go get command. 
+    Note: if you have a previous manually cloned devicedb (the folder would be located at `$GOPATH/src/github.com/PelionIoT/devicedb`), you will need to delete the devicedb folder before running the go get command. 
 
-1. Copy the `certs` folder that was created during [Cloud Setup](#cloud-setup) to the gateway. It is recommended that the `certs` folder ends up in the following folder to match the Cloud server: `$GOPATH/src/github.com/armPelionEdge/devicedb/hack/certs`. For future commands, we will consider `<certs>` as the folder location containing your cloud certificates.
+1. Copy the `certs` folder that was created during [Cloud Setup](#cloud-setup) to the gateway. It is recommended that the `certs` folder ends up in the following folder to match the Cloud server: `$GOPATH/src/github.com/PelionIoT/devicedb/hack/certs`. For future commands, we will consider `<certs>` as the folder location containing your cloud certificates.
 
 1. Setup environment variables:
     ```bash

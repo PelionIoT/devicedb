@@ -1,5 +1,7 @@
 #
-# Copyright (c) 2019 ARM Limited.
+# Copyright (c) 2019-2020 ARM Limited.
+# Copyright (c) 2020-2022 Pelion Ltd
+# Copyright (c) 2023 Izuma Networks
 #
 # SPDX-License-Identifier: MIT
 #

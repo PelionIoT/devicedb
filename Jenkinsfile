@@ -90,12 +90,12 @@ pipeline {
          //checkout scm
           withEnv(["GOROOT=/home/jenkins/go", "GOPATH=/home/jenkins/goprojects", "PATH+GO=/home/jenkins/goprojects/bin:/home/jenkins/go/bin"]){
               script{
-                  sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
+                  sh 'rm -rf /home/jenknis/goprojects/src/github.com/PelionIoT/devicedb'
                   if(env.BRANCH_NAME ==~ /^PR-[0-9]*$/){
-                    sh "go get -u github.com/armPelionEdge/devicedb && cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && git fetch --all && git checkout ${CHANGE_BRANCH} && git merge origin/${env.CHANGE_TARGET} && go build"
+                    sh "go get -u github.com/PelionIoT/devicedb && cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && git fetch --all && git checkout ${CHANGE_BRANCH} && git merge origin/${env.CHANGE_TARGET} && go build"
                   }
                   else{
-                    sh "go get -u github.com/armPelionEdge/devicedb && cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && git fetch --all && git checkout ${env.BRANCH_NAME} && git merge origin/${env.BRANCH_NAME} && go build"
+                    sh "go get -u github.com/PelionIoT/devicedb && cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && git fetch --all && git checkout ${env.BRANCH_NAME} && git merge origin/${env.BRANCH_NAME} && go build"
                   }
               }
           }
@@ -109,8 +109,8 @@ pipeline {
       steps {
         withEnv(["GOROOT=$HOME/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:$HOME/go/bin"]){
           sh 'go get -u github.com/jstemmer/go-junit-report'
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml && cp report.xml cov.out /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && gocover-cobertura < cov.out > coverage.xml && cp coverage.xml /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
+          sh "cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && go test -v -coverpkg=all -coverprofile cov.out 2>&1 ./... | go-junit-report > report.xml && cp report.xml cov.out /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
+          sh "cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && gocover-cobertura < cov.out > coverage.xml && cp coverage.xml /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
           stash includes: 'cov.out', name: 'sonar-coverage'
         }
       }
@@ -121,7 +121,7 @@ pipeline {
         label 'master'
       }
       options{
-        checkoutToSubdirectory('/var/jenkins_home/goprojects/src/github.com/armPelionEdge/devicedb')
+        checkoutToSubdirectory('/var/jenkins_home/goprojects/src/github.com/PelionIoT/devicedb')
       }
       environment {
         scannerHome = tool 'SonarQubeScanner'
@@ -129,7 +129,7 @@ pipeline {
       steps {
         withSonarQubeEnv('sonarqube') {
           unstash 'sonar-coverage'
-          sh "cd $JENKINS_HOME/goprojects/src/github.com/armPelionEdge/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $JENKINS_HOME/workspace/devicedb_${env.BRANCH_NAME}"
+          sh "cd $JENKINS_HOME/goprojects/src/github.com/PelionIoT/devicedb && ${scannerHome}/bin/sonar-scanner && cp -r .scannerwork $JENKINS_HOME/workspace/devicedb_${env.BRANCH_NAME}"
         }
       }
     }
@@ -141,9 +141,9 @@ pipeline {
       steps {
         withEnv(["GOROOT=$HOME/go", "GOPATH=$HOME/goprojects", "PATH+GO=$HOME/goprojects/bin:$HOME/go/bin"]){
           sh 'go get github.com/robertkrimen/godocdown/godocdown'
-          sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && go list ./... > devicedb_packages.txt'
-          sh 'cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input'
-          sh "cd /home/jenkins/goprojects/src/github.com/armPelionEdge/devicedb && cp devicedb_docs.md /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
+          sh 'cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && go list ./... > devicedb_packages.txt'
+          sh 'cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && input=devicedb_packages.txt && while IFS= read -r line; do godocdown -plain=false $line >> devicedb_docs.md; done < $input'
+          sh "cd /home/jenkins/goprojects/src/github.com/PelionIoT/devicedb && cp devicedb_docs.md /home/jenkins/workspace/devicedb_${env.BRANCH_NAME}/"
         }
       }
     }
@@ -156,7 +156,7 @@ pipeline {
         step([$class: 'CoberturaPublisher', autoUpdateHealth: false, autoUpdateStability: false, coberturaReportFile: 'coverage.xml', failUnhealthy: false, failUnstable: false, maxNumberOfBuilds: 0, onlyStable: false, sourceEncoding: 'ASCII', zoomCoverageChart: false])
         archiveArtifacts artifacts: 'devicedb_docs.md'
         notifySlack("${currentBuild.currentResult}")
-        sh 'rm -rf /home/jenknis/goprojects/src/github.com/armPelionEdge/devicedb'
+        sh 'rm -rf /home/jenknis/goprojects/src/github.com/PelionIoT/devicedb'
       }
     }
   }

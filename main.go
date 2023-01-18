@@ -1,69 +1,69 @@
 package main
+
 //
- // Copyright (c) 2019 ARM Limited.
- //
- // SPDX-License-Identifier: MIT
- //
- // Permission is hereby granted, free of charge, to any person obtaining a copy
- // of this software and associated documentation files (the "Software"), to
- // deal in the Software without restriction, including without limitation the
- // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- // sell copies of the Software, and to permit persons to whom the Software is
- // furnished to do so, subject to the following conditions:
- //
- // The above copyright notice and this permission notice shall be included in all
- // copies or substantial portions of the Software.
- //
- // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- // SOFTWARE.
- //
+// Copyright (c) 2019 ARM Limited.
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 
 import (
-    "flag"
-    "fmt"
-    "os"
-    "github.com/armPelionEdge/devicedb/cluster"
-    "strings"
-    "strconv"
-    "errors"
-    "time"
-    "sync"
-    "context"
-    "io"
-    "io/ioutil"
-    "crypto/tls"
-    "crypto/x509"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"flag"
+	"fmt"
+	"github.com/PelionIoT/devicedb/cluster"
+	"io"
+	"io/ioutil"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
-    . "github.com/armPelionEdge/devicedb/client"
-    . "github.com/armPelionEdge/devicedb/server"
-    "github.com/armPelionEdge/devicedb/storage"
-    "github.com/armPelionEdge/devicedb/node"
-    . "github.com/armPelionEdge/devicedb/error"
-    . "github.com/armPelionEdge/devicedb/version"
-    . "github.com/armPelionEdge/devicedb/compatibility"
-    . "github.com/armPelionEdge/devicedb/shared"
-    . "github.com/armPelionEdge/devicedb/logging"
-    . "github.com/armPelionEdge/devicedb/util"
-    . "github.com/armPelionEdge/devicedb/raft"
-    . "github.com/armPelionEdge/devicedb/merkle"
-    . "github.com/armPelionEdge/devicedb/bucket"
-    . "github.com/armPelionEdge/devicedb/data"
-    ddbBenchmark "github.com/armPelionEdge/devicedb/benchmarks"
-    "github.com/armPelionEdge/devicedb/routes"
-    "github.com/armPelionEdge/devicedb/historian"
+	ddbBenchmark "github.com/PelionIoT/devicedb/benchmarks"
+	. "github.com/PelionIoT/devicedb/bucket"
+	. "github.com/PelionIoT/devicedb/client"
+	. "github.com/PelionIoT/devicedb/compatibility"
+	. "github.com/PelionIoT/devicedb/data"
+	. "github.com/PelionIoT/devicedb/error"
+	"github.com/PelionIoT/devicedb/historian"
+	. "github.com/PelionIoT/devicedb/logging"
+	. "github.com/PelionIoT/devicedb/merkle"
+	"github.com/PelionIoT/devicedb/node"
+	. "github.com/PelionIoT/devicedb/raft"
+	"github.com/PelionIoT/devicedb/routes"
+	. "github.com/PelionIoT/devicedb/server"
+	. "github.com/PelionIoT/devicedb/shared"
+	"github.com/PelionIoT/devicedb/storage"
+	. "github.com/PelionIoT/devicedb/util"
+	. "github.com/PelionIoT/devicedb/version"
 
-    "github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter"
 )
 
 const defaultPort uint = 8080
 
-var templateConfig string =
-`# The db field specifies the directory where the database files reside on
+var templateConfig string = `# The db field specifies the directory where the database files reside on
 # disk. If it doesn't exist it will be created.
 # **REQUIRED**
 db: /tmp/devicedb
@@ -310,8 +310,7 @@ tls:
     rootCA: path/to/ca-chain.pem
 `
 
-var usage string = 
-`Usage: devicedb <command> <arguments> | -version
+var usage string = `Usage: devicedb <command> <arguments> | -version
 
 Commands:
     start      Start a devicedb relay server
@@ -324,8 +323,7 @@ Commands:
 Use devicedb help <command> for more usage information about a command.
 `
 
-var clusterUsage string = 
-`Usage: devicedb cluster <cluster_command> <arguments>
+var clusterUsage string = `Usage: devicedb cluster <cluster_command> <arguments>
 
 Cluster Commands:
     start              Start a devicedb cloud node
@@ -354,1488 +352,1487 @@ Use devicedb cluster help <cluster_command> for more usage information about a c
 var commandUsage string = "Usage: devicedb %s <arguments>\n"
 
 func isValidPartitionCount(p uint64) bool {
-    return (p != 0 && ((p & (p - 1)) == 0)) && p >= cluster.MinPartitionCount && p <= cluster.MaxPartitionCount
+	return (p != 0 && ((p & (p - 1)) == 0)) && p >= cluster.MinPartitionCount && p <= cluster.MaxPartitionCount
 }
 
 func isValidJoinAddress(s string) bool {
-    _, _, err := parseJoinAddress(s)
+	_, _, err := parseJoinAddress(s)
 
-    return err == nil
+	return err == nil
 }
 
 func parseJoinAddress(s string) (hostname string, port int, err error) {
-    parts := strings.Split(s, ":")
+	parts := strings.Split(s, ":")
 
-    if len(parts) != 2 {
-        err = errors.New("")
+	if len(parts) != 2 {
+		err = errors.New("")
 
-        return
-    }
+		return
+	}
 
-    port64, err := strconv.ParseUint(parts[1], 10, 16)
+	port64, err := strconv.ParseUint(parts[1], 10, 16)
 
-    if err != nil {
-        return
-    }
+	if err != nil {
+		return
+	}
 
-    hostname = parts[0]
-    port = int(port64)
+	hostname = parts[0]
+	port = int(port64)
 
-    return
+	return
 }
 
 func main() {
-    startCommand := flag.NewFlagSet("start", flag.ExitOnError)
-    confCommand := flag.NewFlagSet("conf", flag.ExitOnError)
-    upgradeCommand := flag.NewFlagSet("upgrade", flag.ExitOnError)
-    benchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
-    compactCommand := flag.NewFlagSet("compact", flag.ExitOnError)
-    helpCommand := flag.NewFlagSet("help", flag.ExitOnError)
-    clusterStartCommand := flag.NewFlagSet("start", flag.ExitOnError)
-    clusterBenchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
-    clusterRemoveCommand := flag.NewFlagSet("remove", flag.ExitOnError)
-    clusterDecommissionCommand := flag.NewFlagSet("decommission", flag.ExitOnError)
-    clusterReplaceCommand := flag.NewFlagSet("replace", flag.ExitOnError)
-    clusterOverviewCommand := flag.NewFlagSet("overview", flag.ExitOnError)
-    clusterAddSiteCommand := flag.NewFlagSet("add_site", flag.ExitOnError)
-    clusterRemoveSiteCommand := flag.NewFlagSet("remove_site", flag.ExitOnError)
-    clusterAddRelayCommand := flag.NewFlagSet("add_relay", flag.ExitOnError)
-    clusterRemoveRelayCommand := flag.NewFlagSet("remove_relay", flag.ExitOnError)
-    clusterMoveRelayCommand := flag.NewFlagSet("move_relay", flag.ExitOnError)
-    clusterRelayStatusCommand := flag.NewFlagSet("relay_status", flag.ExitOnError)
-    clusterGetCommand := flag.NewFlagSet("get", flag.ExitOnError)
-    clusterGetMatchesCommand := flag.NewFlagSet("get_matches", flag.ExitOnError)
-    clusterPutCommand := flag.NewFlagSet("put", flag.ExitOnError)
-    clusterDeleteCommand := flag.NewFlagSet("delete", flag.ExitOnError)
-    clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
-    clusterLogDumpCommand := flag.NewFlagSet("log_dump", flag.ExitOnError)
-    clusterSnapshotCommand := flag.NewFlagSet("snapshot", flag.ExitOnError)
-    clusterGetSnapshotCommand := flag.NewFlagSet("get_snapshot", flag.ExitOnError)
-    clusterDownloadSnapshotCommand := flag.NewFlagSet("download_snapshot", flag.ExitOnError)
-
-    startConfigFile := startCommand.String("conf", "", "The config file for this server")
-
-    upgradeLegacyDB := upgradeCommand.String("legacy", "", "The path to the legacy database data directory")
-    upgradeConfigFile := upgradeCommand.String("conf", "", "The config file for this server. If this argument is used then don't use the -db and -merkle options.")
-    upgradeNewDB := upgradeCommand.String("db", "", "The directory to use for the upgraded data directory")
-    upgradeNewDBMerkleDepth := upgradeCommand.Uint64("merkle", uint64(0), "The merkle depth to use for the upgraded data directory. Default value will be used if omitted.")
-    
-    benchmarkDB := benchmarkCommand.String("db", "", "The directory to use for the benchark test scratch space")
-    benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
-
-    benchmarkStress := benchmarkCommand.Bool("stress", false, "Perform test that continuously writes historical log events as fast as it can")
-    benchmarkHistoryEventFloor := benchmarkCommand.Uint64("event_floor", 400000, "Event floor for history log")
-    benchmarkHistoryEventLimit := benchmarkCommand.Uint64("event_limit", 500000, "Event limit for history log")
-    benchmarkHistoryPurgeBatchSize := benchmarkCommand.Int("purge_batch_size", 1000, "Purge batch size for history log")
-
-    compactDB := compactCommand.String("db", "", "The directory containing the database data to compact")
-
-    clusterStartHost := clusterStartCommand.String("host", "localhost", "HTTP The hostname or ip to listen on. This is the advertised host address for this node.")
-    clusterStartPort := clusterStartCommand.Uint("port", defaultPort, "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
-    clusterStartRelayHost := clusterStartCommand.String("relay_host", "localhost", "HTTPS The hostname or ip to listen on for incoming relay connections. Applies only if TLS is terminated by devicedb itself")
-    clusterStartRelayPort := clusterStartCommand.Uint("relay_port", uint(443), "HTTPS This is the port used for incoming relay connections. Applies only if TLS is terminated by devicedb itself.")
-    clusterStartTLSCertificate := clusterStartCommand.String("cert", "", "PEM encoded x509 certificate to be used by relay connections. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/cert.pem)")
-    clusterStartTLSKey := clusterStartCommand.String("key", "", "PEM encoded x509 key corresponding to the specified 'cert'. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/key.pem)")
-    clusterStartTLSRelayCA := clusterStartCommand.String("relay_ca", "", "PEM encoded x509 certificate authority used to validate relay client certs for incoming relay connections. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/relays.ca.pem)")
-    clusterStartPartitions := clusterStartCommand.Uint64("partitions", uint64(cluster.DefaultPartitionCount), "The number of hash space partitions in the cluster. Must be a power of 2. (Only specified when starting a new cluster)")
-    clusterStartReplicationFactor := clusterStartCommand.Uint64("replication_factor", uint64(3), "The number of replcas required for every database key. (Only specified when starting a new cluster)")
-    clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
-    clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
-    clusterStartReplacement := clusterStartCommand.Bool("replacement", false, "Specify this flag if this node is being added to replace some other node in the cluster.")
-    clusterStartMerkleDepth := clusterStartCommand.Uint("merkle", 4, "Use this flag to adjust the merkle depth used for site merkle trees.")
-    clusterStartSyncMaxSessions := clusterStartCommand.Uint("sync_max_sessions", 10, "The number of sync sessions to allow at the same time.")
-    clusterStartSyncPathLimit := clusterStartCommand.Uint("sync_path_limit", 10, "The number of exploration paths to allow in a sync session.")
-    clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
-    clusterStartLogLevel := clusterStartCommand.String("log_level", "info", "The log level configures how detailed the output produced by devicedb is. Must be one of { critical, error, warning, notice, info, debug }")
-    clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It only applies to TLS enabled servers and should only be used for testing.")
-    clusterStartSnapshotDirectory := clusterStartCommand.String("snapshot_store", "", "To enable snapshots set this to some directory where database snapshots can be stored")
-
-    clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: wss://localhost:9090,wss://localhost:8080")
-    clusterBenchmarkInternalAddresses := clusterBenchmarkCommand.String("internal_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
-    clusterBenchmarkName := clusterBenchmarkCommand.String("name", "multiple_relays", "The name of the benchmark to run")
-    clusterBenchmarkNSites := clusterBenchmarkCommand.Uint("n_sites", 100, "The number of sites to simulate")
-    clusterBenchmarkNRelays := clusterBenchmarkCommand.Uint("n_relays", 1, "The number of relays to simulate per site")
-    clusterBenchmarkUpdatesPerSecond := clusterBenchmarkCommand.Uint("updates_per_second", 5, "The number of updates per second to simulate per relay")
-    clusterBenchmarkSyncPeriod := clusterBenchmarkCommand.Uint("sync_period", 1000, "The sync period in milliseconds per relay")
-
-    clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
-    clusterRemovePort := clusterRemoveCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterRemoveNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that should be removed from the cluster. Defaults to the ID of the node being contacted.")
-
-    clusterDecommissionHost := clusterDecommissionCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterDecommissionPort := clusterDecommissionCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterDecommissionNodeID := clusterDecommissionCommand.Uint64("node", uint64(0), "The ID of the node that should be decommissioned from the cluster. Defaults to the ID of the node being contacted.")
-
-    clusterReplaceHost := clusterReplaceCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
-    clusterReplacePort := clusterReplaceCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterReplaceNodeID := clusterReplaceCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")
-    clusterReplaceReplacementNodeID := clusterReplaceCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
-
-    clusterOverviewHost := clusterOverviewCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to query the cluster state.")
-    clusterOverviewPort := clusterOverviewCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-
-    clusterAddSiteHost := clusterAddSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the site.")
-    clusterAddSitePort := clusterAddSiteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterAddSiteSiteID := clusterAddSiteCommand.String("site", "", "The ID of the site to add. (Required)")
-
-    clusterRemoveSiteHost := clusterRemoveSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the site.")
-    clusterRemoveSitePort := clusterRemoveSiteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterRemoveSiteSiteID := clusterRemoveSiteCommand.String("site", "", "The ID of the site to remove. (Required)")
-
-    clusterAddRelayHost := clusterAddRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the relay.")
-    clusterAddRelayPort := clusterAddRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterAddRelayRelayID := clusterAddRelayCommand.String("relay", "", "The ID of the relay to add. (Required)")
-
-    clusterRemoveRelayHost := clusterRemoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
-    clusterRemoveRelayPort := clusterRemoveRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterRemoveRelayRelayID := clusterRemoveRelayCommand.String("relay", "", "The ID of the relay to remove. (Required)")
-
-    clusterMoveRelayHost := clusterMoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
-    clusterMoveRelayPort := clusterMoveRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterMoveRelayRelayID := clusterMoveRelayCommand.String("relay", "", "The ID of the relay to move. (Required)")
-    clusterMoveRelaySiteID := clusterMoveRelayCommand.String("site", "", "The ID of the site to move the relay to. If left blank the relay is removed from its current site.")
-
-    clusterRelayStatusHost := clusterRelayStatusCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting the relay status.")
-    clusterRelayStatusPort := clusterRelayStatusCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterRelayStatusRelayID := clusterRelayStatusCommand.String("relay", "", "The ID of the relay to query. (Required)")
-
-    clusterGetHost := clusterGetCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting this key.")
-    clusterGetPort := clusterGetCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterGetSiteID := clusterGetCommand.String("site", "", "The ID of the site. (Required)")
-    clusterGetBucket := clusterGetCommand.String("bucket", "default", "The bucket to query in the site.")
-    clusterGetKey := clusterGetCommand.String("key", "", "The key to get from the bucket. (Required)")
-
-    clusterGetMatchesHost := clusterGetMatchesCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting these keys.")
-    clusterGetMatchesPort := clusterGetMatchesCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterGetMatchesSiteID := clusterGetMatchesCommand.String("site", "", "The ID of the site. (Required)")
-    clusterGetMatchesBucket := clusterGetMatchesCommand.String("bucket", "default", "The bucket to query in the site.")
-    clusterGetMatchesPrefix := clusterGetMatchesCommand.String("prefix", "", "The prefix of keys to get from the bucket. (Required)")
-
-    clusterPutHost := clusterPutCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
-    clusterPutPort := clusterPutCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterPutSiteID := clusterPutCommand.String("site", "", "The ID of the site. (Required)")
-    clusterPutBucket := clusterPutCommand.String("bucket", "default", "The bucket in the site where this key goes.")
-    clusterPutKey := clusterPutCommand.String("key", "", "The key to update in the bucket. (Required)")
-    clusterPutValue := clusterPutCommand.String("value", "", "The value to put at this key. (Required)")
-    clusterPutContext := clusterPutCommand.String("context", "", "The causal context of this put operation")
-
-    clusterDeleteHost := clusterDeleteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
-    clusterDeletePort := clusterDeleteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterDeleteSiteID := clusterDeleteCommand.String("site", "", "The ID of the site. (Required)")
-    clusterDeleteBucket := clusterDeleteCommand.String("bucket", "default", "The bucket in the site where this key goes.")
-    clusterDeleteKey := clusterDeleteCommand.String("key", "", "The key to update in the bucket. (Required)")
-    clusterDeleteContext := clusterDeleteCommand.String("context", "", "The causal context of this put operation")
-
-    clusterLogDumpHost := clusterLogDumpCommand.String("host", "localhost", "The hostname or ip of some cluster member whose raft state to print.")
-    clusterLogDumpPort := clusterLogDumpCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-
-    clusterSnapshotHost := clusterSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member that should take a snapshot.")
-    clusterSnapshotPort := clusterSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-
-    clusterGetSnapshotHost := clusterGetSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to get a snapshot from.")
-    clusterGetSnapshotPort := clusterGetSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterGetSnapshotSnapshotId := clusterGetSnapshotCommand.String("uuid", "", "The UUID of the snapshot to check for")
-
-    clusterDownloadSnapshotHost := clusterDownloadSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to download a snapshot from.")
-    clusterDownloadSnapshotPort := clusterDownloadSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
-    clusterDownloadSnapshotSnapshotId := clusterDownloadSnapshotCommand.String("uuid", "", "The UUID of the snapshot to download")
-
-    if len(os.Args) < 2 {
-        fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
-        fmt.Fprintf(os.Stderr, "%s", usage)
-        os.Exit(1)
-    }
-
-    switch os.Args[1] {
-    case "cluster":
-        if len(os.Args) < 3 {
-            fmt.Fprintf(os.Stderr, "Error: %s", "No cluster command specified\n\n")
-            fmt.Fprintf(os.Stderr, "%s", clusterUsage)
-            os.Exit(1)
-        }
-
-        switch os.Args[2] {
-        case "start":
-            clusterStartCommand.Parse(os.Args[3:])
-        case "benchmark":
-            clusterBenchmarkCommand.Parse(os.Args[3:])
-        case "remove":
-            clusterRemoveCommand.Parse(os.Args[3:])
-        case "decommission":
-            clusterDecommissionCommand.Parse(os.Args[3:])
-        case "replace":
-            clusterReplaceCommand.Parse(os.Args[3:])
-        case "overview":
-            clusterOverviewCommand.Parse(os.Args[3:])
-        case "add_site":
-            clusterAddSiteCommand.Parse(os.Args[3:])
-        case "remove_site":
-            clusterRemoveSiteCommand.Parse(os.Args[3:])
-        case "add_relay":
-            clusterAddRelayCommand.Parse(os.Args[3:])
-        case "remove_relay":
-            clusterRemoveRelayCommand.Parse(os.Args[3:])
-        case "move_relay":
-            clusterMoveRelayCommand.Parse(os.Args[3:])
-        case "relay_status":
-            clusterRelayStatusCommand.Parse(os.Args[3:])
-        case "get":
-            clusterGetCommand.Parse(os.Args[3:])
-        case "get_matches":
-            clusterGetMatchesCommand.Parse(os.Args[3:])
-        case "put":
-            clusterPutCommand.Parse(os.Args[3:])
-        case "delete":
-            clusterDeleteCommand.Parse(os.Args[3:])
-        case "log_dump":
-            clusterLogDumpCommand.Parse(os.Args[3:])
-        case "snapshot":
-            clusterSnapshotCommand.Parse(os.Args[3:])
-        case "get_snapshot":
-            clusterGetSnapshotCommand.Parse(os.Args[3:])            
-        case "download_snapshot":
-            clusterDownloadSnapshotCommand.Parse(os.Args[3:])
-        case "help":
-            clusterHelpCommand.Parse(os.Args[3:])
-        case "-help":
-            fmt.Fprintf(os.Stderr, "%s", clusterUsage)
-        default:
-            fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a recognized cluster command\n\n", os.Args[2])
-            fmt.Fprintf(os.Stderr, "%s", clusterUsage)
-            os.Exit(1)
-        }
-    case "start":
-        startCommand.Parse(os.Args[2:])
-    case "conf":
-        confCommand.Parse(os.Args[2:])
-    case "upgrade":
-        upgradeCommand.Parse(os.Args[2:])
-    case "benchmark":
-        benchmarkCommand.Parse(os.Args[2:])
-    case "compact":
-        compactCommand.Parse(os.Args[2:])
-    case "help":
-        helpCommand.Parse(os.Args[2:])
-    case "-help":
-        fmt.Fprintf(os.Stderr, "%s", usage)
-        os.Exit(0)
-    case "-version":
-        fmt.Fprintf(os.Stdout, "%s\n", DEVICEDB_VERSION)
-        os.Exit(0)
-    default:
-        fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a recognized command\n\n", os.Args[1])
-        fmt.Fprintf(os.Stderr, "%s", usage)
-        os.Exit(1)
-    }
-
-    if startCommand.Parsed() {
-        if *startConfigFile == "" {
-            fmt.Fprintf(os.Stderr, "Error: No config file specified\n")
-            os.Exit(1)
-        }
-
-        start(*startConfigFile)
-    }
-
-    if confCommand.Parsed() {
-        fmt.Fprintf(os.Stderr, "%s", templateConfig)
-        os.Exit(0)
-    }
-
-    if upgradeCommand.Parsed() {
-        var serverConfig YAMLServerConfig
-        
-        if len(*upgradeConfigFile) != 0 {
-            err := serverConfig.LoadFromFile(*upgradeConfigFile)
-            
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "Error: Unable to load configuration file: %v\n", err)
-                os.Exit(1)
-            }
-        } else {
-            if *upgradeNewDBMerkleDepth < uint64(MerkleMinDepth) || *upgradeNewDBMerkleDepth > uint64(MerkleMaxDepth) {
-                fmt.Fprintf(os.Stderr, "No valid merkle depth specified. Defaulting to %d\n", MerkleDefaultDepth)
-                
-                serverConfig.MerkleDepth = MerkleDefaultDepth
-            } else {
-                serverConfig.MerkleDepth = uint8(*upgradeNewDBMerkleDepth)
-            }
-            
-            if len(*upgradeNewDB) == 0 {
-                fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
-                os.Exit(1)
-            }
-            
-            serverConfig.DBFile = *upgradeNewDB
-        }
-        
-        if len(*upgradeLegacyDB) == 0 {
-            fmt.Fprintf(os.Stderr, "Error: No legacy database directory (-legacy) specified\n")
-            os.Exit(1)
-        }
-        
-        err := UpgradeLegacyDatabase(*upgradeLegacyDB, serverConfig)
-        
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to migrate legacy database: %v\n", err)
-            os.Exit(1)
-        }
-    }
-
-    if benchmarkCommand.Parsed() {
-        var benchmarkMagnitude int = 10000
-        var serverConfig ServerConfig
-        var server *Server
-
-        if len(*benchmarkDB) == 0 {
-            fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
-            os.Exit(1)
-        }
-        
-        if *benchmarkMerkle < uint64(MerkleMinDepth) || *benchmarkMerkle > uint64(MerkleMaxDepth) {
-            fmt.Fprintf(os.Stderr, "No valid merkle depth specified. Defaulting to %d\n", MerkleDefaultDepth)
-            
-            serverConfig.MerkleDepth = MerkleDefaultDepth
-        } else {
-            serverConfig.MerkleDepth = uint8(*benchmarkMerkle)
-        }
-        
-        err := os.RemoveAll(*benchmarkDB)
-        
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to initialized benchmark workspace at %s: %v\n", *benchmarkDB, err)
-            os.Exit(1)
-        }
-        
-        SetLoggingLevel("debug")
-        serverConfig.DBFile = *benchmarkDB
-        serverConfig.HistoryEventLimit = *benchmarkHistoryEventLimit
-        serverConfig.HistoryEventFloor = *benchmarkHistoryEventFloor
-        serverConfig.HistoryPurgeBatchSize = *benchmarkHistoryPurgeBatchSize
-        server, err = NewServer(serverConfig)
-        
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to initialize test database: %v\n", err)
-            os.Exit(1)
-        }
-
-        if *benchmarkStress {
-            fmt.Fprintf(os.Stderr, "Start stressing disk by writing to the history log indefinitely...\n")
-
-            err = benchmarkHistoryStress(server)
-
-            fmt.Fprintf(os.Stderr, "Error: While running history stress benchmark: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-        
-        err = benchmarkSequentialReads(benchmarkMagnitude, server)
-        
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Failed at sequential reads benchmark: %v\n", err)
-            os.Exit(1)
-        }
-        
-        err = benchmarkRandomReads(benchmarkMagnitude, server)
-        
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Failed at random reads benchmark: %v\n", err)
-            os.Exit(1)
-        }
-        
-        err = benchmarkWrites(benchmarkMagnitude, server)
-        
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Failed at writes benchmark: %v\n", err)
-            os.Exit(1)
-        }
-    }
-
-    if compactCommand.Parsed() {
-        if len(*compactDB) == 0 {
-            fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
-            os.Exit(1)
-        }
-
-        // compact here
-        storageDriver := storage.NewLevelDBStorageDriver(*compactDB, nil)
-
-        if err := storageDriver.Open(); err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to open storage: %v\n", err.Error())
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Compacting database...\n")
-
-        if err := storageDriver.Compact(); err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Compaction failed: %v\n", err.Error())
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Compacted database!\n")
-        os.Exit(0)
-    }
-
-    if helpCommand.Parsed() {
-        if len(os.Args) < 3 {
-            fmt.Fprintf(os.Stderr, "Error: No command specified for help\n")
-            os.Exit(1)
-        }
-        
-        var flagSet *flag.FlagSet
-
-        switch os.Args[2] {
-        case "start":
-            flagSet = startCommand
-        case "conf":
-            fmt.Fprintf(os.Stderr, "Usage: devicedb conf\n")
-            os.Exit(0)
-        case "upgrade":
-            flagSet = upgradeCommand
-        case "benchmark":
-            flagSet = benchmarkCommand
-        case "cluster":
-            fmt.Fprintf(os.Stderr, commandUsage, "cluster <cluster_command>")
-            os.Exit(0)
-        default:
-            fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid command.\n", os.Args[2])
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, commandUsage + "\n", os.Args[2])
-        flagSet.PrintDefaults()
-        os.Exit(0)
-    }
-
-    if clusterStartCommand.Parsed() {
-        if *clusterStartJoin != "" && !isValidJoinAddress(*clusterStartJoin) {
-            fmt.Fprintf(os.Stderr, "Error: -join must specify a valid address of some host in an existing cluster formatted like: host:port Ex: 10.10.102.89:80.\n")
-            os.Exit(1)
-        }
-
-        if *clusterStartStore == "" {
-            fmt.Fprintf(os.Stderr, "Error: -store is a required parameter of the devicedb cluster start command. It must specify a valid file system path.\n")
-            os.Exit(1)
-        }
-
-        if *clusterStartJoin == "" {
-            if !isValidPartitionCount(*clusterStartPartitions) {
-                fmt.Fprintf(os.Stderr, "Error: -partitions must be a power of 2 and be in the range [%d, %d]\n", cluster.MinPartitionCount, cluster.MaxPartitionCount)
-                os.Exit(1)
-            }
-
-            if *clusterStartReplicationFactor == 0 {
-                fmt.Fprintf(os.Stderr, "Error: -replication_factor must be a positive value\n")
-                os.Exit(1)
-            }
-        }
-
-        if *clusterStartLogLevel != "critical" && *clusterStartLogLevel != "error" && *clusterStartLogLevel != "warning" && *clusterStartLogLevel != "notice" && *clusterStartLogLevel != "info" && *clusterStartLogLevel != "debug" {
-            fmt.Fprintf(os.Stderr, "Error: -log_level must be one of { critical, error, warning, notice, info, debug }\n")
-            os.Exit(1)
-        }
-
-        var certificate []byte
-        var key []byte
-        var rootCAs *x509.CertPool
-        var cert tls.Certificate
-        var httpOnly bool
-        var err error
-
-        if *clusterStartTLSCertificate == "" && *clusterStartTLSKey == "" && *clusterStartTLSRelayCA == "" {
-            // http only mode
-            httpOnly = true
-        } else if *clusterStartTLSCertificate != "" && *clusterStartTLSKey != "" && *clusterStartTLSRelayCA != "" {
-            // https mode
-            certificate, err = ioutil.ReadFile(*clusterStartTLSCertificate)
-        
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "Error: Could not load the TLS certificate from %s: %v\n", *clusterStartTLSCertificate, err.Error())
-                os.Exit(1)
-            }
-
-            key, err = ioutil.ReadFile(*clusterStartTLSKey)
-        
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "Error: Could not load the TLS key from %s: %v\n", *clusterStartTLSKey, err.Error())
-                os.Exit(1)
-            }
-
-            relayCA, err := ioutil.ReadFile(*clusterStartTLSRelayCA)
-        
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "Error: Could not load the TLS Relay CA from %s: %v\n", *clusterStartTLSRelayCA, err.Error())
-                os.Exit(1)
-            }
-
-            cert, err = tls.X509KeyPair([]byte(certificate), []byte(key))
-        
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair\n")
-                os.Exit(1)
-            }
-
-            rootCAs = x509.NewCertPool()
-
-            if !rootCAs.AppendCertsFromPEM([]byte(relayCA)) {
-                fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid\n")
-                os.Exit(1)
-            }
-        } else {
-            fmt.Fprintf(os.Stderr, "Error: -cert, -key, and -relay_ca must all be provided if one is provided to enable TLS mode\n")
-            os.Exit(1)
-        }
-
-        if *clusterStartMerkleDepth < uint(MerkleMinDepth) || *clusterStartMerkleDepth > uint(MerkleMaxDepth) {
-            fmt.Fprintf(os.Stderr, "Error: The specified merkle depth is not valid. It must be between %d and %d inclusive\n", MerkleMinDepth, MerkleMaxDepth)
-            os.Exit(1)
-        }
-
-        if *clusterStartSyncMaxSessions == 0 {
-            fmt.Fprintf(os.Stderr, "Error: The specified sync sessions max is not valid. It must be a positive integer\n")
-            os.Exit(1)
-        }
-
-        if *clusterStartSyncPathLimit == 0 {
-            fmt.Fprintf(os.Stderr, "Error: The specified sync path limit is not valid. It must be a positive integer\n")
-            os.Exit(1)
-        }
-
-        if *clusterStartSyncPeriod == 0 {
-            fmt.Fprintf(os.Stderr, "Error: The specified sync period is not valid. It must be a positive integer\n")
-            os.Exit(1)
-        }
-
-        var seedHost string
-        var seedPort int
-        var startOptions node.NodeInitializationOptions
-
-        if *clusterStartJoin != "" {
-            seedHost, seedPort, _ = parseJoinAddress(*clusterStartJoin)
-            startOptions.JoinCluster = true
-            startOptions.SeedNodeHost = seedHost
-            startOptions.SeedNodePort = seedPort
-        } else {
-            startOptions.StartCluster = true
-            startOptions.ClusterSettings.Partitions = *clusterStartPartitions
-            startOptions.ClusterSettings.ReplicationFactor = *clusterStartReplicationFactor
-        }
-
-        startOptions.ClusterHost = *clusterStartHost
-        startOptions.ClusterPort = int(*clusterStartPort)
-        
-        if !httpOnly {
-            startOptions.ExternalHost = *clusterStartRelayHost
-            startOptions.ExternalPort = int(*clusterStartRelayPort)
-        }
-
-        startOptions.SyncMaxSessions = *clusterStartSyncMaxSessions
-        startOptions.SyncPathLimit = uint32(*clusterStartSyncPathLimit)
-        startOptions.SyncPeriod = *clusterStartSyncPeriod
-        startOptions.SnapshotDirectory = *clusterStartSnapshotDirectory
-        SetLoggingLevel(*clusterStartLogLevel)
-
-        cloudNodeStorage := storage.NewLevelDBStorageDriver(*clusterStartStore, nil)
-
-        var cloudServerConfig CloudServerConfig = CloudServerConfig{
-            InternalHost: *clusterStartHost,
-            InternalPort: int(*clusterStartPort),
-            NodeID: 1,
-            RelayTLSConfig: &tls.Config{
-                Certificates: []tls.Certificate{ cert },
-                ClientCAs: rootCAs,
-                ClientAuth: tls.RequireAndVerifyClientCert,
-            },
-        }
-
-        if !httpOnly {
-            cloudServerConfig.ExternalHost = *clusterStartRelayHost
-            cloudServerConfig.ExternalPort = int(*clusterStartRelayPort)
-        }
-
-        cloudServer := NewCloudServer(cloudServerConfig)
-
-        var capacity uint64 = 1
-
-        if *clusterStartReplacement {
-            capacity = 0
-        }
-
-        cloudNode := node.New(node.ClusterNodeConfig{
-            CloudServer: cloudServer,
-            StorageDriver: cloudNodeStorage,
-            MerkleDepth: uint8(*clusterStartMerkleDepth),
-            Capacity: capacity,
-            NoValidate: *clusterStartNoValidate,
-        })
-
-        if err := cloudNode.Start(startOptions); err != nil {
-            os.Exit(1)
-        }
-
-        os.Exit(0)
-    }
-
-    if clusterRemoveCommand.Parsed() {
-        fmt.Fprintf(os.Stderr, "Removing node %d from the cluster...\n", *clusterRemoveNodeID)
-        client := NewClient(ClientConfig{ })
-        err := client.ForceRemoveNode(context.TODO(), PeerAddress{ Host: *clusterRemoveHost, Port: int(*clusterRemovePort) }, *clusterRemoveNodeID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to remove node %d from the cluster: %v\n", *clusterRemoveNodeID, err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Removed node %d from the cluster.\n", *clusterRemoveNodeID)
-
-        os.Exit(0)
-    }
-
-    if clusterDecommissionCommand.Parsed() {
-        fmt.Fprintf(os.Stderr, "Decommissioning node %d...\n", *clusterDecommissionNodeID)
-
-        client := NewClient(ClientConfig{ })
-        err := client.DecommissionNode(context.TODO(), PeerAddress{ Host: *clusterDecommissionHost, Port: int(*clusterDecommissionPort) }, *clusterDecommissionNodeID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to decommission node %d: %v\n", *clusterDecommissionNodeID, err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Node %d is now being decommissioned.\n", *clusterDecommissionNodeID)
-
-        os.Exit(0)
-    }
-
-    if clusterReplaceCommand.Parsed() {
-        if *clusterReplaceReplacementNodeID == 0 {
-            fmt.Fprintf(os.Stderr, "Error: -replacement_node must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterReplaceNodeID == 0 {
-            fmt.Fprintf(os.Stderr, "Replacing node at %s:%d with node %d...\n", *clusterReplaceHost, *clusterReplacePort, *clusterReplaceReplacementNodeID)
-        } else {
-            fmt.Fprintf(os.Stderr, "Replacing node at %d with node %d...\n", *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
-        }
-
-        client := NewClient(ClientConfig{ })
-        err := client.ReplaceNode(context.TODO(), PeerAddress{ Host: *clusterReplaceHost, Port: int(*clusterReplacePort) }, *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to replace node: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Node was replaced.\n")
-
-        os.Exit(1)
-    }
-
-    if clusterOverviewCommand.Parsed() {
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterOverviewHost, *clusterOverviewPort) } })
-        overview, err := apiClient.ClusterOverview(context.TODO())
-        ownershipHist := make(map[uint64]int)
-
-        for _, replicas := range overview.PartitionDistribution {
-            var seenNodes map[uint64]bool = make(map[uint64]bool)
-
-            for _, owner := range replicas {
-                if seenNodes[owner] {
-                    continue
-                }
-
-                seenNodes[owner] = true
-                ownershipHist[owner] = ownershipHist[owner] + 1
-            }
-        }
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to get cluster overview: %v\n", err)
-
-            os.Exit(1)
-        }
-
-        partitionTable := tablewriter.NewWriter(os.Stdout)
-
-        partitionTable.SetHeader([]string{ "Partition", "Replica", "Owner Node" })
-
-        for partition, replicas := range overview.PartitionDistribution {
-            for replica, owner := range replicas {
-                partitionTable.Append([]string{ fmt.Sprintf("%d", partition), fmt.Sprintf("%d", replica), fmt.Sprintf("%d", owner) })
-            }
-        }
-
-        //partitionTable.SetAutoMergeCells(true)
-
-        fmt.Fprintf(os.Stderr, "Partitions\n")
-        partitionTable.Render()
-        fmt.Fprintf(os.Stderr, "\n")
-
-        tokenTable := tablewriter.NewWriter(os.Stdout)
-        tokenTable.SetHeader([]string{ "Token", "Owner Node" })
-
-        for token, owner := range overview.TokenAssignments {
-            tokenTable.Append([]string{ fmt.Sprintf("%d", token), fmt.Sprintf("%d", owner) })
-        }
-
-        fmt.Fprintf(os.Stderr, "Tokens\n")
-        tokenTable.Render()
-        fmt.Fprintf(os.Stderr, "\n")
-
-
-        nodeTable := tablewriter.NewWriter(os.Stdout)
-        nodeTable.SetHeader([]string{ "Node ID", "Host", "Port", "Capacity %" })
-
-        for _, nodeConfig := range overview.Nodes {
-            var ownershipPercentage int 
-           
-            if len(overview.PartitionDistribution) != 0 {
-                ownershipPercentage = (100 * ownershipHist[nodeConfig.Address.NodeID]) / len(overview.PartitionDistribution)
-            }
-
-            nodeTable.Append([]string{ fmt.Sprintf("%d", nodeConfig.Address.NodeID), nodeConfig.Address.Host, fmt.Sprintf("%d", nodeConfig.Address.Port), fmt.Sprintf("%d", ownershipPercentage) })
-        }
-
-        nodeTable.SetFooter([]string{ "", "", fmt.Sprintf("Partitions: %d", overview.ClusterSettings.Partitions), fmt.Sprintf("Replication Factor: %d", overview.ClusterSettings.ReplicationFactor) })
-       
-        fmt.Fprintf(os.Stderr, "Nodes\n")
-        nodeTable.Render()
-
-        os.Exit(0)
-    }
-
-    if clusterAddSiteCommand.Parsed() {
-        if *clusterAddSiteSiteID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Adding site %s...\n", *clusterAddSiteSiteID)
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterAddSiteHost, *clusterAddSitePort) } })
-        err := apiClient.AddSite(context.TODO(), *clusterAddSiteSiteID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to add site: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Added site %s\n", *clusterAddSiteSiteID)
-
-        os.Exit(0)
-    }
-
-    if clusterRemoveSiteCommand.Parsed() {
-        if *clusterRemoveSiteSiteID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Removing site %s...\n", *clusterRemoveSiteSiteID)
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterRemoveSiteHost, *clusterRemoveSitePort) } })
-        err := apiClient.RemoveSite(context.TODO(), *clusterRemoveSiteSiteID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to remove site: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Removed site %s\n", *clusterRemoveSiteSiteID)
-
-        os.Exit(0)
-    }
-
-    if clusterAddRelayCommand.Parsed() {
-        if *clusterAddRelayRelayID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Adding relay %s...\n", *clusterAddRelayRelayID)
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterAddRelayHost, *clusterAddRelayPort) } })
-        err := apiClient.AddRelay(context.TODO(), *clusterAddRelayRelayID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to add relay: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Added relay %s\n", *clusterAddRelayRelayID)
-
-        os.Exit(0)
-    }
-
-    if clusterRemoveRelayCommand.Parsed() {
-        if *clusterRemoveRelayRelayID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Removing relay %s...\n", *clusterRemoveRelayRelayID)
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterRemoveRelayHost, *clusterRemoveRelayPort) } })
-        err := apiClient.RemoveRelay(context.TODO(), *clusterRemoveRelayRelayID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to remove relay: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Removed relay %s\n", *clusterRemoveRelayRelayID)
-
-        os.Exit(0)
-    }
-
-    if clusterMoveRelayCommand.Parsed() {
-        if *clusterMoveRelayRelayID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Moving relay %s to site %s...\n", *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterMoveRelayHost, *clusterMoveRelayPort) } })
-        err := apiClient.MoveRelay(context.TODO(), *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to move relay: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, "Moved relay %s to site %s\n", *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
-
-        os.Exit(0)
-    }
-    
-    if clusterRelayStatusCommand.Parsed() {
-        if *clusterRelayStatusRelayID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterRelayStatusHost, *clusterRelayStatusPort) } })
-        relayStatus, err := apiClient.RelayStatus(context.TODO(), *clusterRelayStatusRelayID)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to retrieve relay status: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        if !relayStatus.Connected {
-            fmt.Fprintf(os.Stderr, "Relay %s is not connected\n", *clusterRelayStatusRelayID)
-
-            os.Exit(0)
-        }
-
-        fmt.Fprintf(os.Stderr, "Relay ID: %s\n", *clusterRelayStatusRelayID)
-        fmt.Fprintf(os.Stderr, "Connected To: %v\n", relayStatus.ConnectedTo)
-
-        if relayStatus.Ping == 0 {
-            fmt.Fprintf(os.Stderr, "Ping: <unknown>\n")
-        } else {
-            fmt.Fprintf(os.Stderr, "Ping: %v\n", relayStatus.Ping)
-        }
-
-        os.Exit(0)
-    }
-
-    if clusterGetCommand.Parsed() {
-        if *clusterGetSiteID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterGetKey == "" {
-            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterGetHost, *clusterGetPort) } })
-        entries, err := apiClient.Get(context.TODO(), *clusterGetSiteID, *clusterGetBucket, []string{ *clusterGetKey })
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to get key: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        if len(entries) == 1 {
-            fmt.Fprintf(os.Stderr, "Values: %v\n", entries[0].Siblings)
-            fmt.Fprintf(os.Stderr, "Context: %v\n", entries[0].Context)
-        } else {
-            fmt.Fprintf(os.Stderr, "No such key\n")
-        }
-
-        os.Exit(0)
-    }
-
-    if clusterGetMatchesCommand.Parsed() {
-        if *clusterGetMatchesSiteID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterGetMatchesPrefix == "" {
-            fmt.Fprintf(os.Stderr, "Error: -prefix must be specified\n")
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterGetMatchesHost, *clusterGetMatchesPort) } })
-        entryIterator, err := apiClient.GetMatches(context.TODO(), *clusterGetMatchesSiteID, *clusterGetMatchesBucket, []string{ *clusterGetMatchesPrefix })
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to get keys: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        var entryCount int
-
-        for entryIterator.Next() {
-            if entryCount != 0 {
-                fmt.Fprintf(os.Stderr, "\n")
-            }
-
-            fmt.Fprintf(os.Stderr, "Key: %s\n", entryIterator.Key())
-            fmt.Fprintf(os.Stderr, "Values: %v\n", entryIterator.Entry().Siblings)
-            fmt.Fprintf(os.Stderr, "Context: %v\n", entryIterator.Entry().Context)
-
-            entryCount++
-        }
-
-        if entryCount == 0 {
-            fmt.Fprintf(os.Stderr, "No keys returned\n")
-        }
-
-        os.Exit(0)
-    }
-
-    if clusterPutCommand.Parsed() {
-        if *clusterPutSiteID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterPutKey == "" {
-            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterPutValue == "" {
-            fmt.Fprintf(os.Stderr, "Error: -value must be specified\n")
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterPutHost, *clusterPutPort) } })
-
-        batch := NewBatch()
-        batch.Put(*clusterPutKey, *clusterPutValue, *clusterPutContext)
-
-        replicas, nApplied, err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, *batch)
-
-        if err == ENoQuorum {
-            fmt.Fprintf(os.Stderr, "Error: Update was only applied to (%d/%d) replicas. Unable to achieve write quorum\n", nApplied, replicas)
-
-            os.Exit(1)
-        }
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to put key: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        os.Exit(0)
-    }
-
-    if clusterDeleteCommand.Parsed() {
-        if *clusterDeleteSiteID == "" {
-            fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
-            os.Exit(1)
-        }
-
-        if *clusterDeleteKey == "" {
-            fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterDeleteHost, *clusterDeletePort) } })
-
-        batch := NewBatch()
-        batch.Delete(*clusterDeleteKey, *clusterDeleteContext)
-
-        replicas, nApplied, err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, *batch)
-
-        if err == ENoQuorum {
-            fmt.Fprintf(os.Stderr, "Error: Update was only applied to (%d/%d) replicas. Unable to achieve write quorum\n", nApplied, replicas)
-
-            os.Exit(1)
-        }
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to delete key: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        os.Exit(0)
-    }
-
-    if clusterLogDumpCommand.Parsed() {
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterLogDumpHost, *clusterLogDumpPort) } })
-        logDump, err := apiClient.LogDump(context.TODO())
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to get raft dump: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        printLogDump(logDump)
-
-        os.Exit(0)
-    }
-
-    if clusterSnapshotCommand.Parsed() {
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterSnapshotHost, *clusterSnapshotPort) } })
-        snapshot, err := apiClient.Snapshot(context.TODO())
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to take snapshot: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        printSnapshot(snapshot)
-
-        os.Exit(0)
-    }
-
-    if clusterGetSnapshotCommand.Parsed() {
-        if *clusterGetSnapshotSnapshotId == "" {
-            fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
-
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterGetSnapshotHost, *clusterGetSnapshotPort) } })
-        snapshot, err := apiClient.GetSnapshot(context.TODO(), *clusterGetSnapshotSnapshotId)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to get snapshot status: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        printSnapshot(snapshot)
-
-        os.Exit(0)
-    }
-
-    if clusterDownloadSnapshotCommand.Parsed() {
-        if *clusterDownloadSnapshotSnapshotId == "" {
-            fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
-
-            os.Exit(1)
-        }
-
-        apiClient := New(APIClientConfig{ Servers: []string{ fmt.Sprintf("%s:%d", *clusterDownloadSnapshotHost, *clusterDownloadSnapshotPort) } })
-        snapshot, err := apiClient.DownloadSnapshot(context.TODO(), *clusterDownloadSnapshotSnapshotId)
-
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error: Unable to download snapshot: %v\n", err.Error())
-
-            os.Exit(1)
-        }
-
-        written, err := io.Copy(os.Stdout, snapshot)
-        snapshot.Close()
-
-        if err == nil || err == io.EOF {
-            fmt.Fprintf(os.Stderr, "Downloaded %d bytes successfully\n", written)
-
-            os.Exit(0)
-        }
-
-        os.Exit(1)
-    }
-
-    if clusterBenchmarkCommand.Parsed() {
-        internalAddresses := strings.Split(*clusterBenchmarkInternalAddresses, ",")
-        externalAddresses := strings.Split(*clusterBenchmarkExternalAddresses, ",")
-
-        if len(internalAddresses) == 0 {
-            fmt.Fprintf(os.Stderr, "Error: No internal addresses specified for the cloud cluster\n")
-
-            os.Exit(1)
-        }
-
-        for _, address := range internalAddresses {
-            if !isValidJoinAddress(address) {
-                fmt.Fprintf(os.Stderr, "Error: %s is not a valid address\n", address)
-
-                os.Exit(1)
-            }
-        }
-
-        if len(externalAddresses) == 0 {
-            fmt.Fprintf(os.Stderr, "Error: No external addresses specified for the cloud cluster\n")
-
-            os.Exit(1)
-        }
-
-        for _, address := range externalAddresses {
-            if !isValidJoinAddress(address) {
-                fmt.Fprintf(os.Stderr, "Error: %s is not a valid address\n", address)
-
-                os.Exit(1)
-            }
-        }
-
-        switch *clusterBenchmarkName {
-        case "multiple_relays":
-            fmt.Fprintf(os.Stderr, "Running the %s benchmark\n  # Sites: %d\n  # Relays per Site: %d\n  # Updates Per Second: %d\n  Sync Period (ms): %d\n", *clusterBenchmarkName, *clusterBenchmarkNSites, *clusterBenchmarkNRelays, *clusterBenchmarkUpdatesPerSecond, *clusterBenchmarkSyncPeriod)
-            ddbBenchmark.BenchmarkManyRelays(externalAddresses, internalAddresses, int(*clusterBenchmarkNSites), int(*clusterBenchmarkNRelays), int(*clusterBenchmarkUpdatesPerSecond), int(*clusterBenchmarkSyncPeriod))
-        default:
-            fmt.Fprintf(os.Stderr, "Error: %s is not the name of any benchmark test\n", *clusterBenchmarkName)
-
-            os.Exit(1)
-        }
-    }
-
-    if clusterHelpCommand.Parsed() {
-        if len(os.Args) < 4 {
-            fmt.Fprintf(os.Stderr, "Error: No cluster command specified for help\n")
-            os.Exit(1)
-        }
-        
-        var flagSet *flag.FlagSet
-
-        switch os.Args[3] {
-        case "start":
-            flagSet = clusterStartCommand
-        case "benchmark":
-            flagSet = clusterBenchmarkCommand
-        case "remove":
-            flagSet = clusterRemoveCommand
-        case "decommission":
-            flagSet = clusterDecommissionCommand 
-        case "replace":
-            flagSet = clusterReplaceCommand
-        case "overview":
-            flagSet = clusterOverviewCommand
-        case "add_site":
-            flagSet = clusterAddSiteCommand
-        case "remove_site":
-            flagSet = clusterRemoveSiteCommand
-        case "add_relay":
-            flagSet = clusterAddRelayCommand
-        case "remove_relay":
-            flagSet = clusterRemoveRelayCommand
-        case "move_relay":
-            flagSet = clusterMoveRelayCommand
-        case "relay_status":
-            flagSet = clusterRelayStatusCommand
-        case "get":
-            flagSet = clusterGetCommand
-        case "get_matches":
-            flagSet = clusterGetMatchesCommand
-        case "put":
-            flagSet = clusterPutCommand
-        case "delete":
-            flagSet = clusterDeleteCommand
-        case "log_dump":
-            flagSet = clusterLogDumpCommand
-        default:
-            fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid cluster command.\n", os.Args[3])
-            os.Exit(1)
-        }
-
-        fmt.Fprintf(os.Stderr, commandUsage + "\n", "cluster " + os.Args[3])
-        flagSet.PrintDefaults()
-        os.Exit(0)
-    }
+	startCommand := flag.NewFlagSet("start", flag.ExitOnError)
+	confCommand := flag.NewFlagSet("conf", flag.ExitOnError)
+	upgradeCommand := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	benchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
+	compactCommand := flag.NewFlagSet("compact", flag.ExitOnError)
+	helpCommand := flag.NewFlagSet("help", flag.ExitOnError)
+	clusterStartCommand := flag.NewFlagSet("start", flag.ExitOnError)
+	clusterBenchmarkCommand := flag.NewFlagSet("benchmark", flag.ExitOnError)
+	clusterRemoveCommand := flag.NewFlagSet("remove", flag.ExitOnError)
+	clusterDecommissionCommand := flag.NewFlagSet("decommission", flag.ExitOnError)
+	clusterReplaceCommand := flag.NewFlagSet("replace", flag.ExitOnError)
+	clusterOverviewCommand := flag.NewFlagSet("overview", flag.ExitOnError)
+	clusterAddSiteCommand := flag.NewFlagSet("add_site", flag.ExitOnError)
+	clusterRemoveSiteCommand := flag.NewFlagSet("remove_site", flag.ExitOnError)
+	clusterAddRelayCommand := flag.NewFlagSet("add_relay", flag.ExitOnError)
+	clusterRemoveRelayCommand := flag.NewFlagSet("remove_relay", flag.ExitOnError)
+	clusterMoveRelayCommand := flag.NewFlagSet("move_relay", flag.ExitOnError)
+	clusterRelayStatusCommand := flag.NewFlagSet("relay_status", flag.ExitOnError)
+	clusterGetCommand := flag.NewFlagSet("get", flag.ExitOnError)
+	clusterGetMatchesCommand := flag.NewFlagSet("get_matches", flag.ExitOnError)
+	clusterPutCommand := flag.NewFlagSet("put", flag.ExitOnError)
+	clusterDeleteCommand := flag.NewFlagSet("delete", flag.ExitOnError)
+	clusterHelpCommand := flag.NewFlagSet("help", flag.ExitOnError)
+	clusterLogDumpCommand := flag.NewFlagSet("log_dump", flag.ExitOnError)
+	clusterSnapshotCommand := flag.NewFlagSet("snapshot", flag.ExitOnError)
+	clusterGetSnapshotCommand := flag.NewFlagSet("get_snapshot", flag.ExitOnError)
+	clusterDownloadSnapshotCommand := flag.NewFlagSet("download_snapshot", flag.ExitOnError)
+
+	startConfigFile := startCommand.String("conf", "", "The config file for this server")
+
+	upgradeLegacyDB := upgradeCommand.String("legacy", "", "The path to the legacy database data directory")
+	upgradeConfigFile := upgradeCommand.String("conf", "", "The config file for this server. If this argument is used then don't use the -db and -merkle options.")
+	upgradeNewDB := upgradeCommand.String("db", "", "The directory to use for the upgraded data directory")
+	upgradeNewDBMerkleDepth := upgradeCommand.Uint64("merkle", uint64(0), "The merkle depth to use for the upgraded data directory. Default value will be used if omitted.")
+
+	benchmarkDB := benchmarkCommand.String("db", "", "The directory to use for the benchark test scratch space")
+	benchmarkMerkle := benchmarkCommand.Uint64("merkle", uint64(0), "The merkle depth to use with the benchmark databases")
+
+	benchmarkStress := benchmarkCommand.Bool("stress", false, "Perform test that continuously writes historical log events as fast as it can")
+	benchmarkHistoryEventFloor := benchmarkCommand.Uint64("event_floor", 400000, "Event floor for history log")
+	benchmarkHistoryEventLimit := benchmarkCommand.Uint64("event_limit", 500000, "Event limit for history log")
+	benchmarkHistoryPurgeBatchSize := benchmarkCommand.Int("purge_batch_size", 1000, "Purge batch size for history log")
+
+	compactDB := compactCommand.String("db", "", "The directory containing the database data to compact")
+
+	clusterStartHost := clusterStartCommand.String("host", "localhost", "HTTP The hostname or ip to listen on. This is the advertised host address for this node.")
+	clusterStartPort := clusterStartCommand.Uint("port", defaultPort, "HTTP This is the intra-cluster port used for communication between nodes and between secure clients and the cluster.")
+	clusterStartRelayHost := clusterStartCommand.String("relay_host", "localhost", "HTTPS The hostname or ip to listen on for incoming relay connections. Applies only if TLS is terminated by devicedb itself")
+	clusterStartRelayPort := clusterStartCommand.Uint("relay_port", uint(443), "HTTPS This is the port used for incoming relay connections. Applies only if TLS is terminated by devicedb itself.")
+	clusterStartTLSCertificate := clusterStartCommand.String("cert", "", "PEM encoded x509 certificate to be used by relay connections. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/cert.pem)")
+	clusterStartTLSKey := clusterStartCommand.String("key", "", "PEM encoded x509 key corresponding to the specified 'cert'. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/key.pem)")
+	clusterStartTLSRelayCA := clusterStartCommand.String("relay_ca", "", "PEM encoded x509 certificate authority used to validate relay client certs for incoming relay connections. Applies only if TLS is terminated by devicedb. (Required) (Ex: /path/to/certs/relays.ca.pem)")
+	clusterStartPartitions := clusterStartCommand.Uint64("partitions", uint64(cluster.DefaultPartitionCount), "The number of hash space partitions in the cluster. Must be a power of 2. (Only specified when starting a new cluster)")
+	clusterStartReplicationFactor := clusterStartCommand.Uint64("replication_factor", uint64(3), "The number of replcas required for every database key. (Only specified when starting a new cluster)")
+	clusterStartStore := clusterStartCommand.String("store", "", "The path to the storage. (Required) (Ex: /tmp/devicedb)")
+	clusterStartJoin := clusterStartCommand.String("join", "", "Join the cluster that the node listening at this address belongs to. Ex: 10.10.102.8:80")
+	clusterStartReplacement := clusterStartCommand.Bool("replacement", false, "Specify this flag if this node is being added to replace some other node in the cluster.")
+	clusterStartMerkleDepth := clusterStartCommand.Uint("merkle", 4, "Use this flag to adjust the merkle depth used for site merkle trees.")
+	clusterStartSyncMaxSessions := clusterStartCommand.Uint("sync_max_sessions", 10, "The number of sync sessions to allow at the same time.")
+	clusterStartSyncPathLimit := clusterStartCommand.Uint("sync_path_limit", 10, "The number of exploration paths to allow in a sync session.")
+	clusterStartSyncPeriod := clusterStartCommand.Uint("sync_period", 1000, "The period in milliseconds between sync sessions with individual relays.")
+	clusterStartLogLevel := clusterStartCommand.String("log_level", "info", "The log level configures how detailed the output produced by devicedb is. Must be one of { critical, error, warning, notice, info, debug }")
+	clusterStartNoValidate := clusterStartCommand.Bool("no_validate", false, "This flag enables relays connecting to this node to decide their own relay ID. It only applies to TLS enabled servers and should only be used for testing.")
+	clusterStartSnapshotDirectory := clusterStartCommand.String("snapshot_store", "", "To enable snapshots set this to some directory where database snapshots can be stored")
+
+	clusterBenchmarkExternalAddresses := clusterBenchmarkCommand.String("external_addresses", "", "A comma separated list of cluster node addresses. Ex: wss://localhost:9090,wss://localhost:8080")
+	clusterBenchmarkInternalAddresses := clusterBenchmarkCommand.String("internal_addresses", "", "A comma separated list of cluster node addresses. Ex: localhost:9090,localhost:8080")
+	clusterBenchmarkName := clusterBenchmarkCommand.String("name", "multiple_relays", "The name of the benchmark to run")
+	clusterBenchmarkNSites := clusterBenchmarkCommand.Uint("n_sites", 100, "The number of sites to simulate")
+	clusterBenchmarkNRelays := clusterBenchmarkCommand.Uint("n_relays", 1, "The number of relays to simulate per site")
+	clusterBenchmarkUpdatesPerSecond := clusterBenchmarkCommand.Uint("updates_per_second", 5, "The number of updates per second to simulate per relay")
+	clusterBenchmarkSyncPeriod := clusterBenchmarkCommand.Uint("sync_period", 1000, "The sync period in milliseconds per relay")
+
+	clusterRemoveHost := clusterRemoveCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node removal.")
+	clusterRemovePort := clusterRemoveCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterRemoveNodeID := clusterRemoveCommand.Uint64("node", uint64(0), "The ID of the node that should be removed from the cluster. Defaults to the ID of the node being contacted.")
+
+	clusterDecommissionHost := clusterDecommissionCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
+	clusterDecommissionPort := clusterDecommissionCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterDecommissionNodeID := clusterDecommissionCommand.Uint64("node", uint64(0), "The ID of the node that should be decommissioned from the cluster. Defaults to the ID of the node being contacted.")
+
+	clusterReplaceHost := clusterReplaceCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to initiate the node decommissioning.")
+	clusterReplacePort := clusterReplaceCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterReplaceNodeID := clusterReplaceCommand.Uint64("node", uint64(0), "The ID of the node that is being replaced. Defaults the the ID of the node being contacted.")
+	clusterReplaceReplacementNodeID := clusterReplaceCommand.Uint64("replacement_node", uint64(0), "The ID of the node that is replacing the other node.")
+
+	clusterOverviewHost := clusterOverviewCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact to query the cluster state.")
+	clusterOverviewPort := clusterOverviewCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+
+	clusterAddSiteHost := clusterAddSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the site.")
+	clusterAddSitePort := clusterAddSiteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterAddSiteSiteID := clusterAddSiteCommand.String("site", "", "The ID of the site to add. (Required)")
+
+	clusterRemoveSiteHost := clusterRemoveSiteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the site.")
+	clusterRemoveSitePort := clusterRemoveSiteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterRemoveSiteSiteID := clusterRemoveSiteCommand.String("site", "", "The ID of the site to remove. (Required)")
+
+	clusterAddRelayHost := clusterAddRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about adding the relay.")
+	clusterAddRelayPort := clusterAddRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterAddRelayRelayID := clusterAddRelayCommand.String("relay", "", "The ID of the relay to add. (Required)")
+
+	clusterRemoveRelayHost := clusterRemoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
+	clusterRemoveRelayPort := clusterRemoveRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterRemoveRelayRelayID := clusterRemoveRelayCommand.String("relay", "", "The ID of the relay to remove. (Required)")
+
+	clusterMoveRelayHost := clusterMoveRelayCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about removing the relay.")
+	clusterMoveRelayPort := clusterMoveRelayCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterMoveRelayRelayID := clusterMoveRelayCommand.String("relay", "", "The ID of the relay to move. (Required)")
+	clusterMoveRelaySiteID := clusterMoveRelayCommand.String("site", "", "The ID of the site to move the relay to. If left blank the relay is removed from its current site.")
+
+	clusterRelayStatusHost := clusterRelayStatusCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting the relay status.")
+	clusterRelayStatusPort := clusterRelayStatusCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterRelayStatusRelayID := clusterRelayStatusCommand.String("relay", "", "The ID of the relay to query. (Required)")
+
+	clusterGetHost := clusterGetCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting this key.")
+	clusterGetPort := clusterGetCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterGetSiteID := clusterGetCommand.String("site", "", "The ID of the site. (Required)")
+	clusterGetBucket := clusterGetCommand.String("bucket", "default", "The bucket to query in the site.")
+	clusterGetKey := clusterGetCommand.String("key", "", "The key to get from the bucket. (Required)")
+
+	clusterGetMatchesHost := clusterGetMatchesCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about getting these keys.")
+	clusterGetMatchesPort := clusterGetMatchesCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterGetMatchesSiteID := clusterGetMatchesCommand.String("site", "", "The ID of the site. (Required)")
+	clusterGetMatchesBucket := clusterGetMatchesCommand.String("bucket", "default", "The bucket to query in the site.")
+	clusterGetMatchesPrefix := clusterGetMatchesCommand.String("prefix", "", "The prefix of keys to get from the bucket. (Required)")
+
+	clusterPutHost := clusterPutCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
+	clusterPutPort := clusterPutCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterPutSiteID := clusterPutCommand.String("site", "", "The ID of the site. (Required)")
+	clusterPutBucket := clusterPutCommand.String("bucket", "default", "The bucket in the site where this key goes.")
+	clusterPutKey := clusterPutCommand.String("key", "", "The key to update in the bucket. (Required)")
+	clusterPutValue := clusterPutCommand.String("value", "", "The value to put at this key. (Required)")
+	clusterPutContext := clusterPutCommand.String("context", "", "The causal context of this put operation")
+
+	clusterDeleteHost := clusterDeleteCommand.String("host", "localhost", "The hostname or ip of some cluster member to contact about updating this key.")
+	clusterDeletePort := clusterDeleteCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterDeleteSiteID := clusterDeleteCommand.String("site", "", "The ID of the site. (Required)")
+	clusterDeleteBucket := clusterDeleteCommand.String("bucket", "default", "The bucket in the site where this key goes.")
+	clusterDeleteKey := clusterDeleteCommand.String("key", "", "The key to update in the bucket. (Required)")
+	clusterDeleteContext := clusterDeleteCommand.String("context", "", "The causal context of this put operation")
+
+	clusterLogDumpHost := clusterLogDumpCommand.String("host", "localhost", "The hostname or ip of some cluster member whose raft state to print.")
+	clusterLogDumpPort := clusterLogDumpCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+
+	clusterSnapshotHost := clusterSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member that should take a snapshot.")
+	clusterSnapshotPort := clusterSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+
+	clusterGetSnapshotHost := clusterGetSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to get a snapshot from.")
+	clusterGetSnapshotPort := clusterGetSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterGetSnapshotSnapshotId := clusterGetSnapshotCommand.String("uuid", "", "The UUID of the snapshot to check for")
+
+	clusterDownloadSnapshotHost := clusterDownloadSnapshotCommand.String("host", "localhost", "The hostname or ip of some cluster member to download a snapshot from.")
+	clusterDownloadSnapshotPort := clusterDownloadSnapshotCommand.Uint("port", defaultPort, "The port of the cluster member to contact.")
+	clusterDownloadSnapshotSnapshotId := clusterDownloadSnapshotCommand.String("uuid", "", "The UUID of the snapshot to download")
+
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Error: %s", "No command specified\n\n")
+		fmt.Fprintf(os.Stderr, "%s", usage)
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "cluster":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "Error: %s", "No cluster command specified\n\n")
+			fmt.Fprintf(os.Stderr, "%s", clusterUsage)
+			os.Exit(1)
+		}
+
+		switch os.Args[2] {
+		case "start":
+			clusterStartCommand.Parse(os.Args[3:])
+		case "benchmark":
+			clusterBenchmarkCommand.Parse(os.Args[3:])
+		case "remove":
+			clusterRemoveCommand.Parse(os.Args[3:])
+		case "decommission":
+			clusterDecommissionCommand.Parse(os.Args[3:])
+		case "replace":
+			clusterReplaceCommand.Parse(os.Args[3:])
+		case "overview":
+			clusterOverviewCommand.Parse(os.Args[3:])
+		case "add_site":
+			clusterAddSiteCommand.Parse(os.Args[3:])
+		case "remove_site":
+			clusterRemoveSiteCommand.Parse(os.Args[3:])
+		case "add_relay":
+			clusterAddRelayCommand.Parse(os.Args[3:])
+		case "remove_relay":
+			clusterRemoveRelayCommand.Parse(os.Args[3:])
+		case "move_relay":
+			clusterMoveRelayCommand.Parse(os.Args[3:])
+		case "relay_status":
+			clusterRelayStatusCommand.Parse(os.Args[3:])
+		case "get":
+			clusterGetCommand.Parse(os.Args[3:])
+		case "get_matches":
+			clusterGetMatchesCommand.Parse(os.Args[3:])
+		case "put":
+			clusterPutCommand.Parse(os.Args[3:])
+		case "delete":
+			clusterDeleteCommand.Parse(os.Args[3:])
+		case "log_dump":
+			clusterLogDumpCommand.Parse(os.Args[3:])
+		case "snapshot":
+			clusterSnapshotCommand.Parse(os.Args[3:])
+		case "get_snapshot":
+			clusterGetSnapshotCommand.Parse(os.Args[3:])
+		case "download_snapshot":
+			clusterDownloadSnapshotCommand.Parse(os.Args[3:])
+		case "help":
+			clusterHelpCommand.Parse(os.Args[3:])
+		case "-help":
+			fmt.Fprintf(os.Stderr, "%s", clusterUsage)
+		default:
+			fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a recognized cluster command\n\n", os.Args[2])
+			fmt.Fprintf(os.Stderr, "%s", clusterUsage)
+			os.Exit(1)
+		}
+	case "start":
+		startCommand.Parse(os.Args[2:])
+	case "conf":
+		confCommand.Parse(os.Args[2:])
+	case "upgrade":
+		upgradeCommand.Parse(os.Args[2:])
+	case "benchmark":
+		benchmarkCommand.Parse(os.Args[2:])
+	case "compact":
+		compactCommand.Parse(os.Args[2:])
+	case "help":
+		helpCommand.Parse(os.Args[2:])
+	case "-help":
+		fmt.Fprintf(os.Stderr, "%s", usage)
+		os.Exit(0)
+	case "-version":
+		fmt.Fprintf(os.Stdout, "%s\n", DEVICEDB_VERSION)
+		os.Exit(0)
+	default:
+		fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a recognized command\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "%s", usage)
+		os.Exit(1)
+	}
+
+	if startCommand.Parsed() {
+		if *startConfigFile == "" {
+			fmt.Fprintf(os.Stderr, "Error: No config file specified\n")
+			os.Exit(1)
+		}
+
+		start(*startConfigFile)
+	}
+
+	if confCommand.Parsed() {
+		fmt.Fprintf(os.Stderr, "%s", templateConfig)
+		os.Exit(0)
+	}
+
+	if upgradeCommand.Parsed() {
+		var serverConfig YAMLServerConfig
+
+		if len(*upgradeConfigFile) != 0 {
+			err := serverConfig.LoadFromFile(*upgradeConfigFile)
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Unable to load configuration file: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			if *upgradeNewDBMerkleDepth < uint64(MerkleMinDepth) || *upgradeNewDBMerkleDepth > uint64(MerkleMaxDepth) {
+				fmt.Fprintf(os.Stderr, "No valid merkle depth specified. Defaulting to %d\n", MerkleDefaultDepth)
+
+				serverConfig.MerkleDepth = MerkleDefaultDepth
+			} else {
+				serverConfig.MerkleDepth = uint8(*upgradeNewDBMerkleDepth)
+			}
+
+			if len(*upgradeNewDB) == 0 {
+				fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
+				os.Exit(1)
+			}
+
+			serverConfig.DBFile = *upgradeNewDB
+		}
+
+		if len(*upgradeLegacyDB) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: No legacy database directory (-legacy) specified\n")
+			os.Exit(1)
+		}
+
+		err := UpgradeLegacyDatabase(*upgradeLegacyDB, serverConfig)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to migrate legacy database: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if benchmarkCommand.Parsed() {
+		var benchmarkMagnitude int = 10000
+		var serverConfig ServerConfig
+		var server *Server
+
+		if len(*benchmarkDB) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
+			os.Exit(1)
+		}
+
+		if *benchmarkMerkle < uint64(MerkleMinDepth) || *benchmarkMerkle > uint64(MerkleMaxDepth) {
+			fmt.Fprintf(os.Stderr, "No valid merkle depth specified. Defaulting to %d\n", MerkleDefaultDepth)
+
+			serverConfig.MerkleDepth = MerkleDefaultDepth
+		} else {
+			serverConfig.MerkleDepth = uint8(*benchmarkMerkle)
+		}
+
+		err := os.RemoveAll(*benchmarkDB)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to initialized benchmark workspace at %s: %v\n", *benchmarkDB, err)
+			os.Exit(1)
+		}
+
+		SetLoggingLevel("debug")
+		serverConfig.DBFile = *benchmarkDB
+		serverConfig.HistoryEventLimit = *benchmarkHistoryEventLimit
+		serverConfig.HistoryEventFloor = *benchmarkHistoryEventFloor
+		serverConfig.HistoryPurgeBatchSize = *benchmarkHistoryPurgeBatchSize
+		server, err = NewServer(serverConfig)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to initialize test database: %v\n", err)
+			os.Exit(1)
+		}
+
+		if *benchmarkStress {
+			fmt.Fprintf(os.Stderr, "Start stressing disk by writing to the history log indefinitely...\n")
+
+			err = benchmarkHistoryStress(server)
+
+			fmt.Fprintf(os.Stderr, "Error: While running history stress benchmark: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		err = benchmarkSequentialReads(benchmarkMagnitude, server)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed at sequential reads benchmark: %v\n", err)
+			os.Exit(1)
+		}
+
+		err = benchmarkRandomReads(benchmarkMagnitude, server)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed at random reads benchmark: %v\n", err)
+			os.Exit(1)
+		}
+
+		err = benchmarkWrites(benchmarkMagnitude, server)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed at writes benchmark: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if compactCommand.Parsed() {
+		if len(*compactDB) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: No database directory (-db) specified\n")
+			os.Exit(1)
+		}
+
+		// compact here
+		storageDriver := storage.NewLevelDBStorageDriver(*compactDB, nil)
+
+		if err := storageDriver.Open(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to open storage: %v\n", err.Error())
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Compacting database...\n")
+
+		if err := storageDriver.Compact(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Compaction failed: %v\n", err.Error())
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Compacted database!\n")
+		os.Exit(0)
+	}
+
+	if helpCommand.Parsed() {
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "Error: No command specified for help\n")
+			os.Exit(1)
+		}
+
+		var flagSet *flag.FlagSet
+
+		switch os.Args[2] {
+		case "start":
+			flagSet = startCommand
+		case "conf":
+			fmt.Fprintf(os.Stderr, "Usage: devicedb conf\n")
+			os.Exit(0)
+		case "upgrade":
+			flagSet = upgradeCommand
+		case "benchmark":
+			flagSet = benchmarkCommand
+		case "cluster":
+			fmt.Fprintf(os.Stderr, commandUsage, "cluster <cluster_command>")
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid command.\n", os.Args[2])
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, commandUsage+"\n", os.Args[2])
+		flagSet.PrintDefaults()
+		os.Exit(0)
+	}
+
+	if clusterStartCommand.Parsed() {
+		if *clusterStartJoin != "" && !isValidJoinAddress(*clusterStartJoin) {
+			fmt.Fprintf(os.Stderr, "Error: -join must specify a valid address of some host in an existing cluster formatted like: host:port Ex: 10.10.102.89:80.\n")
+			os.Exit(1)
+		}
+
+		if *clusterStartStore == "" {
+			fmt.Fprintf(os.Stderr, "Error: -store is a required parameter of the devicedb cluster start command. It must specify a valid file system path.\n")
+			os.Exit(1)
+		}
+
+		if *clusterStartJoin == "" {
+			if !isValidPartitionCount(*clusterStartPartitions) {
+				fmt.Fprintf(os.Stderr, "Error: -partitions must be a power of 2 and be in the range [%d, %d]\n", cluster.MinPartitionCount, cluster.MaxPartitionCount)
+				os.Exit(1)
+			}
+
+			if *clusterStartReplicationFactor == 0 {
+				fmt.Fprintf(os.Stderr, "Error: -replication_factor must be a positive value\n")
+				os.Exit(1)
+			}
+		}
+
+		if *clusterStartLogLevel != "critical" && *clusterStartLogLevel != "error" && *clusterStartLogLevel != "warning" && *clusterStartLogLevel != "notice" && *clusterStartLogLevel != "info" && *clusterStartLogLevel != "debug" {
+			fmt.Fprintf(os.Stderr, "Error: -log_level must be one of { critical, error, warning, notice, info, debug }\n")
+			os.Exit(1)
+		}
+
+		var certificate []byte
+		var key []byte
+		var rootCAs *x509.CertPool
+		var cert tls.Certificate
+		var httpOnly bool
+		var err error
+
+		if *clusterStartTLSCertificate == "" && *clusterStartTLSKey == "" && *clusterStartTLSRelayCA == "" {
+			// http only mode
+			httpOnly = true
+		} else if *clusterStartTLSCertificate != "" && *clusterStartTLSKey != "" && *clusterStartTLSRelayCA != "" {
+			// https mode
+			certificate, err = ioutil.ReadFile(*clusterStartTLSCertificate)
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Could not load the TLS certificate from %s: %v\n", *clusterStartTLSCertificate, err.Error())
+				os.Exit(1)
+			}
+
+			key, err = ioutil.ReadFile(*clusterStartTLSKey)
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Could not load the TLS key from %s: %v\n", *clusterStartTLSKey, err.Error())
+				os.Exit(1)
+			}
+
+			relayCA, err := ioutil.ReadFile(*clusterStartTLSRelayCA)
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Could not load the TLS Relay CA from %s: %v\n", *clusterStartTLSRelayCA, err.Error())
+				os.Exit(1)
+			}
+
+			cert, err = tls.X509KeyPair([]byte(certificate), []byte(key))
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: The specified certificate and key represent an invalid public/private key pair\n")
+				os.Exit(1)
+			}
+
+			rootCAs = x509.NewCertPool()
+
+			if !rootCAs.AppendCertsFromPEM([]byte(relayCA)) {
+				fmt.Fprintf(os.Stderr, "Error: The specified TLS Relay CA was not valid\n")
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: -cert, -key, and -relay_ca must all be provided if one is provided to enable TLS mode\n")
+			os.Exit(1)
+		}
+
+		if *clusterStartMerkleDepth < uint(MerkleMinDepth) || *clusterStartMerkleDepth > uint(MerkleMaxDepth) {
+			fmt.Fprintf(os.Stderr, "Error: The specified merkle depth is not valid. It must be between %d and %d inclusive\n", MerkleMinDepth, MerkleMaxDepth)
+			os.Exit(1)
+		}
+
+		if *clusterStartSyncMaxSessions == 0 {
+			fmt.Fprintf(os.Stderr, "Error: The specified sync sessions max is not valid. It must be a positive integer\n")
+			os.Exit(1)
+		}
+
+		if *clusterStartSyncPathLimit == 0 {
+			fmt.Fprintf(os.Stderr, "Error: The specified sync path limit is not valid. It must be a positive integer\n")
+			os.Exit(1)
+		}
+
+		if *clusterStartSyncPeriod == 0 {
+			fmt.Fprintf(os.Stderr, "Error: The specified sync period is not valid. It must be a positive integer\n")
+			os.Exit(1)
+		}
+
+		var seedHost string
+		var seedPort int
+		var startOptions node.NodeInitializationOptions
+
+		if *clusterStartJoin != "" {
+			seedHost, seedPort, _ = parseJoinAddress(*clusterStartJoin)
+			startOptions.JoinCluster = true
+			startOptions.SeedNodeHost = seedHost
+			startOptions.SeedNodePort = seedPort
+		} else {
+			startOptions.StartCluster = true
+			startOptions.ClusterSettings.Partitions = *clusterStartPartitions
+			startOptions.ClusterSettings.ReplicationFactor = *clusterStartReplicationFactor
+		}
+
+		startOptions.ClusterHost = *clusterStartHost
+		startOptions.ClusterPort = int(*clusterStartPort)
+
+		if !httpOnly {
+			startOptions.ExternalHost = *clusterStartRelayHost
+			startOptions.ExternalPort = int(*clusterStartRelayPort)
+		}
+
+		startOptions.SyncMaxSessions = *clusterStartSyncMaxSessions
+		startOptions.SyncPathLimit = uint32(*clusterStartSyncPathLimit)
+		startOptions.SyncPeriod = *clusterStartSyncPeriod
+		startOptions.SnapshotDirectory = *clusterStartSnapshotDirectory
+		SetLoggingLevel(*clusterStartLogLevel)
+
+		cloudNodeStorage := storage.NewLevelDBStorageDriver(*clusterStartStore, nil)
+
+		var cloudServerConfig CloudServerConfig = CloudServerConfig{
+			InternalHost: *clusterStartHost,
+			InternalPort: int(*clusterStartPort),
+			NodeID:       1,
+			RelayTLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				ClientCAs:    rootCAs,
+				ClientAuth:   tls.RequireAndVerifyClientCert,
+			},
+		}
+
+		if !httpOnly {
+			cloudServerConfig.ExternalHost = *clusterStartRelayHost
+			cloudServerConfig.ExternalPort = int(*clusterStartRelayPort)
+		}
+
+		cloudServer := NewCloudServer(cloudServerConfig)
+
+		var capacity uint64 = 1
+
+		if *clusterStartReplacement {
+			capacity = 0
+		}
+
+		cloudNode := node.New(node.ClusterNodeConfig{
+			CloudServer:   cloudServer,
+			StorageDriver: cloudNodeStorage,
+			MerkleDepth:   uint8(*clusterStartMerkleDepth),
+			Capacity:      capacity,
+			NoValidate:    *clusterStartNoValidate,
+		})
+
+		if err := cloudNode.Start(startOptions); err != nil {
+			os.Exit(1)
+		}
+
+		os.Exit(0)
+	}
+
+	if clusterRemoveCommand.Parsed() {
+		fmt.Fprintf(os.Stderr, "Removing node %d from the cluster...\n", *clusterRemoveNodeID)
+		client := NewClient(ClientConfig{})
+		err := client.ForceRemoveNode(context.TODO(), PeerAddress{Host: *clusterRemoveHost, Port: int(*clusterRemovePort)}, *clusterRemoveNodeID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to remove node %d from the cluster: %v\n", *clusterRemoveNodeID, err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Removed node %d from the cluster.\n", *clusterRemoveNodeID)
+
+		os.Exit(0)
+	}
+
+	if clusterDecommissionCommand.Parsed() {
+		fmt.Fprintf(os.Stderr, "Decommissioning node %d...\n", *clusterDecommissionNodeID)
+
+		client := NewClient(ClientConfig{})
+		err := client.DecommissionNode(context.TODO(), PeerAddress{Host: *clusterDecommissionHost, Port: int(*clusterDecommissionPort)}, *clusterDecommissionNodeID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to decommission node %d: %v\n", *clusterDecommissionNodeID, err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Node %d is now being decommissioned.\n", *clusterDecommissionNodeID)
+
+		os.Exit(0)
+	}
+
+	if clusterReplaceCommand.Parsed() {
+		if *clusterReplaceReplacementNodeID == 0 {
+			fmt.Fprintf(os.Stderr, "Error: -replacement_node must be specified\n")
+			os.Exit(1)
+		}
+
+		if *clusterReplaceNodeID == 0 {
+			fmt.Fprintf(os.Stderr, "Replacing node at %s:%d with node %d...\n", *clusterReplaceHost, *clusterReplacePort, *clusterReplaceReplacementNodeID)
+		} else {
+			fmt.Fprintf(os.Stderr, "Replacing node at %d with node %d...\n", *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
+		}
+
+		client := NewClient(ClientConfig{})
+		err := client.ReplaceNode(context.TODO(), PeerAddress{Host: *clusterReplaceHost, Port: int(*clusterReplacePort)}, *clusterReplaceNodeID, *clusterReplaceReplacementNodeID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to replace node: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Node was replaced.\n")
+
+		os.Exit(1)
+	}
+
+	if clusterOverviewCommand.Parsed() {
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterOverviewHost, *clusterOverviewPort)}})
+		overview, err := apiClient.ClusterOverview(context.TODO())
+		ownershipHist := make(map[uint64]int)
+
+		for _, replicas := range overview.PartitionDistribution {
+			var seenNodes map[uint64]bool = make(map[uint64]bool)
+
+			for _, owner := range replicas {
+				if seenNodes[owner] {
+					continue
+				}
+
+				seenNodes[owner] = true
+				ownershipHist[owner] = ownershipHist[owner] + 1
+			}
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to get cluster overview: %v\n", err)
+
+			os.Exit(1)
+		}
+
+		partitionTable := tablewriter.NewWriter(os.Stdout)
+
+		partitionTable.SetHeader([]string{"Partition", "Replica", "Owner Node"})
+
+		for partition, replicas := range overview.PartitionDistribution {
+			for replica, owner := range replicas {
+				partitionTable.Append([]string{fmt.Sprintf("%d", partition), fmt.Sprintf("%d", replica), fmt.Sprintf("%d", owner)})
+			}
+		}
+
+		//partitionTable.SetAutoMergeCells(true)
+
+		fmt.Fprintf(os.Stderr, "Partitions\n")
+		partitionTable.Render()
+		fmt.Fprintf(os.Stderr, "\n")
+
+		tokenTable := tablewriter.NewWriter(os.Stdout)
+		tokenTable.SetHeader([]string{"Token", "Owner Node"})
+
+		for token, owner := range overview.TokenAssignments {
+			tokenTable.Append([]string{fmt.Sprintf("%d", token), fmt.Sprintf("%d", owner)})
+		}
+
+		fmt.Fprintf(os.Stderr, "Tokens\n")
+		tokenTable.Render()
+		fmt.Fprintf(os.Stderr, "\n")
+
+		nodeTable := tablewriter.NewWriter(os.Stdout)
+		nodeTable.SetHeader([]string{"Node ID", "Host", "Port", "Capacity %"})
+
+		for _, nodeConfig := range overview.Nodes {
+			var ownershipPercentage int
+
+			if len(overview.PartitionDistribution) != 0 {
+				ownershipPercentage = (100 * ownershipHist[nodeConfig.Address.NodeID]) / len(overview.PartitionDistribution)
+			}
+
+			nodeTable.Append([]string{fmt.Sprintf("%d", nodeConfig.Address.NodeID), nodeConfig.Address.Host, fmt.Sprintf("%d", nodeConfig.Address.Port), fmt.Sprintf("%d", ownershipPercentage)})
+		}
+
+		nodeTable.SetFooter([]string{"", "", fmt.Sprintf("Partitions: %d", overview.ClusterSettings.Partitions), fmt.Sprintf("Replication Factor: %d", overview.ClusterSettings.ReplicationFactor)})
+
+		fmt.Fprintf(os.Stderr, "Nodes\n")
+		nodeTable.Render()
+
+		os.Exit(0)
+	}
+
+	if clusterAddSiteCommand.Parsed() {
+		if *clusterAddSiteSiteID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Adding site %s...\n", *clusterAddSiteSiteID)
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterAddSiteHost, *clusterAddSitePort)}})
+		err := apiClient.AddSite(context.TODO(), *clusterAddSiteSiteID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to add site: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Added site %s\n", *clusterAddSiteSiteID)
+
+		os.Exit(0)
+	}
+
+	if clusterRemoveSiteCommand.Parsed() {
+		if *clusterRemoveSiteSiteID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Removing site %s...\n", *clusterRemoveSiteSiteID)
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterRemoveSiteHost, *clusterRemoveSitePort)}})
+		err := apiClient.RemoveSite(context.TODO(), *clusterRemoveSiteSiteID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to remove site: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Removed site %s\n", *clusterRemoveSiteSiteID)
+
+		os.Exit(0)
+	}
+
+	if clusterAddRelayCommand.Parsed() {
+		if *clusterAddRelayRelayID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Adding relay %s...\n", *clusterAddRelayRelayID)
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterAddRelayHost, *clusterAddRelayPort)}})
+		err := apiClient.AddRelay(context.TODO(), *clusterAddRelayRelayID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to add relay: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Added relay %s\n", *clusterAddRelayRelayID)
+
+		os.Exit(0)
+	}
+
+	if clusterRemoveRelayCommand.Parsed() {
+		if *clusterRemoveRelayRelayID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Removing relay %s...\n", *clusterRemoveRelayRelayID)
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterRemoveRelayHost, *clusterRemoveRelayPort)}})
+		err := apiClient.RemoveRelay(context.TODO(), *clusterRemoveRelayRelayID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to remove relay: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Removed relay %s\n", *clusterRemoveRelayRelayID)
+
+		os.Exit(0)
+	}
+
+	if clusterMoveRelayCommand.Parsed() {
+		if *clusterMoveRelayRelayID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Moving relay %s to site %s...\n", *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterMoveRelayHost, *clusterMoveRelayPort)}})
+		err := apiClient.MoveRelay(context.TODO(), *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to move relay: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, "Moved relay %s to site %s\n", *clusterMoveRelayRelayID, *clusterMoveRelaySiteID)
+
+		os.Exit(0)
+	}
+
+	if clusterRelayStatusCommand.Parsed() {
+		if *clusterRelayStatusRelayID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -relay must be specified\n")
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterRelayStatusHost, *clusterRelayStatusPort)}})
+		relayStatus, err := apiClient.RelayStatus(context.TODO(), *clusterRelayStatusRelayID)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to retrieve relay status: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		if !relayStatus.Connected {
+			fmt.Fprintf(os.Stderr, "Relay %s is not connected\n", *clusterRelayStatusRelayID)
+
+			os.Exit(0)
+		}
+
+		fmt.Fprintf(os.Stderr, "Relay ID: %s\n", *clusterRelayStatusRelayID)
+		fmt.Fprintf(os.Stderr, "Connected To: %v\n", relayStatus.ConnectedTo)
+
+		if relayStatus.Ping == 0 {
+			fmt.Fprintf(os.Stderr, "Ping: <unknown>\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "Ping: %v\n", relayStatus.Ping)
+		}
+
+		os.Exit(0)
+	}
+
+	if clusterGetCommand.Parsed() {
+		if *clusterGetSiteID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+			os.Exit(1)
+		}
+
+		if *clusterGetKey == "" {
+			fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterGetHost, *clusterGetPort)}})
+		entries, err := apiClient.Get(context.TODO(), *clusterGetSiteID, *clusterGetBucket, []string{*clusterGetKey})
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to get key: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		if len(entries) == 1 {
+			fmt.Fprintf(os.Stderr, "Values: %v\n", entries[0].Siblings)
+			fmt.Fprintf(os.Stderr, "Context: %v\n", entries[0].Context)
+		} else {
+			fmt.Fprintf(os.Stderr, "No such key\n")
+		}
+
+		os.Exit(0)
+	}
+
+	if clusterGetMatchesCommand.Parsed() {
+		if *clusterGetMatchesSiteID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+			os.Exit(1)
+		}
+
+		if *clusterGetMatchesPrefix == "" {
+			fmt.Fprintf(os.Stderr, "Error: -prefix must be specified\n")
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterGetMatchesHost, *clusterGetMatchesPort)}})
+		entryIterator, err := apiClient.GetMatches(context.TODO(), *clusterGetMatchesSiteID, *clusterGetMatchesBucket, []string{*clusterGetMatchesPrefix})
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to get keys: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		var entryCount int
+
+		for entryIterator.Next() {
+			if entryCount != 0 {
+				fmt.Fprintf(os.Stderr, "\n")
+			}
+
+			fmt.Fprintf(os.Stderr, "Key: %s\n", entryIterator.Key())
+			fmt.Fprintf(os.Stderr, "Values: %v\n", entryIterator.Entry().Siblings)
+			fmt.Fprintf(os.Stderr, "Context: %v\n", entryIterator.Entry().Context)
+
+			entryCount++
+		}
+
+		if entryCount == 0 {
+			fmt.Fprintf(os.Stderr, "No keys returned\n")
+		}
+
+		os.Exit(0)
+	}
+
+	if clusterPutCommand.Parsed() {
+		if *clusterPutSiteID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+			os.Exit(1)
+		}
+
+		if *clusterPutKey == "" {
+			fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+			os.Exit(1)
+		}
+
+		if *clusterPutValue == "" {
+			fmt.Fprintf(os.Stderr, "Error: -value must be specified\n")
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterPutHost, *clusterPutPort)}})
+
+		batch := NewBatch()
+		batch.Put(*clusterPutKey, *clusterPutValue, *clusterPutContext)
+
+		replicas, nApplied, err := apiClient.Batch(context.TODO(), *clusterPutSiteID, *clusterPutBucket, *batch)
+
+		if err == ENoQuorum {
+			fmt.Fprintf(os.Stderr, "Error: Update was only applied to (%d/%d) replicas. Unable to achieve write quorum\n", nApplied, replicas)
+
+			os.Exit(1)
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to put key: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		os.Exit(0)
+	}
+
+	if clusterDeleteCommand.Parsed() {
+		if *clusterDeleteSiteID == "" {
+			fmt.Fprintf(os.Stderr, "Error: -site must be specified\n")
+			os.Exit(1)
+		}
+
+		if *clusterDeleteKey == "" {
+			fmt.Fprintf(os.Stderr, "Error: -key must be specified\n")
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterDeleteHost, *clusterDeletePort)}})
+
+		batch := NewBatch()
+		batch.Delete(*clusterDeleteKey, *clusterDeleteContext)
+
+		replicas, nApplied, err := apiClient.Batch(context.TODO(), *clusterDeleteSiteID, *clusterDeleteBucket, *batch)
+
+		if err == ENoQuorum {
+			fmt.Fprintf(os.Stderr, "Error: Update was only applied to (%d/%d) replicas. Unable to achieve write quorum\n", nApplied, replicas)
+
+			os.Exit(1)
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to delete key: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		os.Exit(0)
+	}
+
+	if clusterLogDumpCommand.Parsed() {
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterLogDumpHost, *clusterLogDumpPort)}})
+		logDump, err := apiClient.LogDump(context.TODO())
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to get raft dump: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		printLogDump(logDump)
+
+		os.Exit(0)
+	}
+
+	if clusterSnapshotCommand.Parsed() {
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterSnapshotHost, *clusterSnapshotPort)}})
+		snapshot, err := apiClient.Snapshot(context.TODO())
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to take snapshot: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		printSnapshot(snapshot)
+
+		os.Exit(0)
+	}
+
+	if clusterGetSnapshotCommand.Parsed() {
+		if *clusterGetSnapshotSnapshotId == "" {
+			fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
+
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterGetSnapshotHost, *clusterGetSnapshotPort)}})
+		snapshot, err := apiClient.GetSnapshot(context.TODO(), *clusterGetSnapshotSnapshotId)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to get snapshot status: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		printSnapshot(snapshot)
+
+		os.Exit(0)
+	}
+
+	if clusterDownloadSnapshotCommand.Parsed() {
+		if *clusterDownloadSnapshotSnapshotId == "" {
+			fmt.Fprintf(os.Stderr, "Error: -uuid must be specified\n")
+
+			os.Exit(1)
+		}
+
+		apiClient := New(APIClientConfig{Servers: []string{fmt.Sprintf("%s:%d", *clusterDownloadSnapshotHost, *clusterDownloadSnapshotPort)}})
+		snapshot, err := apiClient.DownloadSnapshot(context.TODO(), *clusterDownloadSnapshotSnapshotId)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Unable to download snapshot: %v\n", err.Error())
+
+			os.Exit(1)
+		}
+
+		written, err := io.Copy(os.Stdout, snapshot)
+		snapshot.Close()
+
+		if err == nil || err == io.EOF {
+			fmt.Fprintf(os.Stderr, "Downloaded %d bytes successfully\n", written)
+
+			os.Exit(0)
+		}
+
+		os.Exit(1)
+	}
+
+	if clusterBenchmarkCommand.Parsed() {
+		internalAddresses := strings.Split(*clusterBenchmarkInternalAddresses, ",")
+		externalAddresses := strings.Split(*clusterBenchmarkExternalAddresses, ",")
+
+		if len(internalAddresses) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: No internal addresses specified for the cloud cluster\n")
+
+			os.Exit(1)
+		}
+
+		for _, address := range internalAddresses {
+			if !isValidJoinAddress(address) {
+				fmt.Fprintf(os.Stderr, "Error: %s is not a valid address\n", address)
+
+				os.Exit(1)
+			}
+		}
+
+		if len(externalAddresses) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: No external addresses specified for the cloud cluster\n")
+
+			os.Exit(1)
+		}
+
+		for _, address := range externalAddresses {
+			if !isValidJoinAddress(address) {
+				fmt.Fprintf(os.Stderr, "Error: %s is not a valid address\n", address)
+
+				os.Exit(1)
+			}
+		}
+
+		switch *clusterBenchmarkName {
+		case "multiple_relays":
+			fmt.Fprintf(os.Stderr, "Running the %s benchmark\n  # Sites: %d\n  # Relays per Site: %d\n  # Updates Per Second: %d\n  Sync Period (ms): %d\n", *clusterBenchmarkName, *clusterBenchmarkNSites, *clusterBenchmarkNRelays, *clusterBenchmarkUpdatesPerSecond, *clusterBenchmarkSyncPeriod)
+			ddbBenchmark.BenchmarkManyRelays(externalAddresses, internalAddresses, int(*clusterBenchmarkNSites), int(*clusterBenchmarkNRelays), int(*clusterBenchmarkUpdatesPerSecond), int(*clusterBenchmarkSyncPeriod))
+		default:
+			fmt.Fprintf(os.Stderr, "Error: %s is not the name of any benchmark test\n", *clusterBenchmarkName)
+
+			os.Exit(1)
+		}
+	}
+
+	if clusterHelpCommand.Parsed() {
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "Error: No cluster command specified for help\n")
+			os.Exit(1)
+		}
+
+		var flagSet *flag.FlagSet
+
+		switch os.Args[3] {
+		case "start":
+			flagSet = clusterStartCommand
+		case "benchmark":
+			flagSet = clusterBenchmarkCommand
+		case "remove":
+			flagSet = clusterRemoveCommand
+		case "decommission":
+			flagSet = clusterDecommissionCommand
+		case "replace":
+			flagSet = clusterReplaceCommand
+		case "overview":
+			flagSet = clusterOverviewCommand
+		case "add_site":
+			flagSet = clusterAddSiteCommand
+		case "remove_site":
+			flagSet = clusterRemoveSiteCommand
+		case "add_relay":
+			flagSet = clusterAddRelayCommand
+		case "remove_relay":
+			flagSet = clusterRemoveRelayCommand
+		case "move_relay":
+			flagSet = clusterMoveRelayCommand
+		case "relay_status":
+			flagSet = clusterRelayStatusCommand
+		case "get":
+			flagSet = clusterGetCommand
+		case "get_matches":
+			flagSet = clusterGetMatchesCommand
+		case "put":
+			flagSet = clusterPutCommand
+		case "delete":
+			flagSet = clusterDeleteCommand
+		case "log_dump":
+			flagSet = clusterLogDumpCommand
+		default:
+			fmt.Fprintf(os.Stderr, "Error: \"%s\" is not a valid cluster command.\n", os.Args[3])
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stderr, commandUsage+"\n", "cluster "+os.Args[3])
+		flagSet.PrintDefaults()
+		os.Exit(0)
+	}
 }
 
 func start(configFile string) {
-    var sc ServerConfig
-        
-    err := sc.LoadFromFile(configFile)
+	var sc ServerConfig
 
-    if err != nil {
-        fmt.Fprintf(os.Stderr, "Unable to load config file: %s\n", err.Error())
-        
-        return
-    }
+	err := sc.LoadFromFile(configFile)
 
-    server, err := NewServer(sc)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to load config file: %s\n", err.Error())
 
-    if err != nil {
-        fmt.Fprintf(os.Stderr, "Unable to create server: %s\n", err.Error())
-        
-        return
-    }
+		return
+	}
 
-    sc.Hub.SyncController().Start()
-    sc.Hub.StartForwardingEvents()
-    sc.Hub.StartForwardingAlerts()
-    server.StartGC()
+	server, err := NewServer(sc)
 
-    server.Start()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to create server: %s\n", err.Error())
+
+		return
+	}
+
+	sc.Hub.SyncController().Start()
+	sc.Hub.StartForwardingEvents()
+	sc.Hub.StartForwardingAlerts()
+	server.StartGC()
+
+	server.Start()
 }
 
 // test reads per second
 func benchmarkSequentialReads(benchmarkMagnitude int, server *Server) error {
-    // Seed database for test
-    for i := 0; i < benchmarkMagnitude; i += 1 {
-        key := []byte("keyBench1" + RandomString())
-        updateBatch := NewUpdateBatch()
-        updateBatch.Put(key, []byte(RandomString() + RandomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        _, err := server.Buckets().Get("default").Batch(updateBatch)
-        
-        if err != nil {
-            return err
-        }
-    }
-    
-    iter, err := server.Buckets().Get("default").GetMatches([][]byte{ []byte("key") })
-    
-    if err != nil {
-        return err
-    }
-    
-    defer iter.Release()
+	// Seed database for test
+	for i := 0; i < benchmarkMagnitude; i += 1 {
+		key := []byte("keyBench1" + RandomString())
+		updateBatch := NewUpdateBatch()
+		updateBatch.Put(key, []byte(RandomString()+RandomString()), NewDVV(NewDot("", 0), map[string]uint64{}))
+		_, err := server.Buckets().Get("default").Batch(updateBatch)
 
-    start := time.Now()
-    
-    for iter.Next() {
-    }
-    
-    if iter.Error() != nil {
-        return iter.Error()
-    }
-    
-    elapsed := time.Since(start)
-    average := time.Duration(elapsed.Nanoseconds() / int64(benchmarkMagnitude))
-    readsPerSecond := time.Second / average
-    
-    fmt.Printf("%d sequential reads took %s or an average of %s per read or %d reads per second\n", benchmarkMagnitude, elapsed.String(), average.String(), readsPerSecond)
-    
-    return nil
+		if err != nil {
+			return err
+		}
+	}
+
+	iter, err := server.Buckets().Get("default").GetMatches([][]byte{[]byte("key")})
+
+	if err != nil {
+		return err
+	}
+
+	defer iter.Release()
+
+	start := time.Now()
+
+	for iter.Next() {
+	}
+
+	if iter.Error() != nil {
+		return iter.Error()
+	}
+
+	elapsed := time.Since(start)
+	average := time.Duration(elapsed.Nanoseconds() / int64(benchmarkMagnitude))
+	readsPerSecond := time.Second / average
+
+	fmt.Printf("%d sequential reads took %s or an average of %s per read or %d reads per second\n", benchmarkMagnitude, elapsed.String(), average.String(), readsPerSecond)
+
+	return nil
 }
 
 func benchmarkRandomReads(benchmarkMagnitude int, server *Server) error {
-    keys := make([]string, 0, benchmarkMagnitude)
-    
-    // Seed database for test
-    for i := 0; i < benchmarkMagnitude; i += 1 {
-        key := []byte("keyBench2" + RandomString())
-        updateBatch := NewUpdateBatch()
-        updateBatch.Put(key, []byte(RandomString() + RandomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
-        _, err := server.Buckets().Get("default").Batch(updateBatch)
-        
-        if err != nil {
-            return err
-        }
-        
-        keys = append(keys, string(key))
-    }
+	keys := make([]string, 0, benchmarkMagnitude)
 
-    start := time.Now()
-    
-    for _, key := range keys {
-        _, err := server.Buckets().Get("default").Get([][]byte{ []byte(key) })
-        
-        if err != nil {
-            return err
-        }
-    }
-    
-    elapsed := time.Since(start)
-    average := time.Duration(elapsed.Nanoseconds() / int64(benchmarkMagnitude))
-    readsPerSecond := time.Second / average
-    
-    fmt.Printf("%d random reads took %s or an average of %s per read or %d reads per second\n", benchmarkMagnitude, elapsed.String(), average.String(), readsPerSecond)
-    
-    return nil
+	// Seed database for test
+	for i := 0; i < benchmarkMagnitude; i += 1 {
+		key := []byte("keyBench2" + RandomString())
+		updateBatch := NewUpdateBatch()
+		updateBatch.Put(key, []byte(RandomString()+RandomString()), NewDVV(NewDot("", 0), map[string]uint64{}))
+		_, err := server.Buckets().Get("default").Batch(updateBatch)
+
+		if err != nil {
+			return err
+		}
+
+		keys = append(keys, string(key))
+	}
+
+	start := time.Now()
+
+	for _, key := range keys {
+		_, err := server.Buckets().Get("default").Get([][]byte{[]byte(key)})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	elapsed := time.Since(start)
+	average := time.Duration(elapsed.Nanoseconds() / int64(benchmarkMagnitude))
+	readsPerSecond := time.Second / average
+
+	fmt.Printf("%d random reads took %s or an average of %s per read or %d reads per second\n", benchmarkMagnitude, elapsed.String(), average.String(), readsPerSecond)
+
+	return nil
 }
 
 func benchmarkWrites(benchmarkMagnitude int, server *Server) error {
-    var batchWaits sync.WaitGroup
-    var err error
-    
-    start := time.Now()
-    
-    // Seed database for test
-    for i := 0; i < benchmarkMagnitude; i += 1 {
-        key := []byte("keyBench3" + RandomString())
-        updateBatch := NewUpdateBatch()
-        updateBatch.Put(key, []byte(RandomString() + RandomString()), NewDVV(NewDot("", 0), map[string]uint64{ }))
-    
-        batchWaits.Add(1)
-        
-        go func() {
-            _, e := server.Buckets().Get("default").Batch(updateBatch)
-            
-            if e != nil {
-                err = e
-            }
-            
-            batchWaits.Done()
-        }()
-    }
-    
-    batchWaits.Wait()
-    
-    if err != nil {
-        return err
-    }
+	var batchWaits sync.WaitGroup
+	var err error
 
-    elapsed := time.Since(start)
-    average := time.Duration(elapsed.Nanoseconds() / int64(benchmarkMagnitude))
-    batchesPerSecond := time.Second / average
-    
-    fmt.Printf("%d writes took %s or an average of %s per write or %d writes per second\n", benchmarkMagnitude, elapsed.String(), average.String(), batchesPerSecond)
-    
-    return nil
+	start := time.Now()
+
+	// Seed database for test
+	for i := 0; i < benchmarkMagnitude; i += 1 {
+		key := []byte("keyBench3" + RandomString())
+		updateBatch := NewUpdateBatch()
+		updateBatch.Put(key, []byte(RandomString()+RandomString()), NewDVV(NewDot("", 0), map[string]uint64{}))
+
+		batchWaits.Add(1)
+
+		go func() {
+			_, e := server.Buckets().Get("default").Batch(updateBatch)
+
+			if e != nil {
+				err = e
+			}
+
+			batchWaits.Done()
+		}()
+	}
+
+	batchWaits.Wait()
+
+	if err != nil {
+		return err
+	}
+
+	elapsed := time.Since(start)
+	average := time.Duration(elapsed.Nanoseconds() / int64(benchmarkMagnitude))
+	batchesPerSecond := time.Second / average
+
+	fmt.Printf("%d writes took %s or an average of %s per write or %d writes per second\n", benchmarkMagnitude, elapsed.String(), average.String(), batchesPerSecond)
+
+	return nil
 }
 
 func benchmarkHistoryStress(server *Server) error {
-    var stop chan int = make(chan int)
+	var stop chan int = make(chan int)
 
-    // Every 10 seconds it should print out how many 
-    go func() {
-        for {
-            select {
-            case <-time.After(time.Second * 10):
-            case <-stop:
-                return
-            }
+	// Every 10 seconds it should print out how many
+	go func() {
+		for {
+			select {
+			case <-time.After(time.Second * 10):
+			case <-stop:
+				return
+			}
 
-            fmt.Fprintf(os.Stderr, "%d events are currently recorded to the history log. Latest serial: %d\n", server.History().LogSize(), server.History().LogSerial())
-        }
-    }()
+			fmt.Fprintf(os.Stderr, "%d events are currently recorded to the history log. Latest serial: %d\n", server.History().LogSize(), server.History().LogSerial())
+		}
+	}()
 
-    defer func() {
-        // close this to make sure the above goroutine exits when this function exits
-        close(stop)
-    }()
+	defer func() {
+		// close this to make sure the above goroutine exits when this function exits
+		close(stop)
+	}()
 
-    for {
-        var nextEvent historian.Event
+	for {
+		var nextEvent historian.Event
 
-        nextEvent.Timestamp = NanoToMilli(uint64(time.Now().UnixNano()))
-        nextEvent.SourceID = "source"
-        nextEvent.Type = "testevent"
-        nextEvent.Data = "testeventdata"
-        nextEvent.Groups = []string{ "A" }
+		nextEvent.Timestamp = NanoToMilli(uint64(time.Now().UnixNano()))
+		nextEvent.SourceID = "source"
+		nextEvent.Type = "testevent"
+		nextEvent.Data = "testeventdata"
+		nextEvent.Groups = []string{"A"}
 
-        if err := server.History().LogEvent(&nextEvent); err != nil {
-            return err
-        }
-    }
+		if err := server.History().LogEvent(&nextEvent); err != nil {
+			return err
+		}
+	}
 }
 
 func printSnapshot(snapshot routes.Snapshot) {
-    fmt.Fprintf(os.Stderr, "uuid = %s\nstatus = %s\n", snapshot.UUID, snapshot.Status)
+	fmt.Fprintf(os.Stderr, "uuid = %s\nstatus = %s\n", snapshot.UUID, snapshot.Status)
 }
 
 func printLogDump(logDump routes.LogDump) {
-    fmt.Fprintf(os.Stderr, "Base Snapshot:\n")
-    fmt.Fprintf(os.Stderr, "  Index: %d\n", logDump.BaseSnapshot.Index)
-    fmt.Fprintf(os.Stderr, "  State:\n")
-    fmt.Fprintf(os.Stderr, "    Cluster Settings:\n")
-    fmt.Fprintf(os.Stderr, "      Partitions: %v\n", logDump.BaseSnapshot.State.ClusterSettings.Partitions)
-    fmt.Fprintf(os.Stderr, "      Replication Factor: %v\n", logDump.BaseSnapshot.State.ClusterSettings.ReplicationFactor)
-    fmt.Fprintf(os.Stderr, "    Nodes:\n")
-    for _, nodeConfig := range logDump.BaseSnapshot.State.Nodes {
-    fmt.Fprintf(os.Stderr, "      %d:\n", nodeConfig.Address.NodeID)
-    fmt.Fprintf(os.Stderr, "        ID: %d\n", nodeConfig.Address.NodeID)
-    fmt.Fprintf(os.Stderr, "        Address:\n")
-    fmt.Fprintf(os.Stderr, "          Host: %s\n", nodeConfig.Address.Host)
-    fmt.Fprintf(os.Stderr, "          Port: %d\n", nodeConfig.Address.Port)
-    }
-    fmt.Fprintf(os.Stderr, "    Tokens:\n")
-    for token, owner := range logDump.BaseSnapshot.State.Tokens {
-    fmt.Fprintf(os.Stderr, "      %d: %d\n", token, owner)
-    }
-    fmt.Fprintf(os.Stderr, "Log Entries (%d):\n", len(logDump.Entries))
-    for _, entry := range logDump.Entries {
-    fmt.Fprintf(os.Stderr, "  %s\n", logEntryToString(entry))
-    }
+	fmt.Fprintf(os.Stderr, "Base Snapshot:\n")
+	fmt.Fprintf(os.Stderr, "  Index: %d\n", logDump.BaseSnapshot.Index)
+	fmt.Fprintf(os.Stderr, "  State:\n")
+	fmt.Fprintf(os.Stderr, "    Cluster Settings:\n")
+	fmt.Fprintf(os.Stderr, "      Partitions: %v\n", logDump.BaseSnapshot.State.ClusterSettings.Partitions)
+	fmt.Fprintf(os.Stderr, "      Replication Factor: %v\n", logDump.BaseSnapshot.State.ClusterSettings.ReplicationFactor)
+	fmt.Fprintf(os.Stderr, "    Nodes:\n")
+	for _, nodeConfig := range logDump.BaseSnapshot.State.Nodes {
+		fmt.Fprintf(os.Stderr, "      %d:\n", nodeConfig.Address.NodeID)
+		fmt.Fprintf(os.Stderr, "        ID: %d\n", nodeConfig.Address.NodeID)
+		fmt.Fprintf(os.Stderr, "        Address:\n")
+		fmt.Fprintf(os.Stderr, "          Host: %s\n", nodeConfig.Address.Host)
+		fmt.Fprintf(os.Stderr, "          Port: %d\n", nodeConfig.Address.Port)
+	}
+	fmt.Fprintf(os.Stderr, "    Tokens:\n")
+	for token, owner := range logDump.BaseSnapshot.State.Tokens {
+		fmt.Fprintf(os.Stderr, "      %d: %d\n", token, owner)
+	}
+	fmt.Fprintf(os.Stderr, "Log Entries (%d):\n", len(logDump.Entries))
+	for _, entry := range logDump.Entries {
+		fmt.Fprintf(os.Stderr, "  %s\n", logEntryToString(entry))
+	}
 }
 
 func logEntryToString(logEntry routes.LogEntry) string {
-    commandType := "<unknown>"
-    commandDetails := ""
-    commandBody, err := cluster.DecodeClusterCommandBody(logEntry.Command)
-   
-    if err == nil {
-        switch logEntry.Command.Type {
-        case cluster.ClusterUpdateNode:
-            commandType = "UpdateNode"
-            updateNodeCommandBody := commandBody.(cluster.ClusterUpdateNodeBody)
-            commandDetails = fmt.Sprintf("Node ID: %d, Host: %s, Port: %d, Capacity: %d", updateNodeCommandBody.NodeID, updateNodeCommandBody.NodeConfig.Address.Host, updateNodeCommandBody.NodeConfig.Address.Port, updateNodeCommandBody.NodeConfig.Capacity)
-        case cluster.ClusterAddNode:
-            commandType = "AddNode"
-            addNodeCommandBody := commandBody.(cluster.ClusterAddNodeBody)
-            commandDetails = fmt.Sprintf("Node ID: %d, Host: %s, Port: %d, Capacity: %d", addNodeCommandBody.NodeID, addNodeCommandBody.NodeConfig.Address.Host, addNodeCommandBody.NodeConfig.Address.Port, addNodeCommandBody.NodeConfig.Capacity)
-        case cluster.ClusterRemoveNode:
-            commandType = "RemoveNode"
-            removeNodeCommandBody := commandBody.(cluster.ClusterRemoveNodeBody)
-            commandDetails = fmt.Sprintf("Node ID: %d, Replacement Node ID: %d", removeNodeCommandBody.NodeID, removeNodeCommandBody.ReplacementNodeID)
-        case cluster.ClusterTakePartitionReplica:
-            commandType = "TakePartitionReplica"
-            takePartitionReplicaCommandBody := commandBody.(cluster.ClusterTakePartitionReplicaBody)
-            commandDetails = fmt.Sprintf("Node ID: %d, Partition: %d, Replica: %d", takePartitionReplicaCommandBody.NodeID, takePartitionReplicaCommandBody.Partition, takePartitionReplicaCommandBody.Replica)
-        case cluster.ClusterSetReplicationFactor:
-            commandType = "SetReplicationFactor"
-            setReplicationFactorCommandBody := commandBody.(cluster.ClusterSetReplicationFactorBody)
-            commandDetails = fmt.Sprintf("Replication Factor: %d", setReplicationFactorCommandBody.ReplicationFactor)
-        case cluster.ClusterSetPartitionCount:
-            commandType = "SetPartitionCount"
-            setPartitionCountCommandBody := commandBody.(cluster.ClusterSetPartitionCountBody)
-            commandDetails = fmt.Sprintf("Partitions: %d", setPartitionCountCommandBody.Partitions)
-        case cluster.ClusterAddSite:
-            commandType = "AddSite"
-            addSiteCommandBody := commandBody.(cluster.ClusterAddSiteBody)
-            commandDetails = fmt.Sprintf("Site ID: %s", addSiteCommandBody.SiteID)
-        case cluster.ClusterRemoveSite:
-            commandType = "RemoveSite"
-            removeSiteCommandBody := commandBody.(cluster.ClusterRemoveSiteBody)
-            commandDetails = fmt.Sprintf("Site ID: %s", removeSiteCommandBody.SiteID)
-        case cluster.ClusterAddRelay:
-            commandType = "AddRelay"
-            addRelayCommandBody := commandBody.(cluster.ClusterAddRelayBody)
-            commandDetails = fmt.Sprintf("Relay ID: %s", addRelayCommandBody.RelayID)
-        case cluster.ClusterRemoveRelay:
-            commandType = "RemoveRelay"
-            removeRelayCommandBody := commandBody.(cluster.ClusterRemoveRelayBody)
-            commandDetails = fmt.Sprintf("Relay ID: %s", removeRelayCommandBody.RelayID)
-        case cluster.ClusterMoveRelay:
-            commandType = "MoveRelay"
-            moveRelayCommandBody := commandBody.(cluster.ClusterMoveRelayBody)
-            commandDetails = fmt.Sprintf("Relay ID: %s, Site ID: %s", moveRelayCommandBody.RelayID, moveRelayCommandBody.SiteID)
-        case cluster.ClusterSnapshot:
-            commandType = "ClusterSnapshot"
-            clusterSnapshotCommandBody := commandBody.(cluster.ClusterSnapshotBody)
-            commandDetails = fmt.Sprintf("UUID: %s", clusterSnapshotCommandBody.UUID)
-        }
-    } else {
-        commandDetails = "<unable to read details>"
-    }
+	commandType := "<unknown>"
+	commandDetails := ""
+	commandBody, err := cluster.DecodeClusterCommandBody(logEntry.Command)
 
-    return fmt.Sprintf("%d: (%s) %s", logEntry.Index, commandType, commandDetails)
+	if err == nil {
+		switch logEntry.Command.Type {
+		case cluster.ClusterUpdateNode:
+			commandType = "UpdateNode"
+			updateNodeCommandBody := commandBody.(cluster.ClusterUpdateNodeBody)
+			commandDetails = fmt.Sprintf("Node ID: %d, Host: %s, Port: %d, Capacity: %d", updateNodeCommandBody.NodeID, updateNodeCommandBody.NodeConfig.Address.Host, updateNodeCommandBody.NodeConfig.Address.Port, updateNodeCommandBody.NodeConfig.Capacity)
+		case cluster.ClusterAddNode:
+			commandType = "AddNode"
+			addNodeCommandBody := commandBody.(cluster.ClusterAddNodeBody)
+			commandDetails = fmt.Sprintf("Node ID: %d, Host: %s, Port: %d, Capacity: %d", addNodeCommandBody.NodeID, addNodeCommandBody.NodeConfig.Address.Host, addNodeCommandBody.NodeConfig.Address.Port, addNodeCommandBody.NodeConfig.Capacity)
+		case cluster.ClusterRemoveNode:
+			commandType = "RemoveNode"
+			removeNodeCommandBody := commandBody.(cluster.ClusterRemoveNodeBody)
+			commandDetails = fmt.Sprintf("Node ID: %d, Replacement Node ID: %d", removeNodeCommandBody.NodeID, removeNodeCommandBody.ReplacementNodeID)
+		case cluster.ClusterTakePartitionReplica:
+			commandType = "TakePartitionReplica"
+			takePartitionReplicaCommandBody := commandBody.(cluster.ClusterTakePartitionReplicaBody)
+			commandDetails = fmt.Sprintf("Node ID: %d, Partition: %d, Replica: %d", takePartitionReplicaCommandBody.NodeID, takePartitionReplicaCommandBody.Partition, takePartitionReplicaCommandBody.Replica)
+		case cluster.ClusterSetReplicationFactor:
+			commandType = "SetReplicationFactor"
+			setReplicationFactorCommandBody := commandBody.(cluster.ClusterSetReplicationFactorBody)
+			commandDetails = fmt.Sprintf("Replication Factor: %d", setReplicationFactorCommandBody.ReplicationFactor)
+		case cluster.ClusterSetPartitionCount:
+			commandType = "SetPartitionCount"
+			setPartitionCountCommandBody := commandBody.(cluster.ClusterSetPartitionCountBody)
+			commandDetails = fmt.Sprintf("Partitions: %d", setPartitionCountCommandBody.Partitions)
+		case cluster.ClusterAddSite:
+			commandType = "AddSite"
+			addSiteCommandBody := commandBody.(cluster.ClusterAddSiteBody)
+			commandDetails = fmt.Sprintf("Site ID: %s", addSiteCommandBody.SiteID)
+		case cluster.ClusterRemoveSite:
+			commandType = "RemoveSite"
+			removeSiteCommandBody := commandBody.(cluster.ClusterRemoveSiteBody)
+			commandDetails = fmt.Sprintf("Site ID: %s", removeSiteCommandBody.SiteID)
+		case cluster.ClusterAddRelay:
+			commandType = "AddRelay"
+			addRelayCommandBody := commandBody.(cluster.ClusterAddRelayBody)
+			commandDetails = fmt.Sprintf("Relay ID: %s", addRelayCommandBody.RelayID)
+		case cluster.ClusterRemoveRelay:
+			commandType = "RemoveRelay"
+			removeRelayCommandBody := commandBody.(cluster.ClusterRemoveRelayBody)
+			commandDetails = fmt.Sprintf("Relay ID: %s", removeRelayCommandBody.RelayID)
+		case cluster.ClusterMoveRelay:
+			commandType = "MoveRelay"
+			moveRelayCommandBody := commandBody.(cluster.ClusterMoveRelayBody)
+			commandDetails = fmt.Sprintf("Relay ID: %s, Site ID: %s", moveRelayCommandBody.RelayID, moveRelayCommandBody.SiteID)
+		case cluster.ClusterSnapshot:
+			commandType = "ClusterSnapshot"
+			clusterSnapshotCommandBody := commandBody.(cluster.ClusterSnapshotBody)
+			commandDetails = fmt.Sprintf("UUID: %s", clusterSnapshotCommandBody.UUID)
+		}
+	} else {
+		commandDetails = "<unable to read details>"
+	}
+
+	return fmt.Sprintf("%d: (%s) %s", logEntry.Index, commandType, commandDetails)
 }
