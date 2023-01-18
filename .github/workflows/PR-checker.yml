@@ -1,0 +1,38 @@
+name: PR-checker
+run-name: ${{ github.actor }} Pull Request go vet & test
+
+# This allows a subsequently queued workflow run to interrupt previous runs
+concurrency:
+  group: devicedb-${{ github.event.pull_request.head.label || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+on: [push]
+
+jobs:
+  check:
+    strategy:
+      fail-fast: true
+      matrix:
+        os_version: [ubuntu-20.04, ubuntu-22.04]
+        go_version: ['1.15', '1.16', '1.17', '1.18', '1.19']
+        exclude:
+          - os_version: ubuntu-22.04
+            go_version: '1.15'
+            
+    runs-on: ${{ matrix.os_version }}
+    steps:
+      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
+      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
+      - run: echo "🐧 Using ${{ matrix.os_version}} with ${{ matrix.go_version }}."
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go_version }}
+      - name: go version
+        run: go version
+#      - name: go vet
+#        run: |
+#          scripts/go_vet_script.sh
+      - name: go test
+        run: |
+          scripts/test_script.sh
