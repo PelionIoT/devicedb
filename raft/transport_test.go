@@ -1,290 +1,290 @@
 package raft_test
-//
- // Copyright (c) 2019 ARM Limited.
- //
- // SPDX-License-Identifier: MIT
- //
- // Permission is hereby granted, free of charge, to any person obtaining a copy
- // of this software and associated documentation files (the "Software"), to
- // deal in the Software without restriction, including without limitation the
- // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- // sell copies of the Software, and to permit persons to whom the Software is
- // furnished to do so, subject to the following conditions:
- //
- // The above copyright notice and this permission notice shall be included in all
- // copies or substantial portions of the Software.
- //
- // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- // SOFTWARE.
- //
 
+//
+// Copyright (c) 2019 ARM Limited.
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 
 import (
-    . "github.com/armPelionEdge/devicedb/raft"
-    "github.com/coreos/etcd/raft/raftpb"
-    "github.com/gorilla/mux"
-    "net"
-    "net/http"
-    "strconv"
-    "time"
-    "context"
-    "errors"
+	"context"
+	"errors"
+	. "github.com/PelionIoT/devicedb/raft"
+	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/gorilla/mux"
+	"net"
+	"net/http"
+	"strconv"
+	"time"
 
-    . "github.com/onsi/ginkgo"
-    . "github.com/onsi/gomega"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 )
 
 var (
-    PortIndex = 1
-    PortBase = 9000
-    SenderNodeID = uint64(1)
-    ReceiverNodeID = uint64(2)
-    ThirdNodeID = uint64(3)
+	PortIndex      = 1
+	PortBase       = 9000
+	SenderNodeID   = uint64(1)
+	ReceiverNodeID = uint64(2)
+	ThirdNodeID    = uint64(3)
 )
 
 type TestHTTPServer struct {
-    port int
-    r *mux.Router
-    httpServer *http.Server
-    listener net.Listener
-    done chan int
+	port       int
+	r          *mux.Router
+	httpServer *http.Server
+	listener   net.Listener
+	done       chan int
 }
 
 func NewTestHTTPServer(port int) *TestHTTPServer {
-    httpServer := &TestHTTPServer{
-        port: port,
-        done: make(chan int),
-        r: mux.NewRouter(),
-    }
+	httpServer := &TestHTTPServer{
+		port: port,
+		done: make(chan int),
+		r:    mux.NewRouter(),
+	}
 
-    return httpServer
+	return httpServer
 }
 
 func (s *TestHTTPServer) Start() error {
-    s.httpServer = &http.Server{
-        Handler: s.r,
-        WriteTimeout: 15 * time.Second,
-        ReadTimeout: 15 * time.Second,
-    }
-    
-    var listener net.Listener
-    var err error
+	s.httpServer = &http.Server{
+		Handler:      s.r,
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
 
-    listener, err = net.Listen("tcp", "localhost:" + strconv.Itoa(s.port))
-    
-    if err != nil {
-        return err
-    }
-    
-    s.listener = listener
+	var listener net.Listener
+	var err error
 
-    go func() {
-        s.httpServer.Serve(s.listener)
-        s.done <- 1
-    }()
+	listener, err = net.Listen("tcp", "localhost:"+strconv.Itoa(s.port))
 
-    return nil
+	if err != nil {
+		return err
+	}
+
+	s.listener = listener
+
+	go func() {
+		s.httpServer.Serve(s.listener)
+		s.done <- 1
+	}()
+
+	return nil
 }
 
 func (s *TestHTTPServer) Stop() {
-    s.listener.Close()
-    <-s.done
+	s.listener.Close()
+	<-s.done
 }
 
 func (s *TestHTTPServer) Router() *mux.Router {
-    return s.r
+	return s.r
 }
 
 var _ = Describe("Transport", func() {
-    var ReceiverPort int
-    var SenderPort int
-    var receiverServer *TestHTTPServer
-    var senderServer *TestHTTPServer
-    var thirdNodeServer *TestHTTPServer
-    var sender *TransportHub
-    var receiver *TransportHub
-    var thirdNode *TransportHub
+	var ReceiverPort int
+	var SenderPort int
+	var receiverServer *TestHTTPServer
+	var senderServer *TestHTTPServer
+	var thirdNodeServer *TestHTTPServer
+	var sender *TransportHub
+	var receiver *TransportHub
+	var thirdNode *TransportHub
 
-    BeforeSuite(func() {
-        thirdNodeServer = NewTestHTTPServer(PortBase - 1)
-        thirdNode = NewTransportHub(ThirdNodeID)
+	BeforeSuite(func() {
+		thirdNodeServer = NewTestHTTPServer(PortBase - 1)
+		thirdNode = NewTransportHub(ThirdNodeID)
 
-        thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-            return nil
-        })
+		thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+			return nil
+		})
 
-        thirdNode.Attach(thirdNodeServer.Router())
-        thirdNodeServer.Start()
-        <-time.After(time.Millisecond * 200)
-    })
+		thirdNode.Attach(thirdNodeServer.Router())
+		thirdNodeServer.Start()
+		<-time.After(time.Millisecond * 200)
+	})
 
-    BeforeEach(func() {
-        PortIndex += 1
-        ReceiverPort = PortBase + 2*PortIndex
-        SenderPort = PortBase + 2*PortIndex + 1
+	BeforeEach(func() {
+		PortIndex += 1
+		ReceiverPort = PortBase + 2*PortIndex
+		SenderPort = PortBase + 2*PortIndex + 1
 
-        receiverServer = NewTestHTTPServer(ReceiverPort)
-        senderServer = NewTestHTTPServer(SenderPort)
-        sender = NewTransportHub(SenderNodeID)
-        receiver = NewTransportHub(ReceiverNodeID)
+		receiverServer = NewTestHTTPServer(ReceiverPort)
+		senderServer = NewTestHTTPServer(SenderPort)
+		sender = NewTransportHub(SenderNodeID)
+		receiver = NewTransportHub(ReceiverNodeID)
 
-        receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-            return nil
-        })
-        
-        sender.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-            return nil
-        })
+		receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+			return nil
+		})
 
-        receiver.Attach(receiverServer.Router())
-        sender.Attach(senderServer.Router())
+		sender.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+			return nil
+		})
 
-        senderServer.Start()
-        receiverServer.Start()
-        <-time.After(time.Millisecond * 200)
-    })
+		receiver.Attach(receiverServer.Router())
+		sender.Attach(senderServer.Router())
 
-    AfterEach(func() {
-        receiverServer.Stop()
-        senderServer.Stop()
-    })
+		senderServer.Start()
+		receiverServer.Start()
+		<-time.After(time.Millisecond * 200)
+	})
 
-    Describe("Sending a message", func() {
-        Context("The recipient is not known by the sender", func() {
-            Context("The default route is not set", func() {
-                It("Send should result in an EReceiverUnknown error", func() {
-                    Expect(sender.Send(context.TODO(), raftpb.Message{
-                        From: SenderNodeID,
-                        To: ReceiverNodeID,
-                    }, false)).Should(Equal(EReceiverUnknown))
-                })
-            })
+	AfterEach(func() {
+		receiverServer.Stop()
+		senderServer.Stop()
+	})
 
-            Context("The default route is set", func() {
-                Context("The default route node is not reachable", func() {
-                    Specify("Send should return an error", func() {
-                        // Nothing should ever have been set up on PortBase
-                        sender.SetDefaultRoute("localhost", PortBase)
+	Describe("Sending a message", func() {
+		Context("The recipient is not known by the sender", func() {
+			Context("The default route is not set", func() {
+				It("Send should result in an EReceiverUnknown error", func() {
+					Expect(sender.Send(context.TODO(), raftpb.Message{
+						From: SenderNodeID,
+						To:   ReceiverNodeID,
+					}, false)).Should(Equal(EReceiverUnknown))
+				})
+			})
 
-                        Expect(sender.Send(context.TODO(), raftpb.Message{
-                            From: SenderNodeID,
-                            To: ReceiverNodeID,
-                        }, false)).Should(Not(BeNil()))
-                    })
-                })
+			Context("The default route is set", func() {
+				Context("The default route node is not reachable", func() {
+					Specify("Send should return an error", func() {
+						// Nothing should ever have been set up on PortBase
+						sender.SetDefaultRoute("localhost", PortBase)
 
-                Context("The default route node is reachable", func() {
-                    BeforeEach(func() {
-                        sender.SetDefaultRoute("localhost", ReceiverPort)
-                    })
+						Expect(sender.Send(context.TODO(), raftpb.Message{
+							From: SenderNodeID,
+							To:   ReceiverNodeID,
+						}, false)).Should(Not(BeNil()))
+					})
+				})
 
-                    Context("The default route node knows the recipient", func() {
-                        BeforeEach(func() {
-                            receiver.AddPeer(PeerAddress{
-                                NodeID: ThirdNodeID,
-                                Host: "localhost",
-                                Port: PortBase - 1,
-                            })
-                        })
+				Context("The default route node is reachable", func() {
+					BeforeEach(func() {
+						sender.SetDefaultRoute("localhost", ReceiverPort)
+					})
 
-                        Specify("The default route node should forward the message to the recipient", func() {
-                            var receivedMessageOnThirdNodeServer bool
+					Context("The default route node knows the recipient", func() {
+						BeforeEach(func() {
+							receiver.AddPeer(PeerAddress{
+								NodeID: ThirdNodeID,
+								Host:   "localhost",
+								Port:   PortBase - 1,
+							})
+						})
 
-                            thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-                                receivedMessageOnThirdNodeServer = true
+						Specify("The default route node should forward the message to the recipient", func() {
+							var receivedMessageOnThirdNodeServer bool
 
-                                return nil
-                            })
+							thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+								receivedMessageOnThirdNodeServer = true
 
-                            Expect(sender.Send(context.TODO(), raftpb.Message{
-                                From: SenderNodeID,
-                                To: ThirdNodeID,
-                            }, false)).Should(BeNil())
+								return nil
+							})
 
-                            Expect(receivedMessageOnThirdNodeServer).Should(BeTrue())
-                        })
-                    })
+							Expect(sender.Send(context.TODO(), raftpb.Message{
+								From: SenderNodeID,
+								To:   ThirdNodeID,
+							}, false)).Should(BeNil())
 
-                    Context("The default route node does not know the recipient", func() {
-                        Specify("Send should return an error", func() {
-                            var receivedMessageOnThirdNodeServer bool
+							Expect(receivedMessageOnThirdNodeServer).Should(BeTrue())
+						})
+					})
 
-                            thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-                                receivedMessageOnThirdNodeServer = true
+					Context("The default route node does not know the recipient", func() {
+						Specify("Send should return an error", func() {
+							var receivedMessageOnThirdNodeServer bool
 
-                                return nil
-                            })
+							thirdNode.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+								receivedMessageOnThirdNodeServer = true
 
-                            Expect(sender.Send(context.TODO(), raftpb.Message{
-                                From: SenderNodeID,
-                                To: ThirdNodeID,
-                            }, false)).Should(Not(BeNil()))
+								return nil
+							})
 
-                            Expect(receivedMessageOnThirdNodeServer).Should(BeFalse())
-                        })
-                    })
-                })
-            })
-        })
+							Expect(sender.Send(context.TODO(), raftpb.Message{
+								From: SenderNodeID,
+								To:   ThirdNodeID,
+							}, false)).Should(Not(BeNil()))
 
-        Context("The recipient is known by the sender", func() {
-            BeforeEach(func() {
-                sender.AddPeer(PeerAddress{
-                    NodeID: ReceiverNodeID,
-                    Host: "localhost",
-                    Port: ReceiverPort,
-                })
-            })
+							Expect(receivedMessageOnThirdNodeServer).Should(BeFalse())
+						})
+					})
+				})
+			})
+		})
 
-            Context("The sender is known by the recipient", func() {
-                BeforeEach(func() {
-                    receiver.AddPeer(PeerAddress{
-                        NodeID: SenderNodeID,
-                        Host: "localhost",
-                        Port: SenderPort,
-                    })
-                })
+		Context("The recipient is known by the sender", func() {
+			BeforeEach(func() {
+				sender.AddPeer(PeerAddress{
+					NodeID: ReceiverNodeID,
+					Host:   "localhost",
+					Port:   ReceiverPort,
+				})
+			})
 
-                Specify("Send should return nil once the receiver has processed the message and responded with an acknowledgment", func() {
-                    receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-                        return nil
-                    })
+			Context("The sender is known by the recipient", func() {
+				BeforeEach(func() {
+					receiver.AddPeer(PeerAddress{
+						NodeID: SenderNodeID,
+						Host:   "localhost",
+						Port:   SenderPort,
+					})
+				})
 
-                    Expect(sender.Send(context.TODO(), raftpb.Message{
-                        From: SenderNodeID,
-                        To: ReceiverNodeID,
-                    }, false)).Should(BeNil())
-                })
+				Specify("Send should return nil once the receiver has processed the message and responded with an acknowledgment", func() {
+					receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+						return nil
+					})
 
-                Specify("Send should return an error if the receiver encountered an error processing the message and responded with an error code", func() {
-                    receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-                        return errors.New("Something bad happened")
-                    })
+					Expect(sender.Send(context.TODO(), raftpb.Message{
+						From: SenderNodeID,
+						To:   ReceiverNodeID,
+					}, false)).Should(BeNil())
+				})
 
-                    Expect(sender.Send(context.TODO(), raftpb.Message{
-                        From: SenderNodeID,
-                        To: ReceiverNodeID,
-                    }, false)).Should(Not(BeNil()))
-                })
+				Specify("Send should return an error if the receiver encountered an error processing the message and responded with an error code", func() {
+					receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+						return errors.New("Something bad happened")
+					})
 
-                Specify("Send shoult time out and return an ETimeout error if the receiver does not respond within the timeout window", func() {
-                    receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
-                        <-time.After(time.Second * RequestTimeoutSeconds + time.Second * 2)
+					Expect(sender.Send(context.TODO(), raftpb.Message{
+						From: SenderNodeID,
+						To:   ReceiverNodeID,
+					}, false)).Should(Not(BeNil()))
+				})
 
-                        return nil
-                    })
+				Specify("Send shoult time out and return an ETimeout error if the receiver does not respond within the timeout window", func() {
+					receiver.OnReceive(func(ctx context.Context, msg raftpb.Message) error {
+						<-time.After(time.Second*RequestTimeoutSeconds + time.Second*2)
 
-                    Expect(sender.Send(context.TODO(), raftpb.Message{
-                        From: SenderNodeID,
-                        To: ReceiverNodeID,
-                    }, false)).Should(Equal(ETimeout))
-                })
-            })
-        })
-    })
+						return nil
+					})
+
+					Expect(sender.Send(context.TODO(), raftpb.Message{
+						From: SenderNodeID,
+						To:   ReceiverNodeID,
+					}, false)).Should(Equal(ETimeout))
+				})
+			})
+		})
+	})
 })

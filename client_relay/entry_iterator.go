@@ -1,36 +1,36 @@
 package client_relay
-//
- // Copyright (c) 2019 ARM Limited.
- //
- // SPDX-License-Identifier: MIT
- //
- // Permission is hereby granted, free of charge, to any person obtaining a copy
- // of this software and associated documentation files (the "Software"), to
- // deal in the Software without restriction, including without limitation the
- // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- // sell copies of the Software, and to permit persons to whom the Software is
- // furnished to do so, subject to the following conditions:
- //
- // The above copyright notice and this permission notice shall be included in all
- // copies or substantial portions of the Software.
- //
- // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- // SOFTWARE.
- //
 
+//
+// Copyright (c) 2019 ARM Limited.
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 
 import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"github.com/PelionIoT/devicedb/client"
+	"github.com/PelionIoT/devicedb/transport"
 	"io"
-	"github.com/armPelionEdge/devicedb/client"
-	"github.com/armPelionEdge/devicedb/transport"
 )
 
 type EntryIterator interface {
@@ -56,13 +56,13 @@ type EntryIterator interface {
 }
 
 type StreamedEntryIterator struct {
-	reader io.ReadCloser
+	reader  io.ReadCloser
 	scanner *bufio.Scanner
-	closed bool
-	err error
-	key string
-	prefix string
-	entry client.Entry
+	closed  bool
+	err     error
+	key     string
+	prefix  string
+	entry   client.Entry
 }
 
 func (iter *StreamedEntryIterator) Next() bool {
@@ -86,7 +86,7 @@ func (iter *StreamedEntryIterator) Next() bool {
 	}
 
 	iter.prefix = iter.scanner.Text()
-	
+
 	// key
 	if !iter.scanner.Scan() {
 		if iter.scanner.Err() != nil {
@@ -115,7 +115,7 @@ func (iter *StreamedEntryIterator) Next() bool {
 		return false
 	}
 
-	var siblingSet transport.TransportSiblingSet	
+	var siblingSet transport.TransportSiblingSet
 
 	if err := json.Unmarshal(iter.scanner.Bytes(), &siblingSet); err != nil {
 		iter.err = err

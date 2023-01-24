@@ -1,278 +1,278 @@
 package sync
-//
- // Copyright (c) 2019 ARM Limited.
- //
- // SPDX-License-Identifier: MIT
- //
- // Permission is hereby granted, free of charge, to any person obtaining a copy
- // of this software and associated documentation files (the "Software"), to
- // deal in the Software without restriction, including without limitation the
- // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- // sell copies of the Software, and to permit persons to whom the Software is
- // furnished to do so, subject to the following conditions:
- //
- // The above copyright notice and this permission notice shall be included in all
- // copies or substantial portions of the Software.
- //
- // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- // SOFTWARE.
- //
 
+//
+// Copyright (c) 2019 ARM Limited.
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 
 import (
-    . "github.com/armPelionEdge/devicedb/cluster"
-    . "github.com/armPelionEdge/devicedb/error"
-    . "github.com/armPelionEdge/devicedb/logging"
-    . "github.com/armPelionEdge/devicedb/rest"
-    . "github.com/armPelionEdge/devicedb/partition"
+	. "github.com/PelionIoT/devicedb/cluster"
+	. "github.com/PelionIoT/devicedb/error"
+	. "github.com/PelionIoT/devicedb/logging"
+	. "github.com/PelionIoT/devicedb/partition"
+	. "github.com/PelionIoT/devicedb/rest"
 
-    "io"
-    "net/http"
-    "strconv"
-    "encoding/json"
-    "github.com/gorilla/mux"
+	"encoding/json"
+	"github.com/gorilla/mux"
+	"io"
+	"net/http"
+	"strconv"
 )
 
 type BucketSyncHTTP struct {
-    PartitionPool PartitionPool
-    ClusterConfigController ClusterConfigController
+	PartitionPool           PartitionPool
+	ClusterConfigController ClusterConfigController
 }
 
 func (bucketSync *BucketSyncHTTP) Attach(router *mux.Router) {
-    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle", func(w http.ResponseWriter, r *http.Request) {
-        siteID := mux.Vars(r)["siteID"]
-        bucketName := mux.Vars(r)["bucket"]
-        partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
-        partition := bucketSync.PartitionPool.Get(partitionNumber)
+	router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle", func(w http.ResponseWriter, r *http.Request) {
+		siteID := mux.Vars(r)["siteID"]
+		bucketName := mux.Vars(r)["bucket"]
+		partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
+		partition := bucketSync.PartitionPool.Get(partitionNumber)
 
-        if partition == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+		if partition == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
 
-        site := partition.Sites().Acquire(siteID)
-        defer partition.Sites().Release(siteID)
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(ESiteDoesNotExist.JSON())+"\n")
 
-        if site == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+			return
+		}
 
-        if site.Buckets().Get(bucketName) == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Bucket does not exist at this site", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(EBucketDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+		site := partition.Sites().Acquire(siteID)
+		defer partition.Sites().Release(siteID)
 
-        responseMerkleDepth := MerkleTree{
-            Depth: site.Buckets().Get(bucketName).MerkleTree().Depth(),
-        }
+		if site == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
 
-        body, _ := json.Marshal(&responseMerkleDepth)
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(ESiteDoesNotExist.JSON())+"\n")
 
-        w.Header().Set("Content-Type", "application/json; charset=utf8")
-        w.WriteHeader(http.StatusOK)
-        io.WriteString(w, string(body))
-    }).Methods("GET")
+			return
+		}
 
-    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys", func(w http.ResponseWriter, r *http.Request) {
-        siteID := mux.Vars(r)["siteID"]
-        bucketName := mux.Vars(r)["bucket"]
-        partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
-        partition := bucketSync.PartitionPool.Get(partitionNumber)
+		if site.Buckets().Get(bucketName) == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Bucket does not exist at this site", siteID, bucketName)
 
-        if partition == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(EBucketDoesNotExist.JSON())+"\n")
 
-        site := partition.Sites().Acquire(siteID)
-        defer partition.Sites().Release(siteID)
+			return
+		}
 
-        if site == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+		responseMerkleDepth := MerkleTree{
+			Depth: site.Buckets().Get(bucketName).MerkleTree().Depth(),
+		}
 
-        if site.Buckets().Get(bucketName) == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Bucket does not exist at this site", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(EBucketDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+		body, _ := json.Marshal(&responseMerkleDepth)
 
-        nodeID, err := strconv.ParseUint(mux.Vars(r)["nodeID"], 10, 32)
+		w.Header().Set("Content-Type", "application/json; charset=utf8")
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, string(body))
+	}).Methods("GET")
 
-        if err != nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: nodeID was not properly formatted", siteID, bucketName, mux.Vars(r)["nodeID"])
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusBadRequest)
-            io.WriteString(w, string(EMerkleRange.JSON()) + "\n")
-            
-            return
-        }
+	router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys", func(w http.ResponseWriter, r *http.Request) {
+		siteID := mux.Vars(r)["siteID"]
+		bucketName := mux.Vars(r)["bucket"]
+		partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
+		partition := bucketSync.PartitionPool.Get(partitionNumber)
 
-        siblingSetIter, err := site.Buckets().Get(bucketName).GetSyncChildren(uint32(nodeID))
+		if partition == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
 
-        if err != nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: %v", siteID, bucketName, mux.Vars(r)["nodeID"], err.Error())
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(ESiteDoesNotExist.JSON())+"\n")
 
-            var code int
-            var body string
+			return
+		}
 
-            if err == EMerkleRange {
-                code = http.StatusBadRequest
-                body = string(EMerkleRange.JSON())
-            } else if err == EStorage {
-                code = http.StatusInternalServerError
-                body = string(EStorage.JSON())
-            } else {
-                code = http.StatusInternalServerError
-                body = string(EStorage.JSON())
-            }
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(code)
-            io.WriteString(w, body + "\n")
-            
-            return
-        }
+		site := partition.Sites().Acquire(siteID)
+		defer partition.Sites().Release(siteID)
 
-        responseMerkleKeys := MerkleKeys{
-            Keys: make([]Key, 0),
-        }
+		if site == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
 
-        defer siblingSetIter.Release()
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(ESiteDoesNotExist.JSON())+"\n")
 
-        for siblingSetIter.Next() {
-            responseMerkleKeys.Keys = append(responseMerkleKeys.Keys, Key{
-                Key: string(siblingSetIter.Key()),
-                Value: siblingSetIter.Value(),
-            })
-        }
+			return
+		}
 
-        if siblingSetIter.Error() != nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: Sibling set iterator error: %v", siteID, bucketName, mux.Vars(r)["nodeID"], siblingSetIter.Error())
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusInternalServerError)
-            io.WriteString(w, string(EStorage.JSON()) + "\n")
-            
-            return
-        }
+		if site.Buckets().Get(bucketName) == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Bucket does not exist at this site", siteID, bucketName)
 
-        body, _ := json.Marshal(&responseMerkleKeys)
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(EBucketDoesNotExist.JSON())+"\n")
 
-        w.Header().Set("Content-Type", "application/json; charset=utf8")
-        w.WriteHeader(http.StatusOK)
-        io.WriteString(w, string(body))
-    }).Methods("GET")
+			return
+		}
 
-    router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}", func(w http.ResponseWriter, r *http.Request) {
-        // Get the hash of a node
-        siteID := mux.Vars(r)["siteID"]
-        bucketName := mux.Vars(r)["bucket"]
-        partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
-        partition := bucketSync.PartitionPool.Get(partitionNumber)
+		nodeID, err := strconv.ParseUint(mux.Vars(r)["nodeID"], 10, 32)
 
-        if partition == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+		if err != nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: nodeID was not properly formatted", siteID, bucketName, mux.Vars(r)["nodeID"])
 
-        site := partition.Sites().Acquire(siteID)
-        defer partition.Sites().Release(siteID)
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, string(EMerkleRange.JSON())+"\n")
 
-        if site == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(ESiteDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+			return
+		}
 
-        if site.Buckets().Get(bucketName) == nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Bucket does not exist at this site", siteID, bucketName)
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusNotFound)
-            io.WriteString(w, string(EBucketDoesNotExist.JSON()) + "\n")
-            
-            return
-        }
+		siblingSetIter, err := site.Buckets().Get(bucketName).GetSyncChildren(uint32(nodeID))
 
-        nodeID, err := strconv.ParseUint(mux.Vars(r)["nodeID"], 10, 32)
+		if err != nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: %v", siteID, bucketName, mux.Vars(r)["nodeID"], err.Error())
 
-        if err != nil {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: nodeID was not properly formatted", siteID, bucketName, mux.Vars(r)["nodeID"])
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusBadRequest)
-            io.WriteString(w, string(EMerkleRange.JSON()) + "\n")
-            
-            return
-        }
+			var code int
+			var body string
 
-        if nodeID >= uint64(site.Buckets().Get(bucketName).MerkleTree().NodeLimit()) {
-            Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: nodeID out of range", siteID, bucketName, mux.Vars(r)["nodeID"])
-            
-            w.Header().Set("Content-Type", "application/json; charset=utf8")
-            w.WriteHeader(http.StatusBadRequest)
-            io.WriteString(w, string(EMerkleRange.JSON()) + "\n")
-            
-            return
-        }
+			if err == EMerkleRange {
+				code = http.StatusBadRequest
+				body = string(EMerkleRange.JSON())
+			} else if err == EStorage {
+				code = http.StatusInternalServerError
+				body = string(EStorage.JSON())
+			} else {
+				code = http.StatusInternalServerError
+				body = string(EStorage.JSON())
+			}
 
-        nodeHash := site.Buckets().Get(bucketName).MerkleTree().NodeHash(uint32(nodeID))
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(code)
+			io.WriteString(w, body+"\n")
 
-        responseMerkleNodeHash := MerkleNode{
-            Hash: nodeHash,
-        }
+			return
+		}
 
-        body, _ := json.Marshal(&responseMerkleNodeHash)
+		responseMerkleKeys := MerkleKeys{
+			Keys: make([]Key, 0),
+		}
 
-        w.Header().Set("Content-Type", "application/json; charset=utf8")
-        w.WriteHeader(http.StatusOK)
-        io.WriteString(w, string(body))
-    }).Methods("GET")
+		defer siblingSetIter.Release()
+
+		for siblingSetIter.Next() {
+			responseMerkleKeys.Keys = append(responseMerkleKeys.Keys, Key{
+				Key:   string(siblingSetIter.Key()),
+				Value: siblingSetIter.Value(),
+			})
+		}
+
+		if siblingSetIter.Error() != nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: Sibling set iterator error: %v", siteID, bucketName, mux.Vars(r)["nodeID"], siblingSetIter.Error())
+
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, string(EStorage.JSON())+"\n")
+
+			return
+		}
+
+		body, _ := json.Marshal(&responseMerkleKeys)
+
+		w.Header().Set("Content-Type", "application/json; charset=utf8")
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, string(body))
+	}).Methods("GET")
+
+	router.HandleFunc("/sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}", func(w http.ResponseWriter, r *http.Request) {
+		// Get the hash of a node
+		siteID := mux.Vars(r)["siteID"]
+		bucketName := mux.Vars(r)["bucket"]
+		partitionNumber := bucketSync.ClusterConfigController.ClusterController().Partition(siteID)
+		partition := bucketSync.PartitionPool.Get(partitionNumber)
+
+		if partition == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
+
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(ESiteDoesNotExist.JSON())+"\n")
+
+			return
+		}
+
+		site := partition.Sites().Acquire(siteID)
+		defer partition.Sites().Release(siteID)
+
+		if site == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Site does not exist at this node", siteID, bucketName)
+
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(ESiteDoesNotExist.JSON())+"\n")
+
+			return
+		}
+
+		if site.Buckets().Get(bucketName) == nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle: Bucket does not exist at this site", siteID, bucketName)
+
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, string(EBucketDoesNotExist.JSON())+"\n")
+
+			return
+		}
+
+		nodeID, err := strconv.ParseUint(mux.Vars(r)["nodeID"], 10, 32)
+
+		if err != nil {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: nodeID was not properly formatted", siteID, bucketName, mux.Vars(r)["nodeID"])
+
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, string(EMerkleRange.JSON())+"\n")
+
+			return
+		}
+
+		if nodeID >= uint64(site.Buckets().Get(bucketName).MerkleTree().NodeLimit()) {
+			Log.Warningf("GET /sites/{siteID}/buckets/{bucket}/merkle/nodes/{nodeID}/keys: nodeID out of range", siteID, bucketName, mux.Vars(r)["nodeID"])
+
+			w.Header().Set("Content-Type", "application/json; charset=utf8")
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, string(EMerkleRange.JSON())+"\n")
+
+			return
+		}
+
+		nodeHash := site.Buckets().Get(bucketName).MerkleTree().NodeHash(uint32(nodeID))
+
+		responseMerkleNodeHash := MerkleNode{
+			Hash: nodeHash,
+		}
+
+		body, _ := json.Marshal(&responseMerkleNodeHash)
+
+		w.Header().Set("Content-Type", "application/json; charset=utf8")
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, string(body))
+	}).Methods("GET")
 }

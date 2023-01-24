@@ -1,996 +1,996 @@
 package routes_test
-//
- // Copyright (c) 2019 ARM Limited.
- //
- // SPDX-License-Identifier: MIT
- //
- // Permission is hereby granted, free of charge, to any person obtaining a copy
- // of this software and associated documentation files (the "Software"), to
- // deal in the Software without restriction, including without limitation the
- // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- // sell copies of the Software, and to permit persons to whom the Software is
- // furnished to do so, subject to the following conditions:
- //
- // The above copyright notice and this permission notice shall be included in all
- // copies or substantial portions of the Software.
- //
- // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- // SOFTWARE.
- //
 
+//
+// Copyright (c) 2019 ARM Limited.
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 
 import (
-    "encoding/json"
-    "context"
-    "errors"
-    "net/http"
-    "net/http/httptest"
-    "strings"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 
-    . "github.com/armPelionEdge/devicedb/bucket"
-    . "github.com/armPelionEdge/devicedb/error"
-    . "github.com/armPelionEdge/devicedb/cluster"
-    . "github.com/armPelionEdge/devicedb/data"
-    . "github.com/armPelionEdge/devicedb/routes"
-    . "github.com/armPelionEdge/devicedb/transport"
+	. "github.com/PelionIoT/devicedb/bucket"
+	. "github.com/PelionIoT/devicedb/cluster"
+	. "github.com/PelionIoT/devicedb/data"
+	. "github.com/PelionIoT/devicedb/error"
+	. "github.com/PelionIoT/devicedb/routes"
+	. "github.com/PelionIoT/devicedb/transport"
 
-    . "github.com/onsi/ginkgo"
-    . "github.com/onsi/gomega"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 
-    "github.com/gorilla/mux"
+	"github.com/gorilla/mux"
 )
 
 var _ = Describe("Sites", func() {
-    var router *mux.Router
-    var sitesEndpoint *SitesEndpoint
-    var clusterFacade *MockClusterFacade
-
-    BeforeEach(func() {
-        clusterFacade = &MockClusterFacade{ }
-        router = mux.NewRouter()
-        sitesEndpoint = &SitesEndpoint{
-            ClusterFacade: clusterFacade,
-        }
-        sitesEndpoint.Attach(router)
-    })
+	var router *mux.Router
+	var sitesEndpoint *SitesEndpoint
+	var clusterFacade *MockClusterFacade
 
-    Describe("/sites/{siteID}", func() {
-        Describe("PUT", func() {
-            It("Should call AddSite() on the node facade with the site ID specified in the path", func() {
-                req, err := http.NewRequest("PUT", "/sites/site1", nil)
+	BeforeEach(func() {
+		clusterFacade = &MockClusterFacade{}
+		router = mux.NewRouter()
+		sitesEndpoint = &SitesEndpoint{
+			ClusterFacade: clusterFacade,
+		}
+		sitesEndpoint.Attach(router)
+	})
 
-                addSiteCalled := make(chan int, 1)
-                clusterFacade.addSiteCB = func(ctx context.Context, siteID string) {
-                    Expect(siteID).Should(Equal("site1"))
-                    addSiteCalled <- 1
-                }
+	Describe("/sites/{siteID}", func() {
+		Describe("PUT", func() {
+			It("Should call AddSite() on the node facade with the site ID specified in the path", func() {
+				req, err := http.NewRequest("PUT", "/sites/site1", nil)
 
-                Expect(err).Should(BeNil())
-
-                rr := httptest.NewRecorder()
-                router.ServeHTTP(rr, req)
+				addSiteCalled := make(chan int, 1)
+				clusterFacade.addSiteCB = func(ctx context.Context, siteID string) {
+					Expect(siteID).Should(Equal("site1"))
+					addSiteCalled <- 1
+				}
 
-                select {
-                case <-addSiteCalled:
-                default:
-                    Fail("Should have invoked AddSite()")
-                }
-            })
+				Expect(err).Should(BeNil())
 
-            Context("And if AddSite() returns an error", func() {
-                It("Should respond with status code http.StatusInternalServerError", func() {
-                    req, err := http.NewRequest("PUT", "/sites/site1", nil)
+				rr := httptest.NewRecorder()
+				router.ServeHTTP(rr, req)
 
-                    clusterFacade.defaultAddSiteResponse = errors.New("Some error")
-
-                    Expect(err).Should(BeNil())
-
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
-
-                    Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                })
-            })
-
-            Context("And if AddSite() is successful", func() {
-                It("Should respond with status code http.StatusOK", func() {
-                    req, err := http.NewRequest("PUT", "/sites/site1", nil)
+				select {
+				case <-addSiteCalled:
+				default:
+					Fail("Should have invoked AddSite()")
+				}
+			})
 
-                    clusterFacade.defaultAddSiteResponse = nil
+			Context("And if AddSite() returns an error", func() {
+				It("Should respond with status code http.StatusInternalServerError", func() {
+					req, err := http.NewRequest("PUT", "/sites/site1", nil)
 
-                    Expect(err).Should(BeNil())
+					clusterFacade.defaultAddSiteResponse = errors.New("Some error")
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+					Expect(err).Should(BeNil())
 
-                    Expect(rr.Code).Should(Equal(http.StatusOK))
-                })
-            })
-        })
-        
-        Describe("DELETE", func() {
-            It("Should call RemoveSite() on the node facade with the site ID specified in the path", func() {
-                req, err := http.NewRequest("DELETE", "/sites/site1", nil)
-
-                removeSiteCalled := make(chan int, 1)
-                clusterFacade.removeSiteCB = func(ctx context.Context, siteID string) {
-                    Expect(siteID).Should(Equal("site1"))
-                    removeSiteCalled <- 1
-                }
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
+
+					Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+				})
+			})
 
-                Expect(err).Should(BeNil())
+			Context("And if AddSite() is successful", func() {
+				It("Should respond with status code http.StatusOK", func() {
+					req, err := http.NewRequest("PUT", "/sites/site1", nil)
 
-                rr := httptest.NewRecorder()
-                router.ServeHTTP(rr, req)
+					clusterFacade.defaultAddSiteResponse = nil
 
-                select {
-                case <-removeSiteCalled:
-                default:
-                    Fail("Should have invoked RemoveSite()")
-                }
-            })
+					Expect(err).Should(BeNil())
 
-            Context("And if RemoveSite() returns an error", func() {
-                It("Should respond with staus code http.StatusInternalServerError", func() {
-                    req, err := http.NewRequest("DELETE", "/sites/site1", nil)
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                    clusterFacade.defaultRemoveSiteResponse = errors.New("Some error")
+					Expect(rr.Code).Should(Equal(http.StatusOK))
+				})
+			})
+		})
 
-                    Expect(err).Should(BeNil())
+		Describe("DELETE", func() {
+			It("Should call RemoveSite() on the node facade with the site ID specified in the path", func() {
+				req, err := http.NewRequest("DELETE", "/sites/site1", nil)
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+				removeSiteCalled := make(chan int, 1)
+				clusterFacade.removeSiteCB = func(ctx context.Context, siteID string) {
+					Expect(siteID).Should(Equal("site1"))
+					removeSiteCalled <- 1
+				}
 
-                    Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                })
-            })
+				Expect(err).Should(BeNil())
 
-            Context("And if RemoveSite() is successful", func() {
-                It("Should respond with status code http.StatusOK", func() {
-                    req, err := http.NewRequest("DELETE", "/sites/site1", nil)
-
-                    clusterFacade.defaultRemoveSiteResponse = nil
-
-                    Expect(err).Should(BeNil())
-
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
-
-                    Expect(rr.Code).Should(Equal(http.StatusOK))
-                })
-            })
-        })
-    })
+				rr := httptest.NewRecorder()
+				router.ServeHTTP(rr, req)
 
-    Describe("/sites/{siteID}/buckets/{bucketID}/batches", func() {
-        Describe("POST", func() {
-            Context("When the provided body of the request cannot be parsed as a TransportUpdateBatch", func() {
-                It("Should respond with status code http.StatusBadRequest", func() {
-                    req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader("asdf"))
+				select {
+				case <-removeSiteCalled:
+				default:
+					Fail("Should have invoked RemoveSite()")
+				}
+			})
 
-                    Expect(err).Should(BeNil())
+			Context("And if RemoveSite() returns an error", func() {
+				It("Should respond with staus code http.StatusInternalServerError", func() {
+					req, err := http.NewRequest("DELETE", "/sites/site1", nil)
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+					clusterFacade.defaultRemoveSiteResponse = errors.New("Some error")
 
-                    Expect(rr.Code).Should(Equal(http.StatusBadRequest))
-                })
-            })
-
-            Context("When the provided TransportUpdateBatch cannot be convered into an UpdateBatch", func() {
-                It("Should respond with status code http.StatusBadRequest", func() {
-                    var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                        TransportUpdateOp{
-                            Type: "badop",
-                            Key: "asdf",
-                            Value: "adfs",
-                            Context: "",
-                        },
-                    }
+					Expect(err).Should(BeNil())
 
-                    encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                    Expect(err).Should(BeNil())
+					Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+				})
+			})
 
-                    req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+			Context("And if RemoveSite() is successful", func() {
+				It("Should respond with status code http.StatusOK", func() {
+					req, err := http.NewRequest("DELETE", "/sites/site1", nil)
+
+					clusterFacade.defaultRemoveSiteResponse = nil
+
+					Expect(err).Should(BeNil())
+
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
+
+					Expect(rr.Code).Should(Equal(http.StatusOK))
+				})
+			})
+		})
+	})
 
-                    Expect(err).Should(BeNil())
+	Describe("/sites/{siteID}/buckets/{bucketID}/batches", func() {
+		Describe("POST", func() {
+			Context("When the provided body of the request cannot be parsed as a TransportUpdateBatch", func() {
+				It("Should respond with status code http.StatusBadRequest", func() {
+					req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader("asdf"))
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+					Expect(err).Should(BeNil())
 
-                    Expect(rr.Code).Should(Equal(http.StatusBadRequest))
-                })
-            })
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-            Context("When the provided body can be parsed as a TransporUpdateBatch and it is successfully converted to an UpdateBatch", func() {
-                It("Should call Batch() on the node facade with the site ID and bucket specified in the path", func() {
-                    var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                        TransportUpdateOp{
-                            Type: "put",
-                            Key: "ABC",
-                            Value: "123",
-                            Context: "",
-                        },
-                    }
+					Expect(rr.Code).Should(Equal(http.StatusBadRequest))
+				})
+			})
+
+			Context("When the provided TransportUpdateBatch cannot be convered into an UpdateBatch", func() {
+				It("Should respond with status code http.StatusBadRequest", func() {
+					var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+						TransportUpdateOp{
+							Type:    "badop",
+							Key:     "asdf",
+							Value:   "adfs",
+							Context: "",
+						},
+					}
 
-                    encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+					encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                    Expect(err).Should(BeNil())
+					Expect(err).Should(BeNil())
 
-                    req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+					req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
 
-                    batchCalled := make(chan int, 1)
-                    clusterFacade.batchCB = func(siteID string, bucket string, updateBatch *UpdateBatch) {
-                        Expect(siteID).Should(Equal("site1"))
-                        Expect(bucket).Should(Equal("default"))
-                        Expect(updateBatch).Should(Not(BeNil()))
+					Expect(err).Should(BeNil())
 
-                        batchCalled <- 1
-                    }
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                    Expect(err).Should(BeNil())
+					Expect(rr.Code).Should(Equal(http.StatusBadRequest))
+				})
+			})
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+			Context("When the provided body can be parsed as a TransporUpdateBatch and it is successfully converted to an UpdateBatch", func() {
+				It("Should call Batch() on the node facade with the site ID and bucket specified in the path", func() {
+					var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+						TransportUpdateOp{
+							Type:    "put",
+							Key:     "ABC",
+							Value:   "123",
+							Context: "",
+						},
+					}
 
-                    select {
-                    case <-batchCalled:
-                    default:
-                        Fail("Should have invoked Batch()")
-                    }
-                })
+					encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                Context("And if Batch() returns an error", func() {
-                    Context("And the error is ENoSuchSite", func() {
-                        It("Should respond with status code http.StatusNotFound", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+					Expect(err).Should(BeNil())
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+					req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
 
-                            Expect(err).Should(BeNil())
+					batchCalled := make(chan int, 1)
+					clusterFacade.batchCB = func(siteID string, bucket string, updateBatch *UpdateBatch) {
+						Expect(siteID).Should(Equal("site1"))
+						Expect(bucket).Should(Equal("default"))
+						Expect(updateBatch).Should(Not(BeNil()))
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = ENoSuchSite
+						batchCalled <- 1
+					}
 
-                            Expect(err).Should(BeNil())
+					Expect(err).Should(BeNil())
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
-                        })
+					select {
+					case <-batchCalled:
+					default:
+						Fail("Should have invoked Batch()")
+					}
+				})
 
-                        It("Should respond with an ESiteDoesNotExist body", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+				Context("And if Batch() returns an error", func() {
+					Context("And the error is ENoSuchSite", func() {
+						It("Should respond with status code http.StatusNotFound", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = ENoSuchSite
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = ENoSuchSite
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            var encodedDBError DBerror
+							Expect(rr.Code).Should(Equal(http.StatusNotFound))
+						})
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(ESiteDoesNotExist))
-                        })
-                    })
+						It("Should respond with an ESiteDoesNotExist body", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                    Context("And the error is ENoSuchBucket", func() {
-                        It("Should respond with status code http.StatusNotFound", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = ENoSuchSite
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = ENoSuchBucket
+							Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							var encodedDBError DBerror
 
-                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
-                        })
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(ESiteDoesNotExist))
+						})
+					})
 
-                        It("Should respond with an EBucketDoesNotExist body", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+					Context("And the error is ENoSuchBucket", func() {
+						It("Should respond with status code http.StatusNotFound", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = ENoSuchBucket
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = ENoSuchBucket
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            var encodedDBError DBerror
+							Expect(rr.Code).Should(Equal(http.StatusNotFound))
+						})
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EBucketDoesNotExist))
-                        })
-                    })
+						It("Should respond with an EBucketDoesNotExist body", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                    Context("And the error is ENoQuorum", func() {
-                        It("Should respond with status code http.StatusOK", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = ENoSuchBucket
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = ENoQuorum
+							Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							var encodedDBError DBerror
 
-                            Expect(rr.Code).Should(Equal(http.StatusOK))
-                        })
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EBucketDoesNotExist))
+						})
+					})
 
-                        It("Should respond with a BatchResult body indicating how many replicas received the update", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+					Context("And the error is ENoQuorum", func() {
+						It("Should respond with status code http.StatusOK", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = ENoQuorum
-                            clusterFacade.defaultBatchResponse = BatchResult{
-                                NApplied: 2,
-                                Replicas: 3,
-                            }
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = ENoQuorum
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            var batchResult BatchResult
+							Expect(rr.Code).Should(Equal(http.StatusOK))
+						})
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
-                            Expect(batchResult.NApplied).Should(Equal(uint64(2)))
-                            Expect(batchResult.Replicas).Should(Equal(uint64(3)))
-                        })
-                    })
+						It("Should respond with a BatchResult body indicating how many replicas received the update", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                    Context("Otherwise", func() {
-                        It("Should respond with status code http.StatusInternalServerError", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = ENoQuorum
+							clusterFacade.defaultBatchResponse = BatchResult{
+								NApplied: 2,
+								Replicas: 3,
+							}
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = errors.New("Some error")
+							Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							var batchResult BatchResult
 
-                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                        })
+							Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
+							Expect(batchResult.NApplied).Should(Equal(uint64(2)))
+							Expect(batchResult.Replicas).Should(Equal(uint64(3)))
+						})
+					})
 
-                        It("Should respond with an EStorage body", func() {
-                            var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                                TransportUpdateOp{
-                                    Type: "put",
-                                    Key: "ABC",
-                                    Value: "123",
-                                    Context: "",
-                                },
-                            }
+					Context("Otherwise", func() {
+						It("Should respond with status code http.StatusInternalServerError", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                            encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                            clusterFacade.defaultBatchError = errors.New("Some error")
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = errors.New("Some error")
 
-                            Expect(err).Should(BeNil())
+							Expect(err).Should(BeNil())
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            var encodedDBError DBerror
+							Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+						})
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EStorage))
-                        })
-                    })
-                })
+						It("Should respond with an EStorage body", func() {
+							var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+								TransportUpdateOp{
+									Type:    "put",
+									Key:     "ABC",
+									Value:   "123",
+									Context: "",
+								},
+							}
 
-                Context("And if Batch() is successful", func() {
-                    It("Should respond with status code http.StatusOK", func() {
-                        var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                            TransportUpdateOp{
-                                Type: "put",
-                                Key: "ABC",
-                                Value: "123",
-                                Context: "",
-                            },
-                        }
+							encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                        encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+							Expect(err).Should(BeNil())
 
-                        Expect(err).Should(BeNil())
+							req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+							clusterFacade.defaultBatchError = errors.New("Some error")
 
-                        req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                        clusterFacade.defaultBatchError = nil
+							Expect(err).Should(BeNil())
 
-                        Expect(err).Should(BeNil())
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                        rr := httptest.NewRecorder()
-                        router.ServeHTTP(rr, req)
+							var encodedDBError DBerror
 
-                        Expect(rr.Code).Should(Equal(http.StatusOK))
-                    })
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EStorage))
+						})
+					})
+				})
 
-                    It("Should respond with a BatchResult body indicating how many replicas received the update", func() {
-                        var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
-                            TransportUpdateOp{
-                                Type: "put",
-                                Key: "ABC",
-                                Value: "123",
-                                Context: "",
-                            },
-                        }
+				Context("And if Batch() is successful", func() {
+					It("Should respond with status code http.StatusOK", func() {
+						var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+							TransportUpdateOp{
+								Type:    "put",
+								Key:     "ABC",
+								Value:   "123",
+								Context: "",
+							},
+						}
 
-                        encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
+						encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                        Expect(err).Should(BeNil())
+						Expect(err).Should(BeNil())
 
-                        req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
-                        clusterFacade.defaultBatchError = nil
-                        clusterFacade.defaultBatchResponse = BatchResult{
-                            NApplied: 3,
-                            Replicas: 3,
-                        }
+						req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+						clusterFacade.defaultBatchError = nil
 
-                        Expect(err).Should(BeNil())
+						Expect(err).Should(BeNil())
 
-                        rr := httptest.NewRecorder()
-                        router.ServeHTTP(rr, req)
+						rr := httptest.NewRecorder()
+						router.ServeHTTP(rr, req)
 
-                        var batchResult BatchResult
+						Expect(rr.Code).Should(Equal(http.StatusOK))
+					})
 
-                        Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
-                        Expect(batchResult.NApplied).Should(Equal(uint64(3)))
-                        Expect(batchResult.Replicas).Should(Equal(uint64(3)))
-                    })
-                })
-            })
-        })
-    })
+					It("Should respond with a BatchResult body indicating how many replicas received the update", func() {
+						var transportUpdateBatch TransportUpdateBatch = []TransportUpdateOp{
+							TransportUpdateOp{
+								Type:    "put",
+								Key:     "ABC",
+								Value:   "123",
+								Context: "",
+							},
+						}
 
-    Describe("/sites/{siteID}/buckets/{bucketID}/keys", func() {
-        Describe("GET", func() {
-            Context("When the request includes both \"key\" and \"prefix\" query parameters", func() {
-                It("Should respond with status code http.StatusBadRequest", func() {
-                    req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=key1&prefix=prefix1", nil)
+						encodedTransportUpdateBatch, err := json.Marshal(&transportUpdateBatch)
 
-                    Expect(err).Should(BeNil())
+						Expect(err).Should(BeNil())
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+						req, err := http.NewRequest("POST", "/sites/site1/buckets/default/batches", strings.NewReader(string(encodedTransportUpdateBatch)))
+						clusterFacade.defaultBatchError = nil
+						clusterFacade.defaultBatchResponse = BatchResult{
+							NApplied: 3,
+							Replicas: 3,
+						}
 
-                    Expect(rr.Code).Should(Equal(http.StatusBadRequest))
-                })
-            })
+						Expect(err).Should(BeNil())
 
-            Context("When the request includes neither \"key\" nor \"prefix\" query parameters", func() {
-                It("Should respond with status code http.StatusOK", func() {
-                    req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys", nil)
+						rr := httptest.NewRecorder()
+						router.ServeHTTP(rr, req)
 
-                    Expect(err).Should(BeNil())
+						var batchResult BatchResult
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+						Expect(json.Unmarshal(rr.Body.Bytes(), &batchResult)).Should(BeNil())
+						Expect(batchResult.NApplied).Should(Equal(uint64(3)))
+						Expect(batchResult.Replicas).Should(Equal(uint64(3)))
+					})
+				})
+			})
+		})
+	})
 
-                    Expect(rr.Code).Should(Equal(http.StatusOK))
-                })
+	Describe("/sites/{siteID}/buckets/{bucketID}/keys", func() {
+		Describe("GET", func() {
+			Context("When the request includes both \"key\" and \"prefix\" query parameters", func() {
+				It("Should respond with status code http.StatusBadRequest", func() {
+					req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=key1&prefix=prefix1", nil)
 
-                It("Should respond with an empty JSON-encoded list APIEntry database objects", func() {
-                    req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys", nil)
+					Expect(err).Should(BeNil())
 
-                    Expect(err).Should(BeNil())
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+					Expect(rr.Code).Should(Equal(http.StatusBadRequest))
+				})
+			})
 
-                    var entries []APIEntry
+			Context("When the request includes neither \"key\" nor \"prefix\" query parameters", func() {
+				It("Should respond with status code http.StatusOK", func() {
+					req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys", nil)
 
-                    Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
-                    Expect(entries).Should(Equal([]APIEntry{ }))
-                })
-            })
+					Expect(err).Should(BeNil())
 
-            Context("When the request includes one or more \"key\" parameters", func() {
-                It("Should call Get() on the node facade with the specified site, bucket and keys", func() {
-                    req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                    getCalled := make(chan int, 1)
-                    clusterFacade.defaultGetResponse = []*SiblingSet{ nil, nil }
-                    clusterFacade.getCB = func(siteID string, bucket string, keys [][]byte) {
-                        Expect(siteID).Should(Equal("site1"))
-                        Expect(bucket).Should(Equal("default"))
-                        Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b") }))
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                        getCalled <- 1
-                    }
+					Expect(rr.Code).Should(Equal(http.StatusOK))
+				})
 
-                    Expect(err).Should(BeNil())
+				It("Should respond with an empty JSON-encoded list APIEntry database objects", func() {
+					req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys", nil)
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+					Expect(err).Should(BeNil())
 
-                    select {
-                    case <-getCalled:
-                    default:
-                        Fail("Request did not cause Get() to be invoked")
-                    }
-                })
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                Context("And if Get() returns an error", func() {
-                    Context("And the error is ENoSuchSite", func() {
-                        It("Should respond with status code http.StatusNotFound", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = ENoSuchSite
+					var entries []APIEntry
 
-                            Expect(err).Should(BeNil())
+					Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
+					Expect(entries).Should(Equal([]APIEntry{}))
+				})
+			})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+			Context("When the request includes one or more \"key\" parameters", func() {
+				It("Should call Get() on the node facade with the specified site, bucket and keys", func() {
+					req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+					getCalled := make(chan int, 1)
+					clusterFacade.defaultGetResponse = []*SiblingSet{nil, nil}
+					clusterFacade.getCB = func(siteID string, bucket string, keys [][]byte) {
+						Expect(siteID).Should(Equal("site1"))
+						Expect(bucket).Should(Equal("default"))
+						Expect(keys).Should(Equal([][]byte{[]byte("a"), []byte("b")}))
 
-                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
-                        })
+						getCalled <- 1
+					}
 
-                        It("Should respond with an ESiteDoesNotExist body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = ENoSuchSite
+					Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+					select {
+					case <-getCalled:
+					default:
+						Fail("Request did not cause Get() to be invoked")
+					}
+				})
 
-                            var encodedDBError DBerror
+				Context("And if Get() returns an error", func() {
+					Context("And the error is ENoSuchSite", func() {
+						It("Should respond with status code http.StatusNotFound", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = ENoSuchSite
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(ESiteDoesNotExist))
-                        })
-                    })
+							Expect(err).Should(BeNil())
 
-                    Context("And the error is ENoSuchBucket", func() {
-                        It("Should respond with status code http.StatusNotFound", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = ENoSuchBucket
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusNotFound))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an ESiteDoesNotExist body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = ENoSuchSite
 
-                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with an EBucketDoesNotExist body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = ENoSuchBucket
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(ESiteDoesNotExist))
+						})
+					})
 
-                            var encodedDBError DBerror
+					Context("And the error is ENoSuchBucket", func() {
+						It("Should respond with status code http.StatusNotFound", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = ENoSuchBucket
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EBucketDoesNotExist))
-                        })
-                    })
+							Expect(err).Should(BeNil())
 
-                    Context("And the error is ENoQuorum", func() {
-                        It("Should respond with status code http.StatusInternalServerError", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = ENoQuorum
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusNotFound))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an EBucketDoesNotExist body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = ENoSuchBucket
 
-                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with an ENoQuorum body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = ENoQuorum
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EBucketDoesNotExist))
+						})
+					})
 
-                            var encodedDBError DBerror
+					Context("And the error is ENoQuorum", func() {
+						It("Should respond with status code http.StatusInternalServerError", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = ENoQuorum
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(ENoQuorum))
-                        })
-                    })
+							Expect(err).Should(BeNil())
 
-                    Context("Otherwise", func() {
-                        It("Should respond with status code http.StatusInternalServerError", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = errors.New("Some error")
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an ENoQuorum body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = ENoQuorum
 
-                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with an EStorage body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                            clusterFacade.defaultGetResponseError = errors.New("Some error")
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(ENoQuorum))
+						})
+					})
 
-                            var encodedDBError DBerror
+					Context("Otherwise", func() {
+						It("Should respond with status code http.StatusInternalServerError", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = errors.New("Some error")
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EStorage))
-                        })
-                    })
-                })
+							Expect(err).Should(BeNil())
 
-                Context("And if Get() is successful", func() {
-                    It("Should respond with status code http.StatusOK", func() {
-                        req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                        clusterFacade.defaultGetResponseError = nil
-                        clusterFacade.defaultGetResponse = []*SiblingSet{ nil, nil }
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                        Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+						})
 
-                        rr := httptest.NewRecorder()
-                        router.ServeHTTP(rr, req)
+						It("Should respond with an EStorage body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+							clusterFacade.defaultGetResponseError = errors.New("Some error")
 
-                        Expect(rr.Code).Should(Equal(http.StatusOK))
-                    })
+							Expect(err).Should(BeNil())
 
-                    It("Should respond with a JSON-encoded list of APIEntrys with one entry per key", func() {
-                        req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
-                        clusterFacade.defaultGetResponseError = nil
-                        clusterFacade.defaultGetResponse = []*SiblingSet{ nil, nil }
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                        Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                        rr := httptest.NewRecorder()
-                        router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EStorage))
+						})
+					})
+				})
 
-                        var entries []APIEntry
+				Context("And if Get() is successful", func() {
+					It("Should respond with status code http.StatusOK", func() {
+						req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+						clusterFacade.defaultGetResponseError = nil
+						clusterFacade.defaultGetResponse = []*SiblingSet{nil, nil}
 
-                        Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
-                        Expect(entries).Should(Equal([]APIEntry{ 
-                            APIEntry{ Prefix: "", Key: "a", Siblings: nil, Context: "" },
-                            APIEntry{ Prefix: "", Key: "b", Siblings: nil, Context: "" },
-                        }))
-                    })
-                })
-            })
+						Expect(err).Should(BeNil())
 
-            Context("When the request includes one or more \"prefix\" parameters", func() {
-                It("Should call GetMatches() on the node facade with the specified site, bucket, and keys", func() {
-                    req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                    getMatchesCalled := make(chan int, 1)
-                    clusterFacade.defaultGetMatchesResponse = nil
-                    clusterFacade.defaultGetMatchesResponse = NewMemorySiblingSetIterator()
-                    clusterFacade.getMatchesCB = func(siteID string, bucket string, keys [][]byte) {
-                        Expect(siteID).Should(Equal("site1"))
-                        Expect(bucket).Should(Equal("default"))
-                        Expect(keys).Should(Equal([][]byte{ []byte("a"), []byte("b") }))
+						rr := httptest.NewRecorder()
+						router.ServeHTTP(rr, req)
 
-                        getMatchesCalled <- 1
-                    }
+						Expect(rr.Code).Should(Equal(http.StatusOK))
+					})
 
-                    Expect(err).Should(BeNil())
+					It("Should respond with a JSON-encoded list of APIEntrys with one entry per key", func() {
+						req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?key=a&key=b", nil)
+						clusterFacade.defaultGetResponseError = nil
+						clusterFacade.defaultGetResponse = []*SiblingSet{nil, nil}
 
-                    rr := httptest.NewRecorder()
-                    router.ServeHTTP(rr, req)
+						Expect(err).Should(BeNil())
 
-                    select {
-                    case <-getMatchesCalled:
-                    default:
-                        Fail("Request did not cause GetMatches() to be invoked")
-                    }
-                })
+						rr := httptest.NewRecorder()
+						router.ServeHTTP(rr, req)
 
-                Context("And if GetMatches() returns an error", func() {
-                    Context("And the error is ENoSuchSite", func() {
-                        It("Should respond with status code http.StatusNotFound", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = ENoSuchSite
+						var entries []APIEntry
 
-                            Expect(err).Should(BeNil())
+						Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
+						Expect(entries).Should(Equal([]APIEntry{
+							APIEntry{Prefix: "", Key: "a", Siblings: nil, Context: ""},
+							APIEntry{Prefix: "", Key: "b", Siblings: nil, Context: ""},
+						}))
+					})
+				})
+			})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+			Context("When the request includes one or more \"prefix\" parameters", func() {
+				It("Should call GetMatches() on the node facade with the specified site, bucket, and keys", func() {
+					req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+					getMatchesCalled := make(chan int, 1)
+					clusterFacade.defaultGetMatchesResponse = nil
+					clusterFacade.defaultGetMatchesResponse = NewMemorySiblingSetIterator()
+					clusterFacade.getMatchesCB = func(siteID string, bucket string, keys [][]byte) {
+						Expect(siteID).Should(Equal("site1"))
+						Expect(bucket).Should(Equal("default"))
+						Expect(keys).Should(Equal([][]byte{[]byte("a"), []byte("b")}))
 
-                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
-                        })
+						getMatchesCalled <- 1
+					}
 
-                        It("Should respond with an ESiteDoesNotExist body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = ENoSuchSite
+					Expect(err).Should(BeNil())
 
-                            Expect(err).Should(BeNil())
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, req)
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+					select {
+					case <-getMatchesCalled:
+					default:
+						Fail("Request did not cause GetMatches() to be invoked")
+					}
+				})
 
-                            var encodedDBError DBerror
+				Context("And if GetMatches() returns an error", func() {
+					Context("And the error is ENoSuchSite", func() {
+						It("Should respond with status code http.StatusNotFound", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = ENoSuchSite
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(ESiteDoesNotExist))
-                        })
-                    })
+							Expect(err).Should(BeNil())
 
-                    Context("And the error is ENoSuchBucket", func() {
-                        It("Should respond with status code http.StatusNotFound", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = ENoSuchBucket
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusNotFound))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an ESiteDoesNotExist body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = ENoSuchSite
 
-                            Expect(rr.Code).Should(Equal(http.StatusNotFound))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with an ENoSuchBucket body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = ENoSuchBucket
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(ESiteDoesNotExist))
+						})
+					})
 
-                            var encodedDBError DBerror
+					Context("And the error is ENoSuchBucket", func() {
+						It("Should respond with status code http.StatusNotFound", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = ENoSuchBucket
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EBucketDoesNotExist))
-                        })
-                    })
+							Expect(err).Should(BeNil())
 
-                    Context("And the error is ENoQuorum", func() {
-                        It("Should respond with status code http.StatusInternalServerError", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = ENoQuorum
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusNotFound))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an ENoSuchBucket body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = ENoSuchBucket
 
-                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with an ENoQuorum body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = ENoQuorum
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EBucketDoesNotExist))
+						})
+					})
 
-                            var encodedDBError DBerror
+					Context("And the error is ENoQuorum", func() {
+						It("Should respond with status code http.StatusInternalServerError", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = ENoQuorum
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(ENoQuorum))
-                        })
-                    })
+							Expect(err).Should(BeNil())
 
-                    Context("Otherwise", func() {
-                        It("Should respond with status code http.StatusInternalServerError", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = errors.New("Some error")
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an ENoQuorum body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = ENoQuorum
 
-                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with an EStorage body", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = errors.New("Some error")
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							var encodedDBError DBerror
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(ENoQuorum))
+						})
+					})
 
-                            var encodedDBError DBerror
+					Context("Otherwise", func() {
+						It("Should respond with status code http.StatusInternalServerError", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = errors.New("Some error")
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EStorage))
-                        })
-                    })
-                })
+							Expect(err).Should(BeNil())
 
-                Context("And if GetMatches() is successful", func() {
-                    Context("And the returned iterator does not encounter an error", func() {
-                        It("Should respond with status code http.StatusOK", func() {
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = nil
-                            clusterFacade.defaultGetMatchesResponse = NewMemorySiblingSetIterator()
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            Expect(err).Should(BeNil())
+							Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+						})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+						It("Should respond with an EStorage body", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = errors.New("Some error")
 
-                            Expect(rr.Code).Should(Equal(http.StatusOK))
-                        })
+							Expect(err).Should(BeNil())
 
-                        It("Should respond with a JSON-encoded list of APIEntrys objects, filtering out any entries that are tombstones", func() {
-                            sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), []byte("value"), 0)
-                            defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{ sibling: true })
-                            tombstoneSet := NewSiblingSet(map[*Sibling]bool{ NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), nil, 0): true })
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = nil
-                            memorySiblingSetIterator := NewMemorySiblingSetIterator()
-                            clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
-                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("bxyz"), tombstoneSet, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("c"), []byte("bxyz"), defaultSiblingSet, nil)
+							var encodedDBError DBerror
 
-                            Expect(err).Should(BeNil())
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EStorage))
+						})
+					})
+				})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+				Context("And if GetMatches() is successful", func() {
+					Context("And the returned iterator does not encounter an error", func() {
+						It("Should respond with status code http.StatusOK", func() {
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = nil
+							clusterFacade.defaultGetMatchesResponse = NewMemorySiblingSetIterator()
 
-                            var entries []APIEntry
+							Expect(err).Should(BeNil())
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
-                            Expect(entries).Should(Equal([]APIEntry{ 
-                                APIEntry{ Prefix: "a", Key: "asdf", Siblings: []string{ "value" }, Context: "e30=" },
-                                APIEntry{ Prefix: "c", Key: "bxyz", Siblings: []string{ "value" }, Context: "e30=" },
-                            }))
-                        })
-                    })
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                    Context("And the returned iterator encounters an error", func() {
-                        It("Should respond with status code http.StatusInternalServerError", func() {
-                            sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), []byte("value"), 0)
-                            defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{ sibling: true })
-                            tombstoneSet := NewSiblingSet(map[*Sibling]bool{ NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), nil, 0): true })
+							Expect(rr.Code).Should(Equal(http.StatusOK))
+						})
 
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = nil
-                            memorySiblingSetIterator := NewMemorySiblingSetIterator()
-                            clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
-                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), tombstoneSet, nil)
-                            memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
+						It("Should respond with a JSON-encoded list of APIEntrys objects, filtering out any entries that are tombstones", func() {
+							sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{}), []byte("value"), 0)
+							defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{sibling: true})
+							tombstoneSet := NewSiblingSet(map[*Sibling]bool{NewSibling(NewDVV(NewDot("", 0), map[string]uint64{}), nil, 0): true})
 
-                            Expect(err).Should(BeNil())
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = nil
+							memorySiblingSetIterator := NewMemorySiblingSetIterator()
+							clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
+							memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
+							memorySiblingSetIterator.AppendNext([]byte("b"), []byte("bxyz"), tombstoneSet, nil)
+							memorySiblingSetIterator.AppendNext([]byte("c"), []byte("bxyz"), defaultSiblingSet, nil)
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							Expect(err).Should(BeNil())
 
-                            Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
-                        })
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
 
-                        It("Should respond with an EStorage body", func() {
-                            sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), []byte("value"), 0)
-                            defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{ sibling: true })
-                            tombstoneSet := NewSiblingSet(map[*Sibling]bool{ NewSibling(NewDVV(NewDot("", 0), map[string]uint64{ }), nil, 0): true })
+							var entries []APIEntry
 
-                            req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
-                            clusterFacade.defaultGetMatchesResponseError = nil
-                            memorySiblingSetIterator := NewMemorySiblingSetIterator()
-                            clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
-                            memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
-                            memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), tombstoneSet, nil)
-                            memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
+							Expect(json.Unmarshal(rr.Body.Bytes(), &entries)).Should(BeNil())
+							Expect(entries).Should(Equal([]APIEntry{
+								APIEntry{Prefix: "a", Key: "asdf", Siblings: []string{"value"}, Context: "e30="},
+								APIEntry{Prefix: "c", Key: "bxyz", Siblings: []string{"value"}, Context: "e30="},
+							}))
+						})
+					})
 
-                            Expect(err).Should(BeNil())
+					Context("And the returned iterator encounters an error", func() {
+						It("Should respond with status code http.StatusInternalServerError", func() {
+							sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{}), []byte("value"), 0)
+							defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{sibling: true})
+							tombstoneSet := NewSiblingSet(map[*Sibling]bool{NewSibling(NewDVV(NewDot("", 0), map[string]uint64{}), nil, 0): true})
 
-                            rr := httptest.NewRecorder()
-                            router.ServeHTTP(rr, req)
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = nil
+							memorySiblingSetIterator := NewMemorySiblingSetIterator()
+							clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
+							memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
+							memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), tombstoneSet, nil)
+							memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
 
-                            var encodedDBError DBerror
+							Expect(err).Should(BeNil())
 
-                            Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
-                            Expect(encodedDBError).Should(Equal(EStorage))
-                        })
-                    })
-                })
-            })
-        })
-    })
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
+
+							Expect(rr.Code).Should(Equal(http.StatusInternalServerError))
+						})
+
+						It("Should respond with an EStorage body", func() {
+							sibling := NewSibling(NewDVV(NewDot("", 0), map[string]uint64{}), []byte("value"), 0)
+							defaultSiblingSet := NewSiblingSet(map[*Sibling]bool{sibling: true})
+							tombstoneSet := NewSiblingSet(map[*Sibling]bool{NewSibling(NewDVV(NewDot("", 0), map[string]uint64{}), nil, 0): true})
+
+							req, err := http.NewRequest("GET", "/sites/site1/buckets/default/keys?prefix=a&prefix=b", nil)
+							clusterFacade.defaultGetMatchesResponseError = nil
+							memorySiblingSetIterator := NewMemorySiblingSetIterator()
+							clusterFacade.defaultGetMatchesResponse = memorySiblingSetIterator
+							memorySiblingSetIterator.AppendNext([]byte("a"), []byte("asdf"), defaultSiblingSet, nil)
+							memorySiblingSetIterator.AppendNext([]byte("b"), []byte("xyz"), tombstoneSet, nil)
+							memorySiblingSetIterator.AppendNext(nil, nil, nil, errors.New("Some error"))
+
+							Expect(err).Should(BeNil())
+
+							rr := httptest.NewRecorder()
+							router.ServeHTTP(rr, req)
+
+							var encodedDBError DBerror
+
+							Expect(json.Unmarshal(rr.Body.Bytes(), &encodedDBError)).Should(BeNil())
+							Expect(encodedDBError).Should(Equal(EStorage))
+						})
+					})
+				})
+			})
+		})
+	})
 })

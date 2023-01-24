@@ -1,6 +1,7 @@
 #!/bin/bash
-
+#
 # Copyright (c) 2019 ARM Limited.
+# Copyright (c) 2023 Izuma Networks
 #
 # SPDX-License-Identifier: MIT
 #
@@ -30,8 +31,8 @@ then
     exit 1
 fi
 
-DEVICE_ID_FILE=$1/device_id
-SITE_ID_FILE=$1/site_id
+DEVICE_ID_FILE="$1/device_id"
+SITE_ID_FILE="$1/site_id"
 
 if [ ! -f "$DEVICE_ID_FILE" ]; then
     echo "Device identity file at $DEVICE_ID_FILE does not exist"
@@ -45,12 +46,12 @@ if [ ! -f "$SITE_ID_FILE" ]; then
     exit 1
 fi
 
-DEVICE_ID=`cat $DEVICE_ID_FILE`
-SITE_ID=`cat $SITE_ID_FILE`
+DEVICE_ID=$(cat "$DEVICE_ID_FILE")
+SITE_ID=$(cat "$SITE_ID_FILE")
 
 echo "Create site $SITE_ID"
 
-until devicedb cluster add_site -host $CLOUD_HOST -site $SITE_ID
+until devicedb cluster add_site -host "$CLOUD_HOST" -site "$SITE_ID"
 do
     echo "Unable to create site $SITE_ID. Trying again in 5 seconds"
     sleep 5
@@ -58,7 +59,7 @@ done
 
 echo "Create device $DEVICE_ID"
 
-until devicedb cluster add_relay -host $CLOUD_HOST -relay $DEVICE_ID
+until devicedb cluster add_relay -host "$CLOUD_HOST" -relay "$DEVICE_ID"
 do
     echo "Unable to create device $DEVICE_ID. Trying again in 5 seconds"
     sleep 5
@@ -66,7 +67,7 @@ done
 
 echo "Move device $DEVICE_ID into site $SITE_ID"
 
-until devicedb cluster move_relay -host $CLOUD_HOST -relay $DEVICE_ID -site $SITE_ID
+until devicedb cluster move_relay -host "$CLOUD_HOST" -relay "$DEVICE_ID" -site "$SITE_ID"
 do
     echo "Unable to move device $DEVICE_ID into site $SITE_ID. Trying again in 5 seconds"
     sleep 5
